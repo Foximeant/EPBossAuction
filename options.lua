@@ -305,7 +305,7 @@ function auction:CreateOptionsPanel()
 
         -- Привязка тултипа
     local tooltipTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tooltipTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", -20, -30)
+    tooltipTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", 0, -30)
     tooltipTitle:SetText("Тултип:")
     tooltipTitle:SetFontObject(GameFontNormalLarge)
 
