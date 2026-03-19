@@ -161,7 +161,7 @@ function auction:CreateUI()
     self.itemDropdown = itemDrop
 
     -- EditBox (без изменений)
-    local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    local editBox = CreateFrame("EditBox", "EPBidEditBox", frame, "InputBoxTemplate")
     editBox:SetSize(100, 25)
     editBox:SetPoint("LEFT", itemDrop, "RIGHT", 10, 0)
     editBox:SetAutoFocus(false)
