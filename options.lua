@@ -269,6 +269,40 @@ function auction:CreateOptionsPanel()
         UIDropDownMenu_AddButton(info)
     end)
     
+    -- Высота строки
+    local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    rowHeightTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", -20, -30)
+    rowHeightTitle:SetText("Высота строки:")
+    rowHeightTitle:SetFontObject(GameFontNormalLarge)
+
+    local rowHeightText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    rowHeightText:SetPoint("TOPLEFT", rowHeightTitle, "BOTTOMLEFT", 0, -15)
+    rowHeightText:SetText("Высота (пикс):")
+    rowHeightText:SetWidth(100)
+
+    local rowHeightSlider = CreateFrame("Slider", "EPBARowHeightSlider", tableTab, "OptionsSliderTemplate")
+    rowHeightSlider:SetPoint("LEFT", rowHeightText, "RIGHT", 10, 0)
+    rowHeightSlider:SetSize(150, 15)
+    rowHeightSlider:SetMinMaxValues(20, 60)  -- от 20 до 60 пикселей
+    rowHeightSlider:SetValueStep(2)
+    rowHeightSlider:SetValue(self.db.table.rowHeight)
+
+    local sliderName = rowHeightSlider:GetName()
+    local lowText = _G[sliderName .. "Low"]
+    local highText = _G[sliderName .. "High"]
+    local valueText = _G[sliderName .. "Text"]
+    if lowText then lowText:SetText("20") end
+    if highText then highText:SetText("60") end
+    if valueText then valueText:SetText(self.db.table.rowHeight) end
+
+    rowHeightSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        local vt = _G[self:GetName() .. "Text"]
+        if vt then vt:SetText(value) end
+        auction.db.table.rowHeight = value
+        auction:ApplySettings()
+    end)
+    
     -- ----------------------------------------------
     -- Вкладка "Кнопка миникарты"
     -- ----------------------------------------------
