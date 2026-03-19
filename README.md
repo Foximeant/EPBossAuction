@@ -25,7 +25,7 @@
 
 ## Установка
 
-1. Скачайте последнюю версию из [релизов](https://github.com/yourname/EPBossAuction/releases).
+1. Скачайте последнюю версию из [релизов](https://github.com/Foximeant/EPBossAuction/releases).
 2. Распакуйте архив в папку `World of Warcraft\Interface\AddOns\`.
 3. Убедитесь, что папка называется `EPBossAuction`.
 4. Запустите игру и включите аддон в списке аддонов.
@@ -102,7 +102,7 @@
 ## Автор
 
 **Demissa** – разработка и поддержка.  
-По всем вопросам обращайтесь в [Issues](https://github.com/yourname/EPBossAuction/issues) на GitHub.
+По всем вопросам обращайтесь в [Issues](https://github.com/Foximeant/EPBossAuction/issues) на GitHub.
 
 ---
 
