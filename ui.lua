@@ -417,7 +417,7 @@ function auction:RefreshTable()
     local itemWidth = dbTable.itemWidth or 250
     local bidFontSize = dbTable.bidFontSize or 12
     local bidWidth = dbTable.bidWidth or 250
-    local rowHeight = dbTable.rowHeight or 40
+    local rowHeight = dbTable.rowHeight or 20
     local showIcons = dbTable.showIcons ~= false
     local showTopBids = dbTable.showTopBids or 2
     local evenColor = dbTable.evenRowColor or {1,1,1,0.03}
@@ -473,10 +473,11 @@ function auction:RefreshTable()
         end
         rowTable.bg = bg
 
-        if showIcons then
+         if showIcons then
             local icon = content:CreateTexture(nil, "ARTWORK")
-            icon:SetSize(20, 20)
-            icon:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -rowHeight*(i-1))
+            local iconSize = rowHeight - 2  -- иконка чуть меньше высоты строки для отступа
+            icon:SetSize(iconSize, iconSize)
+            icon:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -(rowHeight*(i-1) + 2)) -- центрируем по вертикали
             icon:SetTexture(GetItemIcon(itemID) or "Interface/Icons/INV_Misc_QuestionMark")
             rowTable.icon = icon
         end
