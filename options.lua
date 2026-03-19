@@ -239,39 +239,10 @@ function auction:CreateOptionsPanel()
         auction.db.table.showTopBids = value
         auction:ApplySettings()
     end)
-    
-    -- Цвет названий предметов
-    local colorTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -30)
-    colorTitle:SetText("Цвет названий:")
-    colorTitle:SetFontObject(GameFontNormalLarge)
 
-    local colorModeText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorModeText:SetPoint("TOPLEFT", colorTitle, "BOTTOMLEFT", 0, -15)
-    colorModeText:SetText("Режим цвета:")
-    colorModeText:SetWidth(80)
-
-    local colorModeDropdown = CreateFrame("Frame", "EPBAColorModeDropdown", tableTab, "UIDropDownMenuTemplate")
-    colorModeDropdown:SetPoint("LEFT", colorModeText, "RIGHT", 10, 0)
-    UIDropDownMenu_SetWidth(colorModeDropdown, 100)
-    local currentMode = self.db.table.itemColorMode or "gold"
-    UIDropDownMenu_SetText(colorModeDropdown, currentMode == "gold" and "Золотой" or "По редкости")
-    UIDropDownMenu_Initialize(colorModeDropdown, function()
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "Золотой"
-        info.func = function() auction.db.table.itemColorMode = "gold"; UIDropDownMenu_SetText(colorModeDropdown, "Золотой"); auction:ApplySettings() end
-        info.checked = auction.db.table.itemColorMode == "gold"
-        UIDropDownMenu_AddButton(info)
-        info = UIDropDownMenu_CreateInfo()
-        info.text = "По редкости"
-        info.func = function() auction.db.table.itemColorMode = "quality"; UIDropDownMenu_SetText(colorModeDropdown, "По редкости"); auction:ApplySettings() end
-        info.checked = auction.db.table.itemColorMode == "quality"
-        UIDropDownMenu_AddButton(info)
-    end)
-    
-    -- Высота строки
+     -- Высота строки
     local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", -20, -30)
+    rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", -20, -30)
     rowHeightTitle:SetText("Высота строки:")
     rowHeightTitle:SetFontObject(GameFontNormalLarge)
 
@@ -303,6 +274,79 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
     
+    -- Цвет названий предметов
+    local colorTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    colorTitle:SetPoint("TOPLEFT", rowHeightTitle, "BOTTOMLEFT", 0, -30)
+    colorTitle:SetText("Цвет названий:")
+    colorTitle:SetFontObject(GameFontNormalLarge)
+
+    local colorModeText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    colorModeText:SetPoint("TOPLEFT", colorTitle, "BOTTOMLEFT", 0, -15)
+    colorModeText:SetText("Режим цвета:")
+    colorModeText:SetWidth(80)
+
+    local colorModeDropdown = CreateFrame("Frame", "EPBAColorModeDropdown", tableTab, "UIDropDownMenuTemplate")
+    colorModeDropdown:SetPoint("LEFT", colorModeText, "RIGHT", 10, 0)
+    UIDropDownMenu_SetWidth(colorModeDropdown, 100)
+    local currentMode = self.db.table.itemColorMode or "gold"
+    UIDropDownMenu_SetText(colorModeDropdown, currentMode == "gold" and "Золотой" or "По редкости")
+    UIDropDownMenu_Initialize(colorModeDropdown, function()
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "Золотой"
+        info.func = function() auction.db.table.itemColorMode = "gold"; UIDropDownMenu_SetText(colorModeDropdown, "Золотой"); auction:ApplySettings() end
+        info.checked = auction.db.table.itemColorMode == "gold"
+        UIDropDownMenu_AddButton(info)
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "По редкости"
+        info.func = function() auction.db.table.itemColorMode = "quality"; UIDropDownMenu_SetText(colorModeDropdown, "По редкости"); auction:ApplySettings() end
+        info.checked = auction.db.table.itemColorMode == "quality"
+        UIDropDownMenu_AddButton(info)
+    end)
+
+        -- Привязка тултипа
+    local tooltipTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tooltipTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", -20, -30)
+    tooltipTitle:SetText("Тултип:")
+    tooltipTitle:SetFontObject(GameFontNormalLarge)
+
+    local tooltipAnchorText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tooltipAnchorText:SetPoint("TOPLEFT", tooltipTitle, "BOTTOMLEFT", 0, -15)
+    tooltipAnchorText:SetText("Привязка:")
+    tooltipAnchorText:SetWidth(80)
+
+    local tooltipAnchorDropdown = CreateFrame("Frame", "EPBATooltipAnchorDropdown", tableTab, "UIDropDownMenuTemplate")
+    tooltipAnchorDropdown:SetPoint("LEFT", tooltipAnchorText, "RIGHT", 10, 0)
+    UIDropDownMenu_SetWidth(tooltipAnchorDropdown, 120)
+
+    -- Функция для получения локализованного названия
+    local anchorNames = {
+        CURSOR = "У курсора",
+        RIGHT = "Справа",
+        LEFT = "Слева",
+        TOP = "Сверху",
+        BOTTOM = "Снизу",
+        TOPRIGHT = "Сверху справа",
+        TOPLEFT = "Сверху слева",
+        BOTTOMRIGHT = "Снизу справа",
+        BOTTOMLEFT = "Снизу слева",
+    }
+    local currentAnchor = self.db.table.tooltipAnchor or "CURSOR"
+    UIDropDownMenu_SetText(tooltipAnchorDropdown, anchorNames[currentAnchor] or "У курсора")
+
+    UIDropDownMenu_Initialize(tooltipAnchorDropdown, function()
+        for anchor, name in pairs(anchorNames) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = name
+            info.func = function()
+                auction.db.table.tooltipAnchor = anchor
+                UIDropDownMenu_SetText(tooltipAnchorDropdown, name)
+                auction:ApplySettings()
+            end
+            info.checked = (auction.db.table.tooltipAnchor == anchor)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+     
     -- ----------------------------------------------
     -- Вкладка "Кнопка миникарты"
     -- ----------------------------------------------
