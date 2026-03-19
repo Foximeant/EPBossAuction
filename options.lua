@@ -242,7 +242,7 @@ function auction:CreateOptionsPanel()
 
      -- Высота строки
     local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", -20, -30)
+    rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -30)
     rowHeightTitle:SetText("Высота строки:")
     rowHeightTitle:SetFontObject(GameFontNormalLarge)
 
@@ -276,7 +276,7 @@ function auction:CreateOptionsPanel()
     
     -- Цвет названий предметов
     local colorTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorTitle:SetPoint("TOPLEFT", rowHeightTitle, "BOTTOMLEFT", 0, -30)
+    colorTitle:SetPoint("TOPLEFT", rowHeightText, "BOTTOMLEFT", 0, -30)
     colorTitle:SetText("Цвет названий:")
     colorTitle:SetFontObject(GameFontNormalLarge)
 
