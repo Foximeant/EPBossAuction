@@ -115,6 +115,7 @@ auction.defaults = {
         selectedRowColor = {0.3, 0.6, 1, 0.3},
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
         itemColorMode = "gold", -- "gold" или "quality"
+        tooltipAnchor = "CURSOR", -- по умолчанию у курсора
     },
     minimap = {
         show = true,
