@@ -1,0 +1,14 @@
+## Interface: 30300
+## Title: EP Boss Auction
+## Author: Demissa
+## Version: 1.4
+## Notes: Таблица ставок ЕП
+## SavedVariables: EPBossAuctionSavedBids, EPBossAuctionSavedVersion, EPBossAuctionSavedTime, EPBossAuctionSavedLM, EPBossAuctionSavedSelectedBoss, EPBossAuctionSavedSelectedItem, EPBossAuctionSettings
+
+core.lua
+epgp.lua
+comm.lua
+minimap.lua
+ui.lua
+options.lua
+events.lua
