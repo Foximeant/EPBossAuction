@@ -101,7 +101,7 @@
 
 ## Автор
 
-**Demissa** – разработка и поддержка.  
+**Foximeant(Demissa Sirus x5)** – разработка и поддержка.  
 По всем вопросам обращайтесь в [Issues](https://github.com/Foximeant/EPBossAuction/issues) на GitHub.
 
 ---
