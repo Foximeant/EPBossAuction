@@ -86,6 +86,10 @@ auction.minimapButtonPosition = { angle = 0 }
 auction.bidsLocked = false
 
 -- ======================
+-- Таблица для отслеживания уже показанных уведомлений
+-- ======================
+auction.outbidNotified = {} 
+-- ======================
 -- Система настроек (базовые настройки, defaults)
 -- ======================
 auction.defaults = {
