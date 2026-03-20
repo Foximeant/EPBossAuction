@@ -210,7 +210,7 @@ function auction:CreateUI()
     endButton:SetText("Очистить таблицу")
     endButton:SetScript("OnClick", function()
         if not auction:IsLootMaster() then
-            print("|cff00ff00[EPBA]|r Только Loot Master может завершать аукцион!")
+            --print("|cff00ff00[EPBA]|r Только Loot Master может завершать аукцион!")
             return
         end
         auction:EndAuctionLocal()
@@ -227,16 +227,16 @@ function auction:CreateUI()
     chatButton:SetText("В чат")
     chatButton:SetScript("OnClick", function()
         if not auction:IsLootMaster() then
-            print("|cff00ff00[EPBA]|r Только Loot Master может отправлять в чат!")
+            --print("|cff00ff00[EPBA]|r Только Loot Master может отправлять в чат!")
             return
         end
         if not auction.selectedBoss then
-            print("|cff00ff00[EPBA]|r Сначала выберите босса!")
+            --print("|cff00ff00[EPBA]|r Сначала выберите босса!")
             return
         end
         local bossBids = auction.bids[auction.selectedBoss]
         if not bossBids then
-            print("|cff00ff00[EPBA]|r На этом боссе ставок пока нет.")
+            --print("|cff00ff00[EPBA]|r На этом боссе ставок пока нет.")
             return
         end
         SendChatMessage("Ставки на "..auction.selectedBoss..":", "RAID")
@@ -255,7 +255,7 @@ function auction:CreateUI()
                     sentCount = sentCount + 1
                 end
             end
-            print("|cff00ff00[EPBA]|r Отправлено "..sentCount.." предметов в рейд")
+            --print("|cff00ff00[EPBA]|r Отправлено "..sentCount.." предметов в рейд")
         end, 1)
     end)
     self.chatButton = chatButton
@@ -682,23 +682,23 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
     self:RefreshTable()
     self:SendSync(bossName, itemID)
     local coloredName = self:FormatColoredName(playerName)
-    print("|cff00ff00[EPBA]|r Ставка "..(existingBid and "изменена" or "принята").." от "..coloredName.."|r: "..amount)
+    --print("|cff00ff00[EPBA]|r Ставка "..(existingBid and "изменена" or "принята").." от "..coloredName.."|r: "..amount)
 end
 
 function auction:SendBidLocal()
     -- Проверка блокировки ставок
     if self.bidsLocked then
-        print("|cffff0000[EPBA]|r Приём ставок временно заблокирован лутером.")
+        --print("|cffff0000[EPBA]|r Приём ставок временно заблокирован лутером.")
         return
     end
 
     if not self.selectedBoss or not self.selectedItem then
-        print("|cff00ff00[EPBA]|r Выберите босса и предмет!")
+        --print("|cff00ff00[EPBA]|r Выберите босса и предмет!")
         return
     end
     local amount = tonumber(self.bidBox:GetText())
     if not amount or amount < 0 then
-        print("|cff00ff00[EPBA]|r Введите корректную ставку!")
+        --print("|cff00ff00[EPBA]|r Введите корректную ставку!")
         return
     end
     if amount ~= 0 and amount < self.db.general.minBid then
@@ -711,7 +711,7 @@ function auction:SendBidLocal()
             return
         end
         if amount > currentEP then
-            print("|cffff0000[EPBA]|r Ставка не может быть больше вашего ЕП ("..currentEP..")")
+            --print("|cffff0000[EPBA]|r Ставка не может быть больше вашего ЕП ("..currentEP..")")
             return
         end
         if self.db.general.confirmBid and amount > 0 then
@@ -743,7 +743,7 @@ function auction:SendBidAfterConfirm(amount, currentEP)
     else
         local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount
         SendAddonMessage(auction.prefix, msg, "RAID")
-        print("|cff00ff00[EPBA]|r Ставка отправлена лутеру: "..amount)
+        --print("|cff00ff00[EPBA]|r Ставка отправлена лутеру: "..amount)
     end
     auction.bidBox:SetText("")
 end
@@ -754,7 +754,7 @@ function auction:EndAuctionLocal()
     self.dataVersions[self.selectedBoss] = (self.dataVersions[self.selectedBoss] or 0) + 1
     self:RefreshTable()
     self:SaveData()
-    print("|cff00ff00[EPBA]|r Аукцион для "..self.selectedBoss.." завершён!")
+    --print("|cff00ff00[EPBA]|r Аукцион для "..self.selectedBoss.." завершён!")
 end
 
 -- ======================
