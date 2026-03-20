@@ -356,7 +356,6 @@ function auction:HandleMessage(msg, sender)
         --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Аукцион для "..bossName.." завершён (Loot Master).")
     elseif cmd == "LOCK" then
         self:Debug("LOCK получен, rest='"..tostring(rest).."'")
-        -- Очищаем строку от возможных пробелов
         local cleanRest = rest:gsub("%s+", "")
         local state = (cleanRest == "true")
         self:Debug("state="..tostring(state))
@@ -433,8 +432,10 @@ function auction:HandleBidMessage(rest, sender)
     end
     self:RefreshTable()
     self:SendSync(bossName, itemID)
+    self:CheckIfOutbid(bossName, itemID)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName, "RAID")
     self:Debug("Ставка обработана, отправлен SYNC")
+end
 
 -- ======================
 -- Проверка, перебита ли ставка текущего игрока
@@ -475,7 +476,7 @@ function auction:CheckIfOutbid(bossName, itemID)
             local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
 
             -- Попробуем отправить через DBM (если он есть), иначе через стандартное рейд-уведомление
-            if DBM and DBM:AddAnnounce then
+            if DBM and DBM.AddAnnounce then
                 DBM:AddAnnounce(message, 2, 3)   -- 2 = звук, 3 = цвет
             elseif RaidWarningFrame then
                 RaidWarningFrame:AddMessage(message, 1.0, 0.5, 0.0)
@@ -487,5 +488,4 @@ function auction:CheckIfOutbid(bossName, itemID)
         -- Ставка снова лидирует – сбрасываем флаг
         self.outbidNotified[key] = nil
     end
-end
 end
