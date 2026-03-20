@@ -5,7 +5,7 @@ function auction:UpdateMyEP()
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
     if not epgpTable then
         self:Debug("EPGP аддон не найден!")
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r EPGP аддон не найден!")
+        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r EPGP аддон не найден!")
         if self.frame and self.frame:IsShown() then
             self.myEPText:SetText("Ваш ЕП: EPGP не найден")
         end
@@ -142,7 +142,7 @@ end
 function auction:CheckCurrentBidAgainstEP()
     local currentBid = tonumber(self.bidBox:GetText()) or 0
     if currentBid > 0 and currentBid > self.myEP then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Внимание: ваша текущая ставка ("..currentBid..") превышает ваш EP ("..self.myEP..")!")
+        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Внимание: ваша текущая ставка ("..currentBid..") превышает ваш EP ("..self.myEP..")!")
     end
 end
 
