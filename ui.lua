@@ -31,6 +31,8 @@ function auction:CreateUI()
         end
     end)
     frame:Hide()
+    frame:SetFrameStrata("DIALOG")
+    frame:SetFrameLevel(100)
     tinsert(UISpecialFrames, "EPBossAuctionFrame")
     self.frame = frame
 
