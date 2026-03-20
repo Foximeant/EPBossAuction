@@ -658,6 +658,9 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
         end
         self:RefreshTable()
         self:SendSync(bossName, itemID)
+        if not self:IsLootMaster() then   -- если это не лутер (не нужно самому себе)
+            self:CheckIfOutbid(bossName, itemID)
+        end
         local coloredName = self:FormatColoredName(playerName)
         print("|cff00ff00[EPBA]|r "..coloredName.."|r отказался от ставки.")
         return
