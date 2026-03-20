@@ -541,7 +541,7 @@ function auction:RefreshTable()
         bidsStr:SetText(topText)
         rowTable.bidsStr = bidsStr
 
-        -- Кликабельный фрейм
+                -- Кликабельный фрейм
         local clickFrame = CreateFrame("Button", nil, content)
         clickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
         clickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
@@ -550,22 +550,41 @@ function auction:RefreshTable()
         local currentItemID = itemID
         local currentRow = i
         local currentBg = bg
-        clickFrame:SetScript("OnClick", function()
+
+        clickFrame:SetScript("OnClick", function(_, button)
+            -- Если зажат Shift, линкуем предмет в чат
+            if IsShiftKeyDown() then
+                local itemLink = GetItemInfo(currentItemID)
+                if itemLink then
+                    ChatEdit_InsertLink(itemLink)
+                else
+                    print("|cffff0000[EPBA]|r Не удалось получить ссылку на предмет.")
+                end
+                return
+            end
+            -- Обычный клик – выбор предмета для ставки
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
             UIDropDownMenu_SetText(auction.itemDropdown, itemName)
             auction:HighlightSelectedRow(currentItemID)
             auction.bidBox:SetFocus()
         end)
+
         clickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
             GameTooltip:SetOwner(clickFrame, anchor)
-            GameTooltip:SetHyperlink("item:"..currentItemID)
+            -- Если зажат Shift, показываем сравнение с экипированным
+            if IsShiftKeyDown() then
+                GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
+            else
+                GameTooltip:SetHyperlink("item:"..currentItemID)
+            end
             GameTooltip:Show()
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
         end)
+
         clickFrame:SetScript("OnLeave", function()
             GameTooltip:Hide()
             if currentItemID == auction.selectedItem then
@@ -578,6 +597,7 @@ function auction:RefreshTable()
                 end
             end
         end)
+
         rowTable.clickFrame = clickFrame
         table.insert(self.rowFrames, rowTable)
     end
