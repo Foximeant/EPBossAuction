@@ -441,13 +441,12 @@ end
 -- Проверка, перебита ли ставка текущего игрока
 -- ======================
 function auction:CheckIfOutbid(bossName, itemID)
-    if self:IsLootMaster() then return end   -- лутеру не нужны уведомления
+    if self:IsLootMaster() then return end
 
     local playerName = UnitName("player")
     local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
     if not bidsForItem then return end
 
-    -- Находим ставку текущего игрока
     local myBid
     for _, bid in ipairs(bidsForItem) do
         if bid.player == playerName then
@@ -455,9 +454,8 @@ function auction:CheckIfOutbid(bossName, itemID)
             break
         end
     end
-    if not myBid then return end   -- у игрока нет ставки на этот предмет
+    if not myBid then return end
 
-    -- Находим максимальную ставку и её владельца
     local maxBid = 0
     local topPlayer
     for _, bid in ipairs(bidsForItem) do
@@ -469,23 +467,15 @@ function auction:CheckIfOutbid(bossName, itemID)
 
     local key = bossName .. ":" .. itemID
     if myBid < maxBid then
-        -- Ставка перебита
         if not self.outbidNotified[key] then
             self.outbidNotified[key] = true
             local itemName = GetItemInfo(itemID) or ("предмет "..itemID)
             local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
 
-            -- Попробуем отправить через DBM (если он есть), иначе через стандартное рейд-уведомление
-            if DBM and DBM.AddAnnounce then
-                DBM:AddAnnounce(message, 2, 3)   -- 2 = звук, 3 = цвет
-            elseif RaidWarningFrame then
-                RaidWarningFrame:AddMessage(message, 1.0, 0.5, 0.0)
-            else
-                UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
-            end
+            UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
+            PlaySoundFile("Sound\\Interface\\RaidWarning.wav")
         end
     else
-        -- Ставка снова лидирует – сбрасываем флаг
         self.outbidNotified[key] = nil
     end
 end
