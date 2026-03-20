@@ -233,6 +233,7 @@ function auction:HandleMessage(msg, sender)
             if self.selectedBoss == bossName then
                 self:RefreshTable()
             end
+            self:CheckIfOutbid(bossName, itemID)
             self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#(self.bids[bossName][itemID] or {}))
         else
             self:Debug("Игнорируем SYNC с версией "..version.." <= "..lastVersion)
@@ -404,6 +405,7 @@ function auction:HandleBidMessage(rest, sender)
         end
         self:RefreshTable()
         self:SendSync(bossName, itemID)
+        self:CheckIfOutbid(bossName, itemID)
         self:Debug("Отказ от ставки обработан")
         return
     end
@@ -433,4 +435,57 @@ function auction:HandleBidMessage(rest, sender)
     self:SendSync(bossName, itemID)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName, "RAID")
     self:Debug("Ставка обработана, отправлен SYNC")
+
+-- ======================
+-- Проверка, перебита ли ставка текущего игрока
+-- ======================
+function auction:CheckIfOutbid(bossName, itemID)
+    if self:IsLootMaster() then return end   -- лутеру не нужны уведомления
+
+    local playerName = UnitName("player")
+    local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
+    if not bidsForItem then return end
+
+    -- Находим ставку текущего игрока
+    local myBid
+    for _, bid in ipairs(bidsForItem) do
+        if bid.player == playerName then
+            myBid = bid.amount
+            break
+        end
+    end
+    if not myBid then return end   -- у игрока нет ставки на этот предмет
+
+    -- Находим максимальную ставку и её владельца
+    local maxBid = 0
+    local topPlayer
+    for _, bid in ipairs(bidsForItem) do
+        if bid.amount > maxBid then
+            maxBid = bid.amount
+            topPlayer = bid.player
+        end
+    end
+
+    local key = bossName .. ":" .. itemID
+    if myBid < maxBid then
+        -- Ставка перебита
+        if not self.outbidNotified[key] then
+            self.outbidNotified[key] = true
+            local itemName = GetItemInfo(itemID) or ("предмет "..itemID)
+            local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
+
+            -- Попробуем отправить через DBM (если он есть), иначе через стандартное рейд-уведомление
+            if DBM and DBM:AddAnnounce then
+                DBM:AddAnnounce(message, 2, 3)   -- 2 = звук, 3 = цвет
+            elseif RaidWarningFrame then
+                RaidWarningFrame:AddMessage(message, 1.0, 0.5, 0.0)
+            else
+                UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
+            end
+        end
+    else
+        -- Ставка снова лидирует – сбрасываем флаг
+        self.outbidNotified[key] = nil
+    end
+end
 end
