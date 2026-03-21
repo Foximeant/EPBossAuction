@@ -340,7 +340,7 @@ function auction:HandleMessage(msg, sender)
         local amount, playerName = rest:match("([^;]+);([^;]+)")
         if not amount then amount = rest; playerName = "неизвестный" end
         --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
-        auction.bidBox:SetText("")
+        --auction.bidBox:SetText("")
     elseif cmd == "SYNC_COMPLETE" then
         self.receivedSync = true
         --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Синхронизация завершена")
