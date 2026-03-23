@@ -86,9 +86,20 @@ auction.minimapButtonPosition = { angle = 0 }
 auction.bidsLocked = false
 
 -- ======================
+-- Лог ставок (хранит историю)
+-- ======================
+auction.bidLog = {}  -- массив записей { time, player, amount, itemID, boss }
+
+-- ======================
 -- Таблица для отслеживания уже показанных уведомлений
 -- ======================
 auction.outbidNotified = {} 
+
+-- ======================
+-- Кэш EP игроков (для тултипа)
+-- ======================
+auction.playerEPCache = {}
+
 -- ======================
 -- Система настроек (базовые настройки, defaults)
 -- ======================
@@ -217,6 +228,114 @@ function auction:TableToString(t)
 end
 
 -- ======================
+-- Функции для работы с EP игроков (для тултипа)
+-- ======================
+function auction:GetPlayerEP(playerName)
+    if not playerName then return 0 end
+    
+    -- Проверяем кэш
+    if self.playerEPCache[playerName] then
+        return self.playerEPCache[playerName]
+    end
+    
+    local ep = 0
+    local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
+    
+    if epgpTable and epgpTable.GetEPGP then
+        local epVal, gp, main = epgpTable:GetEPGP(playerName)
+        if epVal then
+            if main then
+                local mainEP, _, _ = epgpTable:GetEPGP(main)
+                if mainEP then
+                    ep = tonumber(mainEP) or 0
+                else
+                    ep = tonumber(epVal) or 0
+                end
+            else
+                ep = tonumber(epVal) or 0
+            end
+        end
+    elseif epgpTable and epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
+        local playerData = epgpTable.db.profile.players[playerName]
+        if playerData then
+            if playerData.main then
+                local mainData = epgpTable.db.profile.players[playerData.main]
+                if mainData and mainData.EP then
+                    ep = tonumber(mainData.EP) or 0
+                else
+                    ep = tonumber(playerData.EP) or 0
+                end
+            else
+                ep = tonumber(playerData.EP) or 0
+            end
+        end
+    end
+    
+    self.playerEPCache[playerName] = ep
+    return ep
+end
+
+-- Сброс кэша EP (вызывать при обновлении EP)
+function auction:ClearPlayerEPCache()
+    self.playerEPCache = {}
+end
+
+-- ======================
+-- Функции для работы с логом ставок
+-- ======================
+function auction:AddBidLogEntry(playerName, amount, itemID, bossName)
+    if not playerName or not amount or not itemID or not bossName then return end
+    
+    -- Защита от дублирования (проверяем последнюю запись)
+    local lastEntry = self.bidLog[#self.bidLog]
+    if lastEntry and lastEntry.player == playerName and lastEntry.amount == amount and lastEntry.itemID == itemID and lastEntry.boss == bossName then
+        return
+    end
+    
+    local entry = {
+        time = date("%Y-%m-%d %H:%M:%S"),
+        player = playerName,
+        amount = amount,
+        itemID = itemID,
+        boss = bossName,
+    }
+    table.insert(self.bidLog, entry)
+    
+    -- Ограничиваем размер лога
+    if #self.bidLog > 500 then
+        table.remove(self.bidLog, 1)
+    end
+    
+    self:SaveBidLog()
+    
+    -- Обновляем окно журнала, если оно открыто
+    if self.journalFrame and self.journalFrame:IsShown() then
+        self:RefreshJournal()
+    end
+end
+
+function auction:SaveBidLog()
+    EPBossAuctionBidLog = self.bidLog
+end
+
+function auction:LoadBidLog()
+    if EPBossAuctionBidLog then
+        self.bidLog = EPBossAuctionBidLog
+    else
+        self.bidLog = {}
+    end
+end
+
+function auction:ClearBidLog()
+    self.bidLog = {}
+    self:SaveBidLog()
+    if self.journalFrame and self.journalFrame:IsShown() then
+        self:RefreshJournal()
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
+end
+
+-- ======================
 -- Загрузка/сохранение настроек
 -- ======================
 function auction:LoadSettings()
@@ -228,11 +347,13 @@ function auction:LoadSettings()
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
+    self:LoadBidLog()
     self:Debug("Настройки загружены")
 end
 
 function auction:SaveSettings()
     EPBossAuctionSettings = self.db
+    self:SaveBidLog()
     self:Debug("Настройки сохранены")
 end
 

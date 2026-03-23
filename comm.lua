@@ -23,7 +23,6 @@ function auction:HandleWorldEnter()
             end
             self:Debug("Ставок в памяти: "..bidCount)
             if bidCount > 0 then
-                --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Вы лутер. Восстановлено "..bidCount.." ставок")
                 if self.selectedBoss then
                     self:Debug("Восстанавливаем выбранного босса: "..self.selectedBoss)
                     if self.bossDropdown then
@@ -33,11 +32,9 @@ function auction:HandleWorldEnter()
                 end
                 self:ScheduleTimer(function()
                     self:SyncAllToRaid()
-                    --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные разосланы в рейд")
                 end, 3)
             else
                 self:Debug("НЕТ СТАВОК, просто сообщаем что мы лутер")
-                --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Вы лутер. Нет сохраненных ставок")
                 SendAddonMessage(self.prefix, "LM", "RAID")
             end
         else
@@ -71,7 +68,6 @@ function auction:SyncAllToRaid()
         return
     end
     self:Debug("Начинаем синхронизацию "..totalItems.." предметов с рейдом")
-    --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Синхронизация "..totalItems.." предметов с рейдом...")
     local delay = 0
     for bossName, bossBids in pairs(self.bids) do
         for itemID, bidsForItem in pairs(bossBids) do
@@ -88,7 +84,6 @@ function auction:SyncAllToRaid()
         self:Debug("Запланирована отправка "..syncCount.." предметов")
         self:ScheduleTimer(function()
             SendAddonMessage(self.prefix, "SYNC_COMPLETE", "RAID")
-            --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Синхронизация завершена")
         end, delay + 1)
     end
 end
@@ -158,10 +153,8 @@ function auction:RequestDataFromLM()
         bossParam = ";"..self.selectedBoss
     end
     SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
-    --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Запрос данных у лутера...")
     self:ScheduleTimer(function()
         if not self.receivedSync and not self.receivedAck then
-            --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Нет ответа от лутера. Возможно, лутер не в рейде или нет новых ставок?")
         else
             self:Debug("Данные успешно получены")
         end
@@ -223,10 +216,15 @@ function auction:HandleMessage(msg, sender)
                 for bidStr in bidsPart:gmatch("([^,]+)") do
                     local player, amount = bidStr:match("([^:]+):([^:]+)")
                     if player and amount then
+                        amount = tonumber(amount)
                         table.insert(self.bids[bossName][itemID], {
                             player = player,
-                            amount = tonumber(amount)
+                            amount = amount
                         })
+                        -- Добавляем в лог чужие ставки
+                        if player ~= UnitName("player") then
+                            self:AddBidLogEntry(player, amount, itemID, bossName)
+                        end
                     end
                 end
             end
@@ -242,7 +240,6 @@ function auction:HandleMessage(msg, sender)
         if rest == "_ACK" then
             self:Debug("Получено HELLO_ACK, обрабатываем как подтверждение")
             self.receivedAck = true
-            --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные синхронизированы с лутером")
             return
         end
         local requestedBoss = rest
@@ -270,12 +267,10 @@ function auction:HandleMessage(msg, sender)
                 end
             end
         end
-        -- Отправляем состояние блокировки
         SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
         SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
     elseif cmd == "HELLO_ACK" then
         self.receivedAck = true
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные синхронизированы с лутером")
         self:Debug("Получено подтверждение HELLO_ACK от "..sender)
     elseif cmd == "LM" then
         self:Debug("Получено LM от "..sender)
@@ -294,7 +289,6 @@ function auction:HandleMessage(msg, sender)
         end
     elseif cmd == "LM_RESPONSE" then
         local lmName = rest
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Лутер в рейде: "..lmName)
         self:Debug("Лутер найден: "..lmName)
     elseif cmd == "CHECK_VERSION" or cmd == "CHECK" then
         self:Debug("Получен CHECK_VERSION от "..sender)
@@ -331,19 +325,20 @@ function auction:HandleMessage(msg, sender)
                 bossParam = ";"..self.selectedBoss
             end
             SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
-            --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Обновление данных...")
         end
     elseif cmd == "TOOLOW" then
         local amount, maxBid = rest:match("([^;]+);([^;]+)")
-        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ваша ставка "..amount.." меньше текущей максимальной ("..maxBid..")")
     elseif cmd == "BIDOK" then
-        local amount, playerName = rest:match("([^;]+);([^;]+)")
-        if not amount then amount = rest; playerName = "неизвестный" end
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
-        --auction.bidBox:SetText("")
+        local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
+        if not amount then amount = rest end
+        if bossName and itemID then
+            -- Добавляем запись в лог для всех, кто получает BIDOK
+            auction:AddBidLogEntry(playerName, tonumber(amount), tonumber(itemID), bossName)
+        end
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
+        auction.bidBox:SetText("")
     elseif cmd == "SYNC_COMPLETE" then
         self.receivedSync = true
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Синхронизация завершена")
         self:Debug("Синхронизация завершена")
     elseif cmd == "END" then
         local bossName = rest
@@ -353,7 +348,6 @@ function auction:HandleMessage(msg, sender)
             self:RefreshTable()
         end
         self:SaveData()
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Аукцион для "..bossName.." завершён (Loot Master).")
     elseif cmd == "LOCK" then
         self:Debug("LOCK получен, rest='"..tostring(rest).."'")
         local cleanRest = rest:gsub("%s+", "")
@@ -364,9 +358,7 @@ function auction:HandleMessage(msg, sender)
             return
         end
         self:SetBidsLocked(state)
-        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Лутер " .. (state and "заблокировал" or "разблокировал") .. " приём ставок.")
     elseif cmd == "LOCKED" then
-        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставка отклонена: лутер заблокировал приём ставок.")
     else
         self:Debug("Неизвестная команда: "..cmd)
     end
@@ -405,6 +397,8 @@ function auction:HandleBidMessage(rest, sender)
         self:RefreshTable()
         self:SendSync(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
+        -- Добавляем запись в лог об отказе
+        self:AddBidLogEntry(playerName, 0, itemID, bossName)
         self:Debug("Отказ от ставки обработан")
         return
     end
@@ -433,7 +427,10 @@ function auction:HandleBidMessage(rest, sender)
     self:RefreshTable()
     self:SendSync(bossName, itemID)
     self:CheckIfOutbid(bossName, itemID)
-    SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName, "RAID")
+    -- Добавляем запись в лог
+    self:AddBidLogEntry(playerName, amount, itemID, bossName)
+    -- Отправляем BIDOK с полной информацией
+    SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "RAID")
     self:Debug("Ставка обработана, отправлен SYNC")
 end
 

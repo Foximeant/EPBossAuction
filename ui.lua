@@ -101,15 +101,14 @@ function auction:CreateUI()
     lockCheckbox.text:SetText("Блокировка ставок")
     lockCheckbox:SetChecked(self.bidsLocked or false)
 
-        if not self:IsLootMaster() then
+    if not self:IsLootMaster() then
         lockCheckbox:Disable()
         lockCheckbox:SetAlpha(0.5)
     else
         lockCheckbox:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()  -- 1 или nil
-            local state = (checked == 1)       -- преобразуем в true/false
+            local checked = self:GetChecked()
+            local state = (checked == 1)
             auction:SetBidsLocked(state)
-            -- Отправляем строку "true" или "false"
             SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
         end)
     end
@@ -162,7 +161,7 @@ function auction:CreateUI()
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
     self.itemDropdown = itemDrop
 
-    -- EditBox (без изменений)
+    -- EditBox
     local editBox = CreateFrame("EditBox", "EPBidEditBox", frame, "InputBoxTemplate")
     editBox:SetSize(100, 25)
     editBox:SetPoint("LEFT", itemDrop, "RIGHT", 10, 0)
@@ -212,7 +211,6 @@ function auction:CreateUI()
     endButton:SetText("Очистить таблицу")
     endButton:SetScript("OnClick", function()
         if not auction:IsLootMaster() then
-            --print("|cff00ff00[EPBA]|r Только Loot Master может завершать аукцион!")
             return
         end
         auction:EndAuctionLocal()
@@ -222,45 +220,15 @@ function auction:CreateUI()
     end)
     self.endButton = endButton
 
-    -- Кнопка в чат
-    local chatButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    chatButton:SetSize(70, 25)
-    chatButton:SetPoint("LEFT", endButton, "RIGHT", 10, 0)
-    chatButton:SetText("В чат")
-    chatButton:SetScript("OnClick", function()
-        if not auction:IsLootMaster() then
-            --print("|cff00ff00[EPBA]|r Только Loot Master может отправлять в чат!")
-            return
-        end
-        if not auction.selectedBoss then
-            --print("|cff00ff00[EPBA]|r Сначала выберите босса!")
-            return
-        end
-        local bossBids = auction.bids[auction.selectedBoss]
-        if not bossBids then
-            --print("|cff00ff00[EPBA]|r На этом боссе ставок пока нет.")
-            return
-        end
-        SendChatMessage("Ставки на "..auction.selectedBoss..":", "RAID")
-        auction:ScheduleTimer(function()
-            local sentCount = 0
-            for itemID, bidsForItem in pairs(bossBids) do
-                if type(bidsForItem) == "table" and #bidsForItem > 0 then
-                    local itemName = GetItemInfo(itemID) or ("предмет "..itemID)
-                    table.sort(bidsForItem, function(a,b) return a.amount>b.amount end)
-                    local bidsText = {}
-                    for _, bid in ipairs(bidsForItem) do
-                        table.insert(bidsText, bid.player .. " - " .. auction:FormatNumber(bid.amount))
-                    end
-                    local message = itemName..": "..table.concat(bidsText, ", ")
-                    SendChatMessage(message, "RAID")
-                    sentCount = sentCount + 1
-                end
-            end
-            --print("|cff00ff00[EPBA]|r Отправлено "..sentCount.." предметов в рейд")
-        end, 1)
+    -- Кнопка журнала
+    local journalButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    journalButton:SetSize(70, 25)
+    journalButton:SetPoint("LEFT", endButton, "RIGHT", 10, 0)
+    journalButton:SetText("Журнал")
+    journalButton:SetScript("OnClick", function()
+        auction:ToggleJournal()
     end)
-    self.chatButton = chatButton
+    self.journalButton = journalButton
 
     -- Кнопка "Запросить данные"
     local requestButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -272,7 +240,7 @@ function auction:CreateUI()
         auction:RequestDataFromLM()
     end)
 
-    -- Устанавливаем начальное состояние кнопок (доступны только лутеру)
+    -- Устанавливаем начальное состояние кнопок
     self:UpdateLMButtonsState()
 
     -- Slash команды
@@ -325,10 +293,13 @@ function auction:CreateUI()
 
     frame:SetScript("OnShow", function()
         auction:ForceClickable()
-        auction:UpdateLMButtonsState()  -- обновляем состояние при открытии
+        auction:UpdateLMButtonsState()
     end)
 
     auction:ApplyElvUISkin()
+    
+    -- Создаём окно журнала
+    auction:CreateJournalFrame()
 end
 
 -- ======================
@@ -339,7 +310,6 @@ function auction:SetBidsLocked(state)
     if self.lockCheckbox then
         self.lockCheckbox:SetChecked(state)
     end
-    -- Блокируем кнопку ставки для всех при включённой блокировке
     if self.bidButton then
         if state then
             self.bidButton:Disable()
@@ -372,7 +342,6 @@ function auction:UpdateLockCheckbox()
         self.lockCheckbox:SetAlpha(0.5)
         self.lockCheckbox:SetScript("OnClick", nil)
     end
-    -- обновление кнопки ставки остаётся без изменений
     if self.bidButton then
         if self.bidsLocked then
             self.bidButton:Disable()
@@ -388,23 +357,20 @@ end
 -- Обновление состояния кнопок для лутера
 -- ======================
 function auction:UpdateLMButtonsState()
-    if not self.endButton or not self.chatButton then return end
+    if not self.endButton or not self.journalButton then return end
     local isLM = self:IsLootMaster()
     self.endButton:SetEnabled(isLM)
-    self.chatButton:SetEnabled(isLM)
-    
-    -- Визуально затемняем кнопки, если они отключены
     if isLM then
         self.endButton:SetAlpha(1.0)
-        self.chatButton:SetAlpha(1.0)
+        self.journalButton:SetAlpha(1.0)
     else
         self.endButton:SetAlpha(0.5)
-        self.chatButton:SetAlpha(0.5)
+        self.journalButton:SetAlpha(1.0)
     end
 end
 
 -- ======================
--- Обновление таблицы (с защитой от nil)
+-- Обновление таблицы (с разделением на две кликабельные зоны)
 -- ======================
 function auction:RefreshTable()
     if not self.selectedBoss then return end
@@ -450,7 +416,8 @@ function auction:RefreshTable()
             if t.icon then t.icon:Hide() end
             if t.row then t.row:Hide() end
             if t.bidsStr then t.bidsStr:Hide() end
-            if t.clickFrame then t.clickFrame:Hide() end
+            if t.leftClickFrame then t.leftClickFrame:Hide() end
+            if t.rightClickFrame then t.rightClickFrame:Hide() end
         end
     end
 
@@ -475,11 +442,11 @@ function auction:RefreshTable()
         end
         rowTable.bg = bg
 
-         if showIcons then
+        if showIcons then
             local icon = content:CreateTexture(nil, "ARTWORK")
-            local iconSize = rowHeight - 2  -- иконка чуть меньше высоты строки для отступа
+            local iconSize = rowHeight - 2
             icon:SetSize(iconSize, iconSize)
-            icon:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -(rowHeight*(i-1) + 2)) -- центрируем по вертикали
+            icon:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -(rowHeight*(i-1) + 2))
             icon:SetTexture(GetItemIcon(itemID) or "Interface/Icons/INV_Misc_QuestionMark")
             rowTable.icon = icon
         end
@@ -499,24 +466,21 @@ function auction:RefreshTable()
         local itemName = GetItemInfo(itemID) or ("item:"..itemID)
         row:SetText(itemName)
 
-        -- Установка цвета в зависимости от настройки
         local colorMode = self.db.table.itemColorMode or "gold"
         if colorMode == "gold" then
-            row:SetTextColor(1, 0.8, 0)  -- золотой
+            row:SetTextColor(1, 0.8, 0)
         else
-            -- Цвет редкости предмета
             local _, _, quality = GetItemInfo(itemID)
             if quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
                 local c = ITEM_QUALITY_COLORS[quality]
                 row:SetTextColor(c.r, c.g, c.b)
             else
-                row:SetTextColor(1, 1, 1)  -- белый, если не удалось определить
+                row:SetTextColor(1, 1, 1)
             end
         end
-
         rowTable.row = row
 
-        -- Ставки
+        -- Текст ставок
         local bidsStr = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         bidsStr:SetPoint("LEFT", row, "LEFT", itemWidth + 10, 0)
         bidsStr:SetWidth(bidWidth)
@@ -524,8 +488,10 @@ function auction:RefreshTable()
         bidsStr:SetWordWrap(true)
         bidsStr:SetFont(GameFontNormal:GetFont(), bidFontSize)
         bidsStr:SetHeight(rowHeight)
+        
         local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
         table.sort(bidsForItem, function(a,b) return a.amount>b.amount end)
+        
         local topText = ""
         for j = 1, showTopBids do
             if bidsForItem[j] then
@@ -543,51 +509,52 @@ function auction:RefreshTable()
         bidsStr:SetText(topText)
         rowTable.bidsStr = bidsStr
 
-                -- Кликабельный фрейм
-        local clickFrame = CreateFrame("Button", nil, content)
-        clickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
-        clickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
-        clickFrame:EnableMouse(true)
-        clickFrame:SetFrameLevel(content:GetFrameLevel() + 20)
+        -- ======================
+        -- Левая часть (название предмета) – от левого края до правого края колонки предмета
+        -- ======================
+        local leftClickFrame = CreateFrame("Button", nil, content)
+        leftClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+        leftClickFrame:SetPoint("BOTTOMRIGHT", bg, "TOPLEFT", itemWidth + 10, -rowHeight)
+        leftClickFrame:EnableMouse(true)
+        
+        -- Правая часть (ставки) – от правого края колонки предмета до правого края строки
+        local rightClickFrame = CreateFrame("Button", nil, content)
+        rightClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", itemWidth + 10, 0)
+        rightClickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+        rightClickFrame:EnableMouse(true)
+        
         local currentItemID = itemID
         local currentRow = i
         local currentBg = bg
 
-        clickFrame:SetScript("OnClick", function(_, button)
-            -- Если зажат Shift, линкуем предмет в чат
-            if IsShiftKeyDown() then
-                local itemLink = GetItemInfo(currentItemID)
-                if itemLink then
-                    ChatEdit_InsertLink(itemLink)
-                else
-                    print("|cffff0000[EPBA]|r Не удалось получить ссылку на предмет.")
-                end
-                return
-            end
-            -- Обычный клик – выбор предмета для ставки
+        
+        -- ======================
+        -- Левая часть: информация о предмете
+        -- ======================
+        leftClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
             UIDropDownMenu_SetText(auction.itemDropdown, itemName)
             auction:HighlightSelectedRow(currentItemID)
             auction.bidBox:SetFocus()
         end)
-
-        clickFrame:SetScript("OnEnter", function()
+        
+        leftClickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
-            GameTooltip:SetOwner(clickFrame, anchor)
-            -- Если зажат Shift, показываем сравнение с экипированным
+            GameTooltip:SetOwner(leftClickFrame, anchor)
             if IsShiftKeyDown() then
                 GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
             else
                 GameTooltip:SetHyperlink("item:"..currentItemID)
             end
             GameTooltip:Show()
+            
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
         end)
-
-        clickFrame:SetScript("OnLeave", function()
+        
+        leftClickFrame:SetScript("OnLeave", function()
             GameTooltip:Hide()
             if currentItemID == auction.selectedItem then
                 currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
@@ -599,8 +566,64 @@ function auction:RefreshTable()
                 end
             end
         end)
-
-        rowTable.clickFrame = clickFrame
+        
+        -- ======================
+        -- Правая часть: информация о ставках
+        -- ======================
+        rightClickFrame:SetScript("OnClick", function()
+            auction.selectedItem = currentItemID
+            local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
+            UIDropDownMenu_SetText(auction.itemDropdown, itemName)
+            auction:HighlightSelectedRow(currentItemID)
+            auction.bidBox:SetFocus()
+        end)
+        
+        rightClickFrame:SetScript("OnEnter", function()
+            local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
+            GameTooltip:SetOwner(rightClickFrame, anchor)
+            
+            local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][currentItemID] or {}
+            table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
+            
+            if #bidsForItem > 0 then
+                GameTooltip:AddLine("Ставки на предмет", 1, 0.8, 0)
+                GameTooltip:AddLine(" ")
+                
+                for _, bid in ipairs(bidsForItem) do
+                    local coloredName = self:FormatColoredName(bid.player)
+                    local ep = self:GetPlayerEP(bid.player)
+                    local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
+                    
+                    GameTooltip:AddLine(string.format("%s|r - %s EP", coloredName, self:FormatNumber(bid.amount)), 1, 1, 1)
+                    GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
+                    GameTooltip:AddLine(" ")
+                end
+            else
+                GameTooltip:SetText("Нет ставок на этот предмет")
+            end
+            
+            GameTooltip:Show()
+            
+            if currentItemID ~= auction.selectedItem then
+                currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
+            end
+        end)
+        
+        rightClickFrame:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+            if currentItemID == auction.selectedItem then
+                currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
+            else
+                if currentRow % 2 == 0 then
+                    currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+                else
+                    currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
+                end
+            end
+        end)
+        
+        rowTable.leftClickFrame = leftClickFrame
+        rowTable.rightClickFrame = rightClickFrame
         table.insert(self.rowFrames, rowTable)
     end
     self:ForceClickable()
@@ -635,10 +658,15 @@ end
 function auction:ForceClickable()
     if not self.rowFrames then return end
     for _, rowTable in ipairs(self.rowFrames) do
-        if rowTable.clickFrame then
-            rowTable.clickFrame:EnableMouse(true)
-            rowTable.clickFrame:Show()
-            rowTable.clickFrame:SetFrameLevel(self.content:GetFrameLevel() + 20)
+        if rowTable.leftClickFrame then
+            rowTable.leftClickFrame:EnableMouse(true)
+            rowTable.leftClickFrame:Show()
+            rowTable.leftClickFrame:SetFrameLevel(self.content:GetFrameLevel() + 20)
+        end
+        if rowTable.rightClickFrame then
+            rowTable.rightClickFrame:EnableMouse(true)
+            rowTable.rightClickFrame:Show()
+            rowTable.rightClickFrame:SetFrameLevel(self.content:GetFrameLevel() + 20)
         end
     end
 end
@@ -658,7 +686,7 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
         end
         self:RefreshTable()
         self:SendSync(bossName, itemID)
-        if not self:IsLootMaster() then   -- если это не лутер (не нужно самому себе)
+        if not self:IsLootMaster() then
             self:CheckIfOutbid(bossName, itemID)
         end
         local coloredName = self:FormatColoredName(playerName)
@@ -687,23 +715,18 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
     self:RefreshTable()
     self:SendSync(bossName, itemID)
     local coloredName = self:FormatColoredName(playerName)
-    --print("|cff00ff00[EPBA]|r Ставка "..(existingBid and "изменена" or "принята").." от "..coloredName.."|r: "..amount)
 end
 
 function auction:SendBidLocal()
-    -- Проверка блокировки ставок
     if self.bidsLocked then
-        --print("|cffff0000[EPBA]|r Приём ставок временно заблокирован лутером.")
         return
     end
 
     if not self.selectedBoss or not self.selectedItem then
-        --print("|cff00ff00[EPBA]|r Выберите босса и предмет!")
         return
     end
     local amount = tonumber(self.bidBox:GetText())
     if not amount or amount < 0 then
-        --print("|cff00ff00[EPBA]|r Введите корректную ставку!")
         return
     end
     if amount ~= 0 and amount < self.db.general.minBid then
@@ -716,7 +739,6 @@ function auction:SendBidLocal()
             return
         end
         if amount > currentEP then
-            --print("|cffff0000[EPBA]|r Ставка не может быть больше вашего ЕП ("..currentEP..")")
             return
         end
         if self.db.general.confirmBid and amount > 0 then
@@ -743,12 +765,15 @@ function auction:SendBidAfterConfirm(amount, currentEP)
     local itemID = auction.selectedItem
     local playerName = UnitName("player")
     auction:Debug("Отправка ставки: "..playerName.." "..amount.." на "..bossName.." "..itemID)
+    
+    -- Добавляем запись в лог
+    auction:AddBidLogEntry(playerName, amount, itemID, bossName)
+    
     if auction:IsLootMaster() then
         auction:ProcessBidLocally(bossName, itemID, playerName, amount)
     else
         local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount
         SendAddonMessage(auction.prefix, msg, "RAID")
-        --print("|cff00ff00[EPBA]|r Ставка отправлена лутеру: "..amount)
     end
     auction.bidBox:SetText("")
 end
@@ -759,27 +784,30 @@ function auction:EndAuctionLocal()
     self.dataVersions[self.selectedBoss] = (self.dataVersions[self.selectedBoss] or 0) + 1
     self:RefreshTable()
     self:SaveData()
-    --print("|cff00ff00[EPBA]|r Аукцион для "..self.selectedBoss.." завершён!")
 end
 
 -- ======================
--- ElvUI Skin (для главного окна) с поддержкой чекбокса
+-- ElvUI Skin (для главного окна)
 -- ======================
 function auction:ApplyElvUISkin()
     if not IsAddOnLoaded("ElvUI") then return end
     local E, L, V, P, G = unpack(ElvUI)
     local S = E:GetModule("Skins")
     if not S then return end
+    
+    -- Скин главного окна
     if self.frame then
         self.frame:SetTemplate("Transparent")
     end
+    
+    -- Кнопки главного окна
     if self.bidButton then S:HandleButton(self.bidButton) end
     if self.endButton then S:HandleButton(self.endButton) end
-    if self.chatButton then S:HandleButton(self.chatButton) end
+    if self.journalButton then S:HandleButton(self.journalButton) end
     if self.requestButton then S:HandleButton(self.requestButton) end
     if self.optionsBtn then S:HandleButton(self.optionsBtn) end
-    -- Чекбокс блокировки не обрабатываем скином, чтобы избежать бага с галочкой
-    -- (он останется стандартным, но будет правильно отображать состояние)
+    
+    -- Поле ввода
     if self.bidBox then
         self.bidBox:StripTextures()
         S:HandleEditBox(self.bidBox)
@@ -790,11 +818,47 @@ function auction:ApplyElvUISkin()
             box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
         end)
     end
+    
+    -- Кнопка закрытия
     if self.closeButton then S:HandleCloseButton(self.closeButton) end
+    
+    -- Скроллбар главного окна
     if self.scrollFrame then
         local scrollBar = _G[self.scrollFrame:GetName().."ScrollBar"]
         if scrollBar then S:HandleScrollBar(scrollBar) end
     end
+    
+    -- Выпадающие списки
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
+    
+    -- ======================
+    -- Скин окна журнала
+    -- ======================
+    if self.journalFrame then
+        -- Фон окна
+        self.journalFrame:SetTemplate("Transparent")
+        
+        -- Кнопка закрытия
+        local closeBtn = _G[self.journalFrame:GetName().."CloseButton"]
+        if closeBtn then
+            S:HandleCloseButton(closeBtn)
+        end
+        
+        -- Кнопка очистки
+        if self.journalClearButton then
+            S:HandleButton(self.journalClearButton)
+        end
+        
+        -- EditBox для текста (журнал)
+        if self.journalEditBox then
+            self.journalEditBox:StripTextures()
+            S:HandleEditBox(self.journalEditBox)
+        end
+        
+        -- Уголок растягивания
+        if self.journalSizer then
+            -- Не обрабатываем, так как это кастомная кнопка
+        end
+    end
 end
