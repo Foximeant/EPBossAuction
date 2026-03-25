@@ -99,7 +99,8 @@ function auction:SendSync(bossName, itemID, force)
     local currentVersion = self.dataVersions[bossName]
     local bidStrs = {}
     for _, bid in ipairs(bidsForItem) do
-        table.insert(bidStrs, bid.player..":"..bid.amount)
+        local offspecFlag = bid.isOffspec and ":1" or ":0"
+        table.insert(bidStrs, bid.player..":"..bid.amount..offspecFlag)
     end
     local itemName = GetItemInfo(itemID) or ("item:"..itemID)
     local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
@@ -121,7 +122,8 @@ function auction:SendAllBidsForBoss(bossName, targetPlayer)
         if #bidsForItem > 0 then
             local bidStrs = {}
             for _, bid in ipairs(bidsForItem) do
-                table.insert(bidStrs, bid.player..":"..bid.amount)
+                local offspecFlag = bid.isOffspec and ":1" or ":0"
+                table.insert(bidStrs, bid.player..":"..bid.amount..offspecFlag)
             end
             local currentVersion = self.dataVersions[bossName] or 0
             local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
@@ -214,16 +216,21 @@ function auction:HandleMessage(msg, sender)
             self.bids[bossName][itemID] = {}
             if bidsPart and bidsPart ~= "" then
                 for bidStr in bidsPart:gmatch("([^,]+)") do
-                    local player, amount = bidStr:match("([^:]+):([^:]+)")
+                    local player, amount, offspecFlag = bidStr:match("([^:]+):([^:]+):([01])")
+                    if not player then
+                        player, amount = bidStr:match("([^:]+):([^:]+)")
+                        offspecFlag = "0"
+                    end
                     if player and amount then
                         amount = tonumber(amount)
+                        local isOffspec = (offspecFlag == "1")
                         table.insert(self.bids[bossName][itemID], {
                             player = player,
-                            amount = amount
+                            amount = amount,
+                            isOffspec = isOffspec
                         })
-                        -- Добавляем в лог чужие ставки
                         if player ~= UnitName("player") then
-                            self:AddBidLogEntry(player, amount, itemID, bossName)
+                            self:AddBidLogEntry(player, amount, itemID, bossName, isOffspec)
                         end
                     end
                 end
@@ -331,12 +338,13 @@ function auction:HandleMessage(msg, sender)
     elseif cmd == "BIDOK" then
         local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
         if not amount then amount = rest end
-        if bossName and itemID then
-            -- Добавляем запись в лог для всех, кто получает BIDOK
+        if bossName and itemID and self:IsLootMaster() then
             auction:AddBidLogEntry(playerName, tonumber(amount), tonumber(itemID), bossName)
         end
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
-        auction.bidBox:SetText("")
+        if auction.bidBox then
+            auction.bidBox:SetText("")
+        end
     elseif cmd == "SYNC_COMPLETE" then
         self.receivedSync = true
         self:Debug("Синхронизация завершена")
@@ -377,14 +385,20 @@ function auction:HandleBidMessage(rest, sender)
         SendAddonMessage(self.prefix, "LOCKED", "WHISPER", sender)
         return
     end
-    local bossName, itemID, playerName, amount = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
+    local bossName, itemID, playerName, amount, isOffspec = rest:match("([^;]+);([^;]+);([^;]+);([^;]+);(.*)")
+    if not (bossName and itemID and playerName and amount) then 
+        bossName, itemID, playerName, amount = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
+        isOffspec = "false"
+    end
     if not (bossName and itemID and playerName and amount) then 
         self:Debug("Ошибка парсинга BID: "..rest)
         return 
     end
     itemID = tonumber(itemID)
     amount = tonumber(amount)
-    self:Debug("Обработка BID: "..playerName.." "..amount.." на "..bossName.." "..itemID)
+    local isOffspecBool = (isOffspec == "true")
+    
+    self:Debug("Обработка BID: "..playerName.." "..amount.." на "..bossName.." "..itemID.." (офф-спек: "..tostring(isOffspecBool)..")")
     if amount == 0 then
         if self.bids[bossName] and self.bids[bossName][itemID] then
             for i, bid in ipairs(self.bids[bossName][itemID]) do
@@ -397,8 +411,7 @@ function auction:HandleBidMessage(rest, sender)
         self:RefreshTable()
         self:SendSync(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
-        -- Добавляем запись в лог об отказе
-        self:AddBidLogEntry(playerName, 0, itemID, bossName)
+        self:AddBidLogEntry(playerName, 0, itemID, bossName, isOffspecBool)
         self:Debug("Отказ от ставки обработан")
         return
     end
@@ -418,18 +431,18 @@ function auction:HandleBidMessage(rest, sender)
     end
     if existingBid then
         existingBid.amount = amount
+        existingBid.isOffspec = isOffspecBool
     else
         table.insert(self.bids[bossName][itemID], {
             player = playerName,
-            amount = amount
+            amount = amount,
+            isOffspec = isOffspecBool
         })
     end
     self:RefreshTable()
     self:SendSync(bossName, itemID)
     self:CheckIfOutbid(bossName, itemID)
-    -- Добавляем запись в лог
-    self:AddBidLogEntry(playerName, amount, itemID, bossName)
-    -- Отправляем BIDOK с полной информацией
+    self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspecBool)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "RAID")
     self:Debug("Ставка обработана, отправлен SYNC")
 end
@@ -438,8 +451,6 @@ end
 -- Проверка, перебита ли ставка текущего игрока
 -- ======================
 function auction:CheckIfOutbid(bossName, itemID)
-    if self:IsLootMaster() then return end
-
     local playerName = UnitName("player")
     local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
     if not bidsForItem then return end
@@ -471,6 +482,10 @@ function auction:CheckIfOutbid(bossName, itemID)
 
             UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
             PlaySoundFile("Sound\\Interface\\RaidWarning.wav")
+            
+            if self:IsLootMaster() then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r " .. message)
+            end
         end
     else
         self.outbidNotified[key] = nil

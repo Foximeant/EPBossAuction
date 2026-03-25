@@ -37,17 +37,17 @@ function auction:CreateUI()
     self.frame = frame
 
     -- Заголовок
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
     title:SetText("Ruining System ставки EP")
 
     -- Кнопка закрытия
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame, "UIPanelCloseButton")
     self.closeButton = close
     close:SetPoint("TOPRIGHT", -5, -5)
 
     -- Кнопка настроек
-    local optionsBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame, "UIPanelButtonTemplate")
     optionsBtn:SetSize(18, 18)
     optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -5, -7)
     local tex = optionsBtn:CreateTexture(nil, "OVERLAY")
@@ -93,13 +93,14 @@ function auction:CreateUI()
     -- ======================
     -- Чекбокс блокировки ставок
     -- ======================
-    local lockCheckbox = CreateFrame("CheckButton", "EPBALockCheckbox", frame, "UICheckButtonTemplate")
+    local lockCheckbox = CreateFrame("CheckButton", "EPBossAuctionLockCheckbox", frame, "UICheckButtonTemplate")
     lockCheckbox:SetPoint("LEFT", dropdown, "RIGHT", 10, 0)
     lockCheckbox:SetSize(25, 25)
-    lockCheckbox.text = lockCheckbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    lockCheckbox.text:SetPoint("LEFT", lockCheckbox, "RIGHT", 2, 0)
-    lockCheckbox.text:SetText("Блокировка ставок")
+    local lockText = lockCheckbox:CreateFontString("EPBossAuctionLockCheckboxText", "OVERLAY", "GameFontNormal")
+    lockText:SetPoint("LEFT", lockCheckbox, "RIGHT", 2, 0)
+    lockText:SetText("Блокировка")
     lockCheckbox:SetChecked(self.bidsLocked or false)
+    lockCheckbox.text = lockText
 
     if not self:IsLootMaster() then
         lockCheckbox:Disable()
@@ -113,6 +114,18 @@ function auction:CreateUI()
         end)
     end
     self.lockCheckbox = lockCheckbox
+
+    -- ======================
+    -- Чекбокс "Офф-спек" (справа от чекбокса блокировки)
+    -- ======================
+    local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", frame, "UICheckButtonTemplate")
+    offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 100, 0)
+    offspecCheckbox:SetSize(25, 25)
+    local offspecText = offspecCheckbox:CreateFontString("EPBossAuctionOffspecCheckboxText", "OVERLAY", "GameFontNormal")
+    offspecText:SetPoint("LEFT", offspecCheckbox, "RIGHT", 2, 0)
+    offspecText:SetText("Офф-спек")
+    offspecCheckbox:SetChecked(false)
+    self.offspecCheckbox = offspecCheckbox
 
     -- Фон для скролла
     local scrollBG = CreateFrame("Frame", nil, frame)
@@ -195,7 +208,7 @@ function auction:CreateUI()
     auction.myEPText = epText
 
     -- Кнопка ставки
-    local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", "EPBossAuctionBidButton", frame, "UIPanelButtonTemplate")
     self.bidButton = button
     button:SetSize(140, 25)
     button:SetPoint("LEFT", editBox, "RIGHT", 10, 0)
@@ -205,7 +218,7 @@ function auction:CreateUI()
     end)
 
     -- Кнопка очистки
-    local endButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local endButton = CreateFrame("Button", "EPBossAuctionEndButton", frame, "UIPanelButtonTemplate")
     endButton:SetSize(140, 25)
     endButton:SetPoint("LEFT", editBox, "RIGHT", 10, -30)
     endButton:SetText("Очистить таблицу")
@@ -221,7 +234,7 @@ function auction:CreateUI()
     self.endButton = endButton
 
     -- Кнопка журнала
-    local journalButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", frame, "UIPanelButtonTemplate")
     journalButton:SetSize(70, 25)
     journalButton:SetPoint("LEFT", endButton, "RIGHT", 10, 0)
     journalButton:SetText("Журнал")
@@ -231,7 +244,7 @@ function auction:CreateUI()
     self.journalButton = journalButton
 
     -- Кнопка "Запросить данные"
-    local requestButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", frame, "UIPanelButtonTemplate")
     self.requestButton = requestButton
     requestButton:SetSize(70, 25)
     requestButton:SetPoint("LEFT", button, "RIGHT", 10, 0)
@@ -240,7 +253,6 @@ function auction:CreateUI()
         auction:RequestDataFromLM()
     end)
 
-    -- Устанавливаем начальное состояние кнопок
     self:UpdateLMButtonsState()
 
     -- Slash команды
@@ -297,8 +309,6 @@ function auction:CreateUI()
     end)
 
     self:ApplyElvUISkin()
-    --self:ApplyJournalSkin()
-	
 end
 
 -- ======================
@@ -369,7 +379,7 @@ function auction:UpdateLMButtonsState()
 end
 
 -- ======================
--- Обновление таблицы (с разделением на две кликабельные зоны)
+-- Обновление таблицы
 -- ======================
 function auction:RefreshTable()
     if not self.selectedBoss then return end
@@ -497,10 +507,11 @@ function auction:RefreshTable()
                 local formatted = self:FormatNumber(bidsForItem[j].amount)
                 local playerName = bidsForItem[j].player
                 local coloredName = self:FormatColoredName(playerName)
+                local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
                 if j == 1 then
-                    topText = topText .. coloredName .. " - " .. formatted
+                    topText = topText .. coloredName .. " - " .. formatted .. offspecMark
                 else
-                    topText = topText .. " | " .. coloredName .. " - " .. formatted
+                    topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark
                 end
                 topText = topText .. "|r"
             end
@@ -508,15 +519,13 @@ function auction:RefreshTable()
         bidsStr:SetText(topText)
         rowTable.bidsStr = bidsStr
 
-        -- ======================
-        -- Левая часть (название предмета) – от левого края до правого края колонки предмета
-        -- ======================
+        -- Левая часть (название предмета)
         local leftClickFrame = CreateFrame("Button", nil, content)
         leftClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
         leftClickFrame:SetPoint("BOTTOMRIGHT", bg, "TOPLEFT", itemWidth + 10, -rowHeight)
         leftClickFrame:EnableMouse(true)
         
-        -- Правая часть (ставки) – от правого края колонки предмета до правого края строки
+        -- Правая часть (ставки)
         local rightClickFrame = CreateFrame("Button", nil, content)
         rightClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", itemWidth + 10, 0)
         rightClickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
@@ -526,10 +535,6 @@ function auction:RefreshTable()
         local currentRow = i
         local currentBg = bg
 
-        
-        -- ======================
-        -- Левая часть: информация о предмете
-        -- ======================
         leftClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
@@ -566,9 +571,6 @@ function auction:RefreshTable()
             end
         end)
         
-        -- ======================
-        -- Правая часть: информация о ставках
-        -- ======================
         rightClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
@@ -592,8 +594,9 @@ function auction:RefreshTable()
                     local coloredName = self:FormatColoredName(bid.player)
                     local ep = self:GetPlayerEP(bid.player)
                     local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
+                    local offspecMark = bid.isOffspec and " (O)" or ""
                     
-                    GameTooltip:AddLine(string.format("%s|r - %s EP", coloredName, self:FormatNumber(bid.amount)), 1, 1, 1)
+                    GameTooltip:AddLine(string.format("%s|r - %s EP%s", coloredName, self:FormatNumber(bid.amount), offspecMark), 1, 1, 1)
                     GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
                     GameTooltip:AddLine(" ")
                 end
@@ -673,7 +676,7 @@ end
 -- ======================
 -- Локальные функции ставок
 -- ======================
-function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
+function auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffspec)
     self.bids[bossName] = self.bids[bossName] or {}
     self.bids[bossName][itemID] = self.bids[bossName][itemID] or {}
     if amount == 0 then
@@ -685,9 +688,7 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
         end
         self:RefreshTable()
         self:SendSync(bossName, itemID)
-        if not self:IsLootMaster() then
-            self:CheckIfOutbid(bossName, itemID)
-        end
+        self:CheckIfOutbid(bossName, itemID)
         local coloredName = self:FormatColoredName(playerName)
         print("|cff00ff00[EPBA]|r "..coloredName.."|r отказался от ставки.")
         return
@@ -705,15 +706,17 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount)
     end
     if existingBid then
         existingBid.amount = amount
+        existingBid.isOffspec = isOffspec or false
     else
         table.insert(self.bids[bossName][itemID], {
             player = playerName,
-            amount = amount
+            amount = amount,
+            isOffspec = isOffspec or false
         })
     end
     self:RefreshTable()
     self:SendSync(bossName, itemID)
-    local coloredName = self:FormatColoredName(playerName)
+    self:CheckIfOutbid(bossName, itemID)
 end
 
 function auction:SendBidLocal()
@@ -732,21 +735,25 @@ function auction:SendBidLocal()
         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.db.general.minBid.." EP (0 = отмена ставки)")
         return
     end
+    
+    local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
+    
     self:ForceEPUpdate(function(success, currentEP)
         if not success then
             print("|cffff0000[EPBA]|r Не удалось получить актуальный EP!")
             return
         end
         if amount > currentEP then
+            print("|cffff0000[EPBA]|r Недостаточно EP для ставки!")
             return
         end
         if self.db.general.confirmBid and amount > 0 then
             StaticPopupDialogs["EPBA_CONFIRM_BID"] = {
-                text = "Подтвердите ставку\nПредмет: "..GetItemInfo(self.selectedItem).."\nСумма: "..amount.." EP",
+                text = "Подтвердите ставку\nПредмет: "..GetItemInfo(self.selectedItem).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек)" or ""),
                 button1 = "Да",
                 button2 = "Нет",
                 OnAccept = function()
-                    auction:SendBidAfterConfirm(amount, currentEP)
+                    auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
                 end,
                 timeout = 0,
                 whileDead = true,
@@ -754,24 +761,23 @@ function auction:SendBidLocal()
             }
             StaticPopup_Show("EPBA_CONFIRM_BID")
         else
-            self:SendBidAfterConfirm(amount, currentEP)
+            self:SendBidAfterConfirm(amount, currentEP, isOffspec)
         end
     end)
 end
 
-function auction:SendBidAfterConfirm(amount, currentEP)
+function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     local bossName = auction.selectedBoss
     local itemID = auction.selectedItem
     local playerName = UnitName("player")
-    auction:Debug("Отправка ставки: "..playerName.." "..amount.." на "..bossName.." "..itemID)
+    auction:Debug("Отправка ставки: "..playerName.." "..amount.." на "..bossName.." "..itemID.." (офф-спек: "..tostring(isOffspec)..")")
     
-    -- Добавляем запись в лог
-    auction:AddBidLogEntry(playerName, amount, itemID, bossName)
+    auction:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspec)
     
     if auction:IsLootMaster() then
-        auction:ProcessBidLocally(bossName, itemID, playerName, amount)
+        auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffspec)
     else
-        local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount
+        local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..tostring(isOffspec)
         SendAddonMessage(auction.prefix, msg, "RAID")
     end
     auction.bidBox:SetText("")
@@ -794,19 +800,16 @@ function auction:ApplyElvUISkin()
     local S = E:GetModule("Skins")
     if not S then return end
     
-    -- Скин главного окна
     if self.frame then
         self.frame:SetTemplate("Transparent")
     end
     
-    -- Кнопки главного окна
     if self.bidButton then S:HandleButton(self.bidButton) end
     if self.endButton then S:HandleButton(self.endButton) end
     if self.journalButton then S:HandleButton(self.journalButton) end
     if self.requestButton then S:HandleButton(self.requestButton) end
     if self.optionsBtn then S:HandleButton(self.optionsBtn) end
     
-    -- Поле ввода
     if self.bidBox then
         self.bidBox:StripTextures()
         S:HandleEditBox(self.bidBox)
@@ -818,17 +821,13 @@ function auction:ApplyElvUISkin()
         end)
     end
     
-    -- Кнопка закрытия
     if self.closeButton then S:HandleCloseButton(self.closeButton) end
     
-    -- Скроллбар главного окна
     if self.scrollFrame then
         local scrollBar = _G[self.scrollFrame:GetName().."ScrollBar"]
         if scrollBar then S:HandleScrollBar(scrollBar) end
     end
     
-    -- Выпадающие списки
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
-    
 end

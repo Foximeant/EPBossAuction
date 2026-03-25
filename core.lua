@@ -6,7 +6,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.4.1"
+auction.version = "1.5.0"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -48,8 +48,8 @@ auction.lastLM = nil
 auction.myEP = 0
 
 -- Версии для каждого босса
-auction.dataVersions = {}  -- версии для каждого босса (ключ - имя босса)
-auction.lastVersions = {}  -- последние полученные версии для каждого босса
+auction.dataVersions = {}
+auction.lastVersions = {}
 
 auction.saveTimer = nil
 auction.lastSaveTime = 0
@@ -58,51 +58,35 @@ auction.receivedItems = {}
 auction.receivedSync = false
 auction.receivedAck = false
 
--- ======================
 -- Переменные для динамического обновления EP
--- ======================
 auction.updateTimer = nil
 auction.lastEPUpdate = 0
 auction.epUpdateInterval = 60
 auction.epUpdatePending = false
 
--- ======================
 -- Переменные для масштабирования
--- ======================
 auction.windowScale = 1.0
 auction.minScale = 0.7
 auction.maxScale = 1.5
 auction.scaleStep = 0.1
 
--- ======================
 -- Переменные для кнопки миникарты
--- ======================
 auction.minimapButton = nil
 auction.minimapButtonPosition = { angle = 0 }
 
--- ======================
 -- Переменная для блокировки ставок
--- ======================
 auction.bidsLocked = false
 
--- ======================
 -- Лог ставок (хранит историю)
--- ======================
-auction.bidLog = {}  -- массив записей { time, player, amount, itemID, boss }
+auction.bidLog = {}
 
--- ======================
 -- Таблица для отслеживания уже показанных уведомлений
--- ======================
-auction.outbidNotified = {} 
+auction.outbidNotified = {}
 
--- ======================
 -- Кэш EP игроков (для тултипа)
--- ======================
 auction.playerEPCache = {}
 
--- ======================
 -- Система настроек (базовые настройки, defaults)
--- ======================
 auction.defaults = {
     general = {
         debug = false,
@@ -129,8 +113,8 @@ auction.defaults = {
         oddRowColor = {0, 0, 0, 0},
         selectedRowColor = {0.3, 0.6, 1, 0.3},
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
-        itemColorMode = "gold", -- "gold" или "quality"
-        tooltipAnchor = "CURSOR", -- по умолчанию у курсора
+        itemColorMode = "gold",
+        tooltipAnchor = "CURSOR",
     },
     minimap = {
         show = true,
@@ -233,7 +217,6 @@ end
 function auction:GetPlayerEP(playerName)
     if not playerName then return 0 end
     
-    -- Проверяем кэш
     if self.playerEPCache[playerName] then
         return self.playerEPCache[playerName]
     end
@@ -275,7 +258,6 @@ function auction:GetPlayerEP(playerName)
     return ep
 end
 
--- Сброс кэша EP (вызывать при обновлении EP)
 function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
 end
@@ -283,37 +265,6 @@ end
 -- ======================
 -- Функции для работы с логом ставок
 -- ======================
-function auction:AddBidLogEntry(playerName, amount, itemID, bossName)
-    if not playerName or not amount or not itemID or not bossName then return end
-    
-    -- Защита от дублирования (проверяем последнюю запись)
-    local lastEntry = self.bidLog[#self.bidLog]
-    if lastEntry and lastEntry.player == playerName and lastEntry.amount == amount and lastEntry.itemID == itemID and lastEntry.boss == bossName then
-        return
-    end
-    
-    local entry = {
-        time = date("%Y-%m-%d %H:%M:%S"),
-        player = playerName,
-        amount = amount,
-        itemID = itemID,
-        boss = bossName,
-    }
-    table.insert(self.bidLog, entry)
-    
-    -- Ограничиваем размер лога
-    if #self.bidLog > 500 then
-        table.remove(self.bidLog, 1)
-    end
-    
-    self:SaveBidLog()
-    
-    -- Обновляем окно журнала, если оно открыто
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
-end
-
 function auction:SaveBidLog()
     EPBossAuctionBidLog = self.bidLog
 end
@@ -384,7 +335,6 @@ function auction:ApplySettings()
             self.minimapButton:Hide()
         end
     end
-    -- Обновляем состояние блокировки и чекбокса
     if self.lockCheckbox then
         self.lockCheckbox:SetChecked(self.bidsLocked)
         if not self:IsLootMaster() then

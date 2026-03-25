@@ -80,7 +80,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
 		
-		-- Применяем скины
 		if auction and auction.ApplyElvUISkin then
 			auction:ApplyElvUISkin()
 		end
