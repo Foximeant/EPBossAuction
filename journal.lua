@@ -27,7 +27,6 @@ function auction:CreateJournalFrame()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:SetScript("OnSizeChanged", function()
-        -- Используем отложенный вызов для предотвращения множественных обновлений
         if self.resizeTimer then
             self.resizeTimer:Cancel()
         end
@@ -52,8 +51,9 @@ function auction:CreateJournalFrame()
     close:SetScript("OnClick", function()
         frame:Hide()
     end)
+    self.journalCloseButton = close
     
-    -- Кнопка очистки (только для лутера)
+    -- Кнопка очистки
     local clearButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clearButton:SetSize(80, 25)
     clearButton:SetPoint("BOTTOMLEFT", 16, 16)
@@ -76,8 +76,9 @@ function auction:CreateJournalFrame()
             print("|cffff0000[EPBA]|r Только Loot Master может очищать журнал.")
         end
     end)
+    self.journalClearButton = clearButton
     
-    -- Кнопка растягивания (правый нижний угол)
+    -- Кнопка растягивания
     local sizer = CreateFrame("Button", nil, frame)
     sizer:SetHeight(16)
     sizer:SetWidth(16)
@@ -88,28 +89,37 @@ function auction:CreateJournalFrame()
     sizer:SetScript("OnMouseUp", function(self)
         self:GetParent():StopMovingOrSizing()
     end)
+    self.journalSizer = sizer
     
     -- Текстура для уголка растягивания
     local line1 = sizer:CreateTexture(nil, "BACKGROUND")
-    line1:SetWidth(14)
-    line1:SetHeight(14)
-    line1:SetPoint("BOTTOMRIGHT", -8, 8)
-    line1:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
-    local x = 0.1 * 14 / 17
-    line1:SetTexCoord(0.05 - x, 0.5, 0.05, 0.5 + x, 0.05, 0.5 - x, 0.5 + x, 0.5)
+    if line1 then
+        line1:SetWidth(14)
+        line1:SetHeight(14)
+        line1:SetPoint("BOTTOMRIGHT", -8, 8)
+        line1:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
+        local x = 0.1 * 14 / 17
+        if x then
+            line1:SetTexCoord(0.05 - x, 0.5, 0.05, 0.5 + x, 0.05, 0.5 - x, 0.5 + x, 0.5)
+        end
+    end
     
     local line2 = sizer:CreateTexture(nil, "BACKGROUND")
-    line2:SetWidth(8)
-    line2:SetHeight(8)
-    line2:SetPoint("BOTTOMRIGHT", -8, 8)
-    line2:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
-    local x2 = 0.1 * 8 / 17
-    line2:SetTexCoord(0.05 - x2, 0.5, 0.05, 0.5 + x2, 0.05, 0.5 - x2, 0.5 + x2, 0.5)
+    if line2 then
+        line2:SetWidth(8)
+        line2:SetHeight(8)
+        line2:SetPoint("BOTTOMRIGHT", -8, 8)
+        line2:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
+        local x2 = 0.1 * 8 / 17
+        if x2 then
+            line2:SetTexCoord(0.05 - x2, 0.5, 0.05, 0.5 + x2, 0.05, 0.5 - x2, 0.5 + x2, 0.5)
+        end
+    end
     
-    -- Создаем контейнер для ScrollFrame
+    -- Контейнер для ScrollFrame
     local scrollContainer = CreateFrame("Frame", nil, frame)
     scrollContainer:SetPoint("TOPLEFT", 16, -45)
-    scrollContainer:SetPoint("BOTTOMRIGHT", -16, 50)
+    scrollContainer:SetPoint("BOTTOMRIGHT", -32, 50)
     scrollContainer:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -117,46 +127,45 @@ function auction:CreateJournalFrame()
     })
     scrollContainer:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
     scrollContainer:SetBackdropBorderColor(0, 0, 0, 1)
+    self.journalScrollContainer = scrollContainer
     
-    -- Создаем ScrollFrame
-    local scrollFrame = CreateFrame("ScrollFrame", nil, scrollContainer, "UIPanelScrollFrameTemplate")
+    -- ScrollFrame
+    local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionJournalScrollFrame", scrollContainer, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 4, -4)
     scrollFrame:SetPoint("BOTTOMRIGHT", -4, 4)
+    self.journalScrollFrame = scrollFrame
     
-    -- Создаем дочерний фрейм для содержимого
+    -- Контент
     local content = CreateFrame("Frame", nil, scrollFrame)
     scrollFrame:SetScrollChild(content)
+    self.journalContent = content
     
-    -- Создаем FontString для текста (будем обновлять его)
+    -- Текст
     local textWidget = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     textWidget:SetPoint("TOPLEFT", 8, -4)
     textWidget:SetPoint("RIGHT", -8, 0)
     textWidget:SetJustifyH("LEFT")
     textWidget:SetJustifyV("TOP")
     textWidget:SetWordWrap(true)
+    self.journalTextWidget = textWidget
     
-    -- Сохраняем кэшированный текст и высоту для оптимизации
+    -- Кэш
     self.journalCachedText = nil
     self.journalCachedTextHeight = nil
     
     self.journalFrame = frame
-    self.journalScrollFrame = scrollFrame
-    self.journalContent = content
-    self.journalTextWidget = textWidget
-    self.journalClearButton = clearButton
-    self.journalSizer = sizer
-    self.journalScrollContainer = scrollContainer
     
-    -- Инициализируем содержимое
     self:BuildJournalText()
     self:UpdateJournalScroll()
+    
+    self:ApplyJournalSkin()
     
     if self.Debug then
         self:Debug("Окно журнала создано")
     end
 end
 
--- Построение текста журнала (вызывается только при изменении данных)
+-- Построение текста журнала
 function auction:BuildJournalText()
     if not self.journalTextWidget then return end
     
@@ -168,19 +177,16 @@ function auction:BuildJournalText()
         return
     end
     
-    -- Формируем текст с новыми записями сверху
     local textLines = {}
     for i = #entries, 1, -1 do
         local entry = entries[i]
         if entry then
-            -- Защита от nil значений
             local playerName = entry.player or "Неизвестный игрок"
             local amount = entry.amount or 0
             local itemID = entry.itemID
             local bossName = entry.boss or "Неизвестный босс"
             local timeStr = entry.time or date("%Y-%m-%d %H:%M:%S")
             
-            -- Получаем название предмета
             local itemName
             if itemID then
                 itemName = GetItemInfo(itemID) or ("предмет "..tostring(itemID))
@@ -188,10 +194,8 @@ function auction:BuildJournalText()
                 itemName = "неизвестный предмет"
             end
             
-            -- Форматируем имя игрока с цветом класса
             local coloredName = self:FormatColoredName(playerName)
             
-            -- Форматируем сумму ставки
             local amountStr
             if amount == 0 then
                 amountStr = "отменил ставку"
@@ -199,7 +203,6 @@ function auction:BuildJournalText()
                 amountStr = "поставил " .. self:FormatNumber(amount) .. " EP"
             end
             
-            -- Формируем строку
             local line = string.format("%s %s %s на %s (%s)",
                 timeStr, coloredName, amountStr, itemName, bossName)
             
@@ -207,49 +210,28 @@ function auction:BuildJournalText()
         end
     end
     
-    -- Объединяем строки с переносами
     self.journalCachedText = table.concat(textLines, "\n")
     self.journalTextWidget:SetText(self.journalCachedText)
-    self.journalCachedTextHeight = nil -- Сброс кэша высоты
+    self.journalCachedTextHeight = nil
 end
 
--- Обновление высоты контента и прокрутки (оптимизированная версия)
+-- Обновление высоты контента и прокрутки
 function auction:UpdateJournalScroll()
     if not self.journalTextWidget or not self.journalContent or not self.journalScrollFrame then return end
     
-    -- Получаем текущую ширину ScrollFrame для расчета переноса
-    local scrollWidth = self.journalScrollFrame:GetWidth() - 20
+    local scrollWidth = self.journalScrollFrame:GetWidth() - 28
     if scrollWidth < 100 then return end
     
-    -- Устанавливаем ширину текста для правильного переноса
     self.journalTextWidget:SetWidth(scrollWidth)
     
-    -- Получаем высоту текста (с кэшированием)
-    local textHeight
-    if self.journalCachedTextHeight then
-        textHeight = self.journalCachedTextHeight
-    else
-        textHeight = self.journalTextWidget:GetStringHeight()
-        -- Кэшируем только если текст не пустой
-        if textHeight > 0 then
-            self.journalCachedTextHeight = textHeight
-        end
-    end
+    local textHeight = self.journalTextWidget:GetStringHeight()
+    if not textHeight then return end
     
-    -- Вычисляем высоту контента с отступами
     local contentHeight = math.max(textHeight + 20, self.journalScrollFrame:GetHeight())
     
-    -- Обновляем размер контента только если он изменился
-    local currentHeight = self.journalContent:GetHeight()
-    if math.abs(currentHeight - contentHeight) > 1 then
-        self.journalContent:SetSize(scrollWidth + 20, contentHeight)
-    end
+    self.journalContent:SetSize(scrollWidth + 20, contentHeight)
     
-    -- Сохраняем позицию прокрутки перед обновлением
-    local currentScroll = self.journalScrollFrame:GetVerticalScroll()
-    
-    -- Если мы в начале списка или список только открыт, прокручиваем к началу
-    if currentScroll == 0 or not self.journalScrollInitialized then
+    if not self.journalScrollInitialized then
         self.journalScrollFrame:SetVerticalScroll(0)
         self.journalScrollInitialized = true
     end
@@ -264,7 +246,6 @@ function auction:ToggleJournal()
         self.journalFrame:Hide()
         self.journalScrollInitialized = false
     elseif self.journalFrame then
-        -- При открытии обновляем текст (на случай если данные изменились)
         self:BuildJournalText()
         self:UpdateJournalScroll()
         self.journalFrame:Show()
@@ -272,14 +253,10 @@ function auction:ToggleJournal()
     end
 end
 
--- Обновление содержимого журнала (вызывается только при изменении данных)
+-- Обновление содержимого журнала
 function auction:RefreshJournal()
     if not self.journalTextWidget then return end
-    
-    -- Перестраиваем текст только если данные изменились
     self:BuildJournalText()
-    
-    -- Обновляем прокрутку
     if self.journalFrame and self.journalFrame:IsShown() then
         self:UpdateJournalScroll()
     end
@@ -287,15 +264,13 @@ end
 
 -- Добавление записи в лог
 function auction:AddBidLogEntry(playerName, amount, itemID, bossName)
-    -- Защита от недостающих данных
     if not playerName or amount == nil or not itemID or not bossName then 
         if self.Debug then
-            self:Debug("Пропуск добавления в лог: недостаточно данных (player="..tostring(playerName)..", amount="..tostring(amount)..", itemID="..tostring(itemID)..", boss="..tostring(bossName)..")")
+            self:Debug("Пропуск добавления в лог: недостаточно данных")
         end
         return 
     end
     
-    -- Защита от дублирования (проверяем последнюю запись)
     local lastEntry = self.bidLog[#self.bidLog]
     if lastEntry and lastEntry.player == playerName and lastEntry.amount == amount and lastEntry.itemID == itemID and lastEntry.boss == bossName then
         return
@@ -310,18 +285,15 @@ function auction:AddBidLogEntry(playerName, amount, itemID, bossName)
     }
     table.insert(self.bidLog, entry)
     
-    -- Ограничиваем размер лога
     if #self.bidLog > 500 then
         table.remove(self.bidLog, 1)
     end
     
     self:SaveBidLog()
     
-    -- Обновляем кэш текста
     self.journalCachedText = nil
     self.journalCachedTextHeight = nil
     
-    -- Обновляем окно, если оно открыто
     if self.journalFrame and self.journalFrame:IsShown() then
         self:RefreshJournal()
     end
@@ -339,7 +311,6 @@ function auction:LoadBidLog()
     else
         self.bidLog = {}
     end
-    -- Сбрасываем кэш при загрузке
     self.journalCachedText = nil
     self.journalCachedTextHeight = nil
 end
@@ -348,7 +319,6 @@ end
 function auction:ClearBidLog()
     self.bidLog = {}
     self:SaveBidLog()
-    -- Сбрасываем кэш
     self.journalCachedText = nil
     self.journalCachedTextHeight = nil
     if self.journalFrame and self.journalFrame:IsShown() then
@@ -356,5 +326,51 @@ function auction:ClearBidLog()
     end
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
+    end
+end
+
+-- ======================
+-- ElvUI Skin для журнала
+-- ======================
+function auction:ApplyJournalSkin()
+    if not IsAddOnLoaded("ElvUI") then return end
+    local E, L, V, P, G = unpack(ElvUI)
+    local S = E:GetModule("Skins")
+    if not S then return end
+    
+    -- Скин окна журнала
+    if self.journalFrame then
+        self.journalFrame:SetTemplate("Transparent")
+    end
+    
+    -- Кнопка закрытия
+    if self.journalCloseButton then
+        if S.HandleCloseButton then
+            S:HandleCloseButton(self.journalCloseButton)
+        end
+    end
+    
+    -- Кнопка очистки
+    if self.journalClearButton then
+        if S.HandleButton then
+            S:HandleButton(self.journalClearButton)
+        end
+    end
+    
+    -- Скроллбар журнала - с проверкой
+    if self.journalScrollFrame then
+        local scrollBar = _G[self.journalScrollFrame:GetName().."ScrollBar"]
+        if scrollBar then
+            if S.HandleScrollBar then
+                S:HandleScrollBar(scrollBar)
+            elseif scrollBar.SetTemplate then
+                scrollBar:SetTemplate("Transparent")
+            end
+        end
+    end
+    
+    -- Контейнер скролла
+    if self.journalScrollContainer then
+        self.journalScrollContainer:SetTemplate("Transparent")
     end
 end

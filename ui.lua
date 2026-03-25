@@ -296,10 +296,9 @@ function auction:CreateUI()
         auction:UpdateLMButtonsState()
     end)
 
-    auction:ApplyElvUISkin()
-    
-    -- Создаём окно журнала
-    auction:CreateJournalFrame()
+    self:ApplyElvUISkin()
+    --self:ApplyJournalSkin()
+	
 end
 
 -- ======================
@@ -832,33 +831,4 @@ function auction:ApplyElvUISkin()
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
     
-    -- ======================
-    -- Скин окна журнала
-    -- ======================
-    if self.journalFrame then
-        -- Фон окна
-        self.journalFrame:SetTemplate("Transparent")
-        
-        -- Кнопка закрытия
-        local closeBtn = _G[self.journalFrame:GetName().."CloseButton"]
-        if closeBtn then
-            S:HandleCloseButton(closeBtn)
-        end
-        
-        -- Кнопка очистки
-        if self.journalClearButton then
-            S:HandleButton(self.journalClearButton)
-        end
-        
-        -- EditBox для текста (журнал)
-        if self.journalEditBox then
-            self.journalEditBox:StripTextures()
-            S:HandleEditBox(self.journalEditBox)
-        end
-        
-        -- Уголок растягивания
-        if self.journalSizer then
-            -- Не обрабатываем, так как это кастомная кнопка
-        end
-    end
 end
