@@ -777,8 +777,9 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     if auction:IsLootMaster() then
         auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffspec)
     else
-        local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..tostring(isOffspec)
-        SendAddonMessage(auction.prefix, msg, "RAID")
+        local offspecStr = isOffspec and "true" or "false"
+		local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr
+		SendAddonMessage(auction.prefix, msg, "RAID")
     end
     auction.bidBox:SetText("")
 end

@@ -215,26 +215,31 @@ function auction:HandleMessage(msg, sender)
             self.bids[bossName] = self.bids[bossName] or {}
             self.bids[bossName][itemID] = {}
             if bidsPart and bidsPart ~= "" then
-                for bidStr in bidsPart:gmatch("([^,]+)") do
-                    local player, amount, offspecFlag = bidStr:match("([^:]+):([^:]+):([01])")
-                    if not player then
-                        player, amount = bidStr:match("([^:]+):([^:]+)")
-                        offspecFlag = "0"
-                    end
-                    if player and amount then
-                        amount = tonumber(amount)
-                        local isOffspec = (offspecFlag == "1")
-                        table.insert(self.bids[bossName][itemID], {
-                            player = player,
-                            amount = amount,
-                            isOffspec = isOffspec
-                        })
-                        if player ~= UnitName("player") then
-                            self:AddBidLogEntry(player, amount, itemID, bossName, isOffspec)
-                        end
-                    end
-                end
-            end
+				local newBids = {}
+				for bidStr in bidsPart:gmatch("([^,]+)") do
+					-- Разбиваем по двоеточию
+					local parts = {}
+					for part in string.gmatch(bidStr, "[^:]+") do
+						table.insert(parts, part)
+					end
+					if #parts >= 2 then
+						local player = parts[1]
+						local amount = tonumber(parts[2])
+						local isOffspec = (#parts >= 3 and parts[3] == "1")
+						if player and amount then
+							table.insert(newBids, {
+								player = player,
+								amount = amount,
+								isOffspec = isOffspec
+							})
+							if player ~= UnitName("player") then
+								auction:AddBidLogEntry(player, amount, itemID, bossName, isOffspec)
+							end
+						end
+					end
+				end
+				self.bids[bossName][itemID] = newBids
+			end
             if self.selectedBoss == bossName then
                 self:RefreshTable()
             end
