@@ -6,7 +6,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.5.0"
+auction.version = "1.5.1"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -77,6 +77,9 @@ auction.minimapButtonPosition = { angle = 0 }
 -- Переменная для блокировки ставок
 auction.bidsLocked = false
 
+-- Коэффициент офф-спек (устанавливается лутером)
+auction.offspecMultiplier = 0.5
+
 -- Лог ставок (хранит историю)
 auction.bidLog = {}
 
@@ -94,7 +97,8 @@ auction.defaults = {
         autoRequest = true,
         confirmBid = false,
         soundEnabled = true,
-        soundFile = "Sound\\Interface\\UI_QuestLogOpen.wav",
+        soundFile = "Sound\\Interface\\RaidWarning.wav",
+        offspecMultiplier = 0.5,
     },
     table = {
         itemFontSize = 12,
@@ -115,6 +119,7 @@ auction.defaults = {
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
         itemColorMode = "gold",
         tooltipAnchor = "CURSOR",
+        columnSplit = 40,
     },
     minimap = {
         show = true,
@@ -212,15 +217,49 @@ function auction:TableToString(t)
 end
 
 -- ======================
+-- Расчёт максимальной ставки с учётом офф-спек
+-- ======================
+function auction:GetMaxBidAmount(isOffspec)
+    local currentEP = self.myEP or 0
+    if isOffspec then
+        return math.floor(currentEP * (self.offspecMultiplier or 0.5))
+    end
+    return currentEP
+end
+
+-- ======================
+-- Воспроизведение звука перебитой ставки
+-- ======================
+function auction:PlayOutbidSound()
+    if self.db.general.soundEnabled then
+        local soundFile = self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav"
+        PlaySoundFile(soundFile)
+    end
+end
+
+-- ======================
 -- Функции для работы с EP игроков (для тултипа)
 -- ======================
-function auction:GetPlayerEP(playerName)
+function auction:GetPlayerEP(playerName, noCache)
     if not playerName then return 0 end
     
+    -- Если не требуется кэш, получаем EP напрямую
+    if noCache then
+        return self:FetchPlayerEP(playerName)
+    end
+    
+    -- Используем кэш
     if self.playerEPCache[playerName] then
         return self.playerEPCache[playerName]
     end
     
+    local ep = self:FetchPlayerEP(playerName)
+    self.playerEPCache[playerName] = ep
+    return ep
+end
+
+-- Отдельная функция для прямого получения EP (без кэша)
+function auction:FetchPlayerEP(playerName)
     local ep = 0
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
     
@@ -254,12 +293,31 @@ function auction:GetPlayerEP(playerName)
         end
     end
     
-    self.playerEPCache[playerName] = ep
     return ep
 end
 
 function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
+end
+
+-- Функция для обновления кэша для всех игроков в таблице
+function auction:RefreshPlayerEPCache()
+    if not self.rowFrames or not self.selectedBoss then return end
+    
+    -- Собираем всех игроков, которые есть в ставках
+    local players = {}
+    for _, rowTable in ipairs(self.rowFrames) do
+        local itemID = self.bosses[self.selectedBoss][_]
+        local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
+        for _, bid in ipairs(bidsForItem) do
+            players[bid.player] = true
+        end
+    end
+    
+    -- Обновляем кэш для каждого игрока
+    for playerName, _ in pairs(players) do
+        self.playerEPCache[playerName] = self:FetchPlayerEP(playerName)
+    end
 end
 
 -- ======================
@@ -299,7 +357,11 @@ function auction:LoadSettings()
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
     self:LoadBidLog()
-    self:Debug("Настройки загружены")
+    
+    -- Загружаем коэффициент офф-спек из настроек
+    self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
+    
+    self:Debug("Настройки загружены, офф-спек коэффициент: " .. (self.offspecMultiplier * 100) .. "%")
 end
 
 function auction:SaveSettings()
@@ -314,6 +376,10 @@ function auction:ApplySettings()
         self.frame:SetScale(self.db.window.scale)
         self.frame:SetSize(self.db.window.width, self.db.window.height)
         self.frame:SetAlpha(self.db.window.alpha)
+        self:UpdateScrollFrameSize()
+        if self.selectedBoss then
+            self:RefreshTable()
+        end
         if self.db.window.locked then
             self.frame:SetMovable(false)
             self.frame:RegisterForDrag()
@@ -373,6 +439,7 @@ function auction:SaveData()
     EPBossAuctionSavedScale = self.windowScale
     EPBossAuctionSavedMinimapPos = self.minimapButtonPosition
     EPBossAuctionBidsLocked = self.bidsLocked
+    EPBossAuctionSavedOffspecMultiplier = self.offspecMultiplier
     self:SaveSettings()
     self.lastSaveTime = GetTime()
     local bidCount = 0
@@ -387,6 +454,7 @@ function auction:SaveData()
     self:Debug("Масштаб окна: "..self.windowScale)
     self:Debug("Позиция кнопки: угол "..(self.minimapButtonPosition.angle or 0))
     self:Debug("Блокировка ставок: "..tostring(self.bidsLocked))
+    self:Debug("Офф-спек коэффициент: "..(self.offspecMultiplier * 100).."%")
     self:Debug("==================")
 end
 
@@ -479,4 +547,35 @@ function auction:ForceSave()
     self:Debug("Принудительное сохранение")
     self:SaveData()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные сохранены")
+end
+
+-- ======================
+-- Обновление размеров скролл-фрейма
+-- ======================
+function auction:UpdateScrollFrameSize()
+    if not self.frame or not self.scrollFrame then return end
+    
+    local leftOffset = 16
+    local topOffset = 102
+    local rightOffset = 30
+    local bottomOffset = 80
+    
+    self.scrollFrame:ClearAllPoints()
+    self.scrollFrame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
+    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
+    
+    if self.scrollBG then
+        self.scrollBG:ClearAllPoints()
+        self.scrollBG:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
+        self.scrollBG:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
+    end
+    
+    if self.header then
+        self.header:ClearAllPoints()
+        self.header:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -80)
+        self.header:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -rightOffset, -80)
+    end
+    
+    self.db.window.width = self.frame:GetWidth()
+    self.db.window.height = self.frame:GetHeight()
 end

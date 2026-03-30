@@ -232,9 +232,7 @@ function auction:HandleMessage(msg, sender)
 								amount = amount,
 								isOffspec = isOffspec
 							})
-							if player ~= UnitName("player") then
-								auction:AddBidLogEntry(player, amount, itemID, bossName, isOffspec)
-							end
+							-- Не добавляем в лог при синхронизации, чтобы избежать дублей
 						end
 					end
 				end
@@ -371,6 +369,16 @@ function auction:HandleMessage(msg, sender)
             return
         end
         self:SetBidsLocked(state)
+	elseif cmd == "OFFSPEC_MULT" then
+        local multiplier = tonumber(rest)
+        if multiplier then
+            auction.offspecMultiplier = multiplier
+            auction.db.general.offspecMultiplier = multiplier  -- сохраняем в настройки
+            auction:Debug("Получен новый коэффициент офф-спек: " .. (multiplier * 100) .. "%")
+            if auction.myEP > 0 then
+                auction:UpdateMaxBidDisplay()
+            end
+        end
     elseif cmd == "LOCKED" then
     else
         self:Debug("Неизвестная команда: "..cmd)
@@ -486,7 +494,7 @@ function auction:CheckIfOutbid(bossName, itemID)
             local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
 
             UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
-            PlaySoundFile("Sound\\Interface\\RaidWarning.wav")
+            self:PlayOutbidSound()
             
             if self:IsLootMaster() then
                 DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r " .. message)

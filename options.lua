@@ -27,7 +27,7 @@ function auction:CreateOptionsPanel()
     })
     contentContainer:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
     contentContainer:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
-    self.contentContainer = contentContainer   -- сохраняем для скина
+    self.contentContainer = contentContainer
 
     -- Дочерний фрейм для содержимого
     local contentChild = CreateFrame("Frame", nil, contentContainer)
@@ -40,7 +40,7 @@ function auction:CreateOptionsPanel()
     local generalTab = CreateFrame("Frame", nil, contentChild)
     generalTab:SetPoint("TOPLEFT", 10, -10)
     generalTab:SetSize(540, 400)
-    self.generalTab = generalTab   -- сохраняем для скина
+    self.generalTab = generalTab
 
     -- Отладка
     local debugCheck = CreateFrame("CheckButton", "EPBADebugCheck", generalTab, "UICheckButtonTemplate")
@@ -67,8 +67,6 @@ function auction:CreateOptionsPanel()
     minBidEdit:SetText(self.db.general.minBid)
     minBidEdit:Disable()
     minBidEdit:SetTextColor(0.5, 0.5, 0.5)
-    minBidEdit:SetScript("OnEnterPressed", nil)
-    minBidEdit:SetScript("OnEditFocusLost", nil)
     
     -- Автозапрос данных
     local autoRequestCheck = CreateFrame("CheckButton", "EPBAAutoRequestCheck", generalTab, "UICheckButtonTemplate")
@@ -92,16 +90,101 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
     
-    -- Звук
+    -- Звук при перебитии ставки
     local soundCheck = CreateFrame("CheckButton", "EPBASoundCheck", generalTab, "UICheckButtonTemplate")
     soundCheck:SetPoint("TOPLEFT", confirmBidCheck, "BOTTOMLEFT", 0, -5)
     soundCheck.text = _G[soundCheck:GetName() .. "Text"]
-    soundCheck.text:SetText("Включить звук при ставке")
+    soundCheck.text:SetText("Включить звук при перебитии ставки")
     soundCheck:SetChecked(self.db.general.soundEnabled)
     soundCheck:SetScript("OnClick", function(self)
         auction.db.general.soundEnabled = self:GetChecked()
         auction:ApplySettings()
     end)
+
+    -- Выбор звука для перебитой ставки
+    local soundFileText = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    soundFileText:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 0, -15)
+    soundFileText:SetText("Звук при перебитии:")
+    soundFileText:SetWidth(120)
+
+    local soundFileEdit = CreateFrame("EditBox", "EPBASoundFileEdit", generalTab, "InputBoxTemplate")
+    soundFileEdit:SetSize(250, 25)
+    soundFileEdit:SetPoint("LEFT", soundFileText, "RIGHT", 10, 0)
+    soundFileEdit:SetAutoFocus(false)
+    soundFileEdit:SetText(self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav")
+    soundFileEdit:SetScript("OnEnterPressed", function(self)
+        local soundFile = self:GetText()
+        auction.db.general.soundFile = soundFile
+        auction:ApplySettings()
+        print("|cff00ff00[EPBA]|r Звук перебитой ставки изменён на: " .. soundFile)
+    end)
+    soundFileEdit:SetScript("OnEscapePressed", function(self)
+        self:SetText(auction.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav")
+    end)
+
+    -- Кнопка тестирования звука
+    local testSoundButton = CreateFrame("Button", nil, generalTab, "UIPanelButtonTemplate")
+    testSoundButton:SetSize(80, 25)
+    testSoundButton:SetPoint("LEFT", soundFileEdit, "RIGHT", 10, 0)
+    testSoundButton:SetText("Тест")
+    testSoundButton:SetScript("OnClick", function()
+        if auction.db.general.soundEnabled then
+            PlaySoundFile(auction.db.general.soundFile)
+        else
+            print("|cffff0000[EPBA]|r Звук отключён в настройках.")
+        end
+    end)
+
+    -- Коэффициент офф-спек (только для лутера)
+    local offspecTitle = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    offspecTitle:SetPoint("TOPLEFT", soundFileText, "BOTTOMLEFT", 0, -30)
+    offspecTitle:SetText("Офф-спек коэффициент (только Loot Master):")
+    offspecTitle:SetFontObject(GameFontNormalLarge)
+
+    local offspecMultiplierSlider = CreateFrame("Slider", "EPBAOffspecMultiplierSlider", generalTab, "OptionsSliderTemplate")
+    offspecMultiplierSlider:SetPoint("TOPLEFT", offspecTitle, "BOTTOMLEFT", 0, -10)
+    offspecMultiplierSlider:SetSize(200, 15)
+    offspecMultiplierSlider:SetMinMaxValues(0.1, 1.0)
+    offspecMultiplierSlider:SetValueStep(0.05)
+    offspecMultiplierSlider:SetValue(self.db.general.offspecMultiplier or 0.5)
+
+    local sliderName = offspecMultiplierSlider:GetName()
+    local lowText = _G[sliderName .. "Low"]
+    local highText = _G[sliderName .. "High"]
+    local valueText = _G[sliderName .. "Text"]
+    if lowText then lowText:SetText("10%") end
+    if highText then highText:SetText("100%") end
+    if valueText then valueText:SetText(math.floor((self.db.general.offspecMultiplier or 0.5) * 100) .. "%") end
+
+    offspecMultiplierSlider:SetScript("OnValueChanged", function(self, value)
+        if not auction:IsLootMaster() then
+            print("|cffff0000[EPBA]|r Только Loot Master может изменять коэффициент офф-спек.")
+            self:SetValue(auction.db.general.offspecMultiplier or 0.5)
+            return
+        end
+        
+        value = math.floor(value * 100) / 100
+        local vt = _G[self:GetName() .. "Text"]
+        if vt then vt:SetText(math.floor(value * 100) .. "%") end
+        
+        auction.db.general.offspecMultiplier = value
+        auction.offspecMultiplier = value
+        auction:SaveData()
+        
+        -- Рассылаем новый коэффициент рейду
+        SendAddonMessage(auction.prefix, "OFFSPEC_MULT;" .. value, "RAID")
+        
+        -- Обновляем отображение максимальной ставки
+        if auction.myEP > 0 then
+            auction:UpdateMaxBidDisplay()
+        end
+    end)
+
+    -- Если игрок не лутер, отключаем слайдер
+    if not auction:IsLootMaster() then
+        offspecMultiplierSlider:Disable()
+        offspecMultiplierSlider:SetAlpha(0.5)
+    end
     
     -- ----------------------------------------------
     -- Вкладка "Таблица"
@@ -240,7 +323,7 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
 
-     -- Высота строки
+    -- Высота строки
     local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -30)
     rowHeightTitle:SetText("Высота строки:")
@@ -254,14 +337,14 @@ function auction:CreateOptionsPanel()
     local rowHeightSlider = CreateFrame("Slider", "EPBARowHeightSlider", tableTab, "OptionsSliderTemplate")
     rowHeightSlider:SetPoint("LEFT", rowHeightText, "RIGHT", 10, 0)
     rowHeightSlider:SetSize(150, 15)
-    rowHeightSlider:SetMinMaxValues(20, 60)  -- от 20 до 60 пикселей
+    rowHeightSlider:SetMinMaxValues(20, 60)
     rowHeightSlider:SetValueStep(2)
     rowHeightSlider:SetValue(self.db.table.rowHeight)
 
-    local sliderName = rowHeightSlider:GetName()
-    local lowText = _G[sliderName .. "Low"]
-    local highText = _G[sliderName .. "High"]
-    local valueText = _G[sliderName .. "Text"]
+    sliderName = rowHeightSlider:GetName()
+    lowText = _G[sliderName .. "Low"]
+    highText = _G[sliderName .. "High"]
+    valueText = _G[sliderName .. "Text"]
     if lowText then lowText:SetText("20") end
     if highText then highText:SetText("60") end
     if valueText then valueText:SetText(self.db.table.rowHeight) end
@@ -303,7 +386,7 @@ function auction:CreateOptionsPanel()
         UIDropDownMenu_AddButton(info)
     end)
 
-        -- Привязка тултипа
+    -- Привязка тултипа
     local tooltipTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     tooltipTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", 0, -30)
     tooltipTitle:SetText("Тултип:")
@@ -318,7 +401,6 @@ function auction:CreateOptionsPanel()
     tooltipAnchorDropdown:SetPoint("LEFT", tooltipAnchorText, "RIGHT", 10, 0)
     UIDropDownMenu_SetWidth(tooltipAnchorDropdown, 120)
 
-    -- Функция для получения локализованного названия
     local anchorNames = {
         CURSOR = "У курсора",
         RIGHT = "Справа",
@@ -538,6 +620,45 @@ function auction:CreateOptionsPanel()
             auction.frame:SetPoint("CENTER")
         end
     end)
+
+    -- Информация о растягивании окна
+    local resizeInfo = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    resizeInfo:SetPoint("TOPLEFT", resetWindowPosButton, "BOTTOMLEFT", 0, -20)
+    resizeInfo:SetText("Окно можно растягивать, потянув за правый нижний угол")
+    resizeInfo:SetTextColor(0.7, 0.7, 0.7)
+    resizeInfo:SetWidth(300)
+    resizeInfo:SetJustifyH("LEFT")
+
+    -- Текущие размеры окна
+    local sizeText = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sizeText:SetPoint("TOPLEFT", resizeInfo, "BOTTOMLEFT", 0, -15)
+    sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", self.db.window.width, self.db.window.height))
+    sizeText:SetTextColor(0.5, 0.5, 0.5)
+
+    -- Кнопка сброса размера
+    local resetSizeButton = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
+    resetSizeButton:SetSize(150, 25)
+    resetSizeButton:SetPoint("TOPLEFT", sizeText, "BOTTOMLEFT", 0, -15)
+    resetSizeButton:SetText("Сбросить размер")
+    resetSizeButton:SetScript("OnClick", function()
+        if auction.frame then
+            auction.db.window.width = 640
+            auction.db.window.height = 450
+            auction.frame:SetSize(640, 450)
+            auction:UpdateScrollFrameSize()
+            auction:RefreshTable()
+            auction:SaveSettings()
+            sizeText:SetText(string.format("Текущий размер: 640 x 450"))
+        end
+    end)
+
+    -- Обновляем текст размера при изменении окна
+    if auction.frame then
+        auction.frame:HookScript("OnSizeChanged", function()
+            sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", 
+                auction.frame:GetWidth(), auction.frame:GetHeight()))
+        end)
+    end
     
     -- ----------------------------------------------
     -- Кнопки вкладок
@@ -551,7 +672,7 @@ function auction:CreateOptionsPanel()
     
     local tabWidth = 100
     local tabHeight = 25
-    local tabGap = 10  -- расстояние между кнопками
+    local tabGap = 10
     local tabButtons = {}
     
     for i, tabData in ipairs(tabs) do
@@ -617,7 +738,7 @@ function auction:CreateOptionsPanel()
 end
 
 -- ======================
--- Скин ElvUI для окна настроек (исправленная версия)
+-- Скин ElvUI для окна настроек
 -- ======================
 function auction:ApplyElvUISkinToOptions()
     if not IsAddOnLoaded("ElvUI") then return end
@@ -627,10 +748,8 @@ function auction:ApplyElvUISkinToOptions()
     local S = E:GetModule("Skins")
     if not S then return end
 
-    -- Применяем шаблон к фону панели
     self.optionsPanel:SetTemplate("Transparent")
 
-    -- Обрабатываем скроллбар контейнера (с проверкой имени)
     if self.contentContainer then
         local name = self.contentContainer:GetName()
         if name then
@@ -641,18 +760,13 @@ function auction:ApplyElvUISkinToOptions()
         end
     end
 
-    -- Кнопки вкладок (табы сверху)
     if self.optionsTabButtons then
         for _, btn in ipairs(self.optionsTabButtons) do
             if S.HandleButton then S:HandleButton(btn) end
         end
     end
 
-    -- Кнопки внизу панели
     if self.optionsDefaultsBtn and S.HandleButton then S:HandleButton(self.optionsDefaultsBtn) end
     if self.optionsApplyBtn and S.HandleButton then S:HandleButton(self.optionsApplyBtn) end
     if self.optionsCancelBtn and S.HandleButton then S:HandleButton(self.optionsCancelBtn) end
-
-    -- Чекбоксы, эдитбоксы, слайдеры и дропдауны оставляем в стандартном виде,
-    -- чтобы не ломать их отображение.
 end

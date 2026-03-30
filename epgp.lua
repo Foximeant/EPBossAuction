@@ -5,7 +5,6 @@ function auction:UpdateMyEP()
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
     if not epgpTable then
         self:Debug("EPGP аддон не найден!")
-        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r EPGP аддон не найден!")
         if self.frame and self.frame:IsShown() then
             self.myEPText:SetText("Ваш ЕП: EPGP не найден")
         end
@@ -104,7 +103,6 @@ function auction:StartEPUpdates()
 end
 
 function auction:CheckAndUpdateEP()
-    -- Убрана проверка на видимость окна, чтобы обновление происходило всегда
     if self.epUpdatePending then return end
     self.epUpdatePending = true
 
@@ -114,7 +112,6 @@ function auction:CheckAndUpdateEP()
         return
     end
 
-    -- Используем ForceEPUpdate для принудительного обновления EPGP и получения актуального EP
     self:ForceEPUpdate(function(success, newEP)
         if success then
             self:UpdateEPDisplay()
@@ -128,8 +125,13 @@ end
 function auction:UpdateEPDisplay()
     if self.frame and self.frame:IsShown() and self.myEPText then
         self.myEPText:SetText("Ваш ЕП: "..self:FormatNumber(self.myEP))
+        self:UpdateMaxBidDisplay()
+        
         local currentBid = tonumber(self.bidBox:GetText()) or 0
-        if currentBid > 0 and currentBid > self.myEP then
+        local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
+        local maxBid = self:GetMaxBidAmount(isOffspec)
+        
+        if currentBid > 0 and currentBid > maxBid then
             self.myEPText:SetTextColor(1, 0, 0)
             self.bidBox:SetTextColor(1, 0, 0)
         else
@@ -142,7 +144,7 @@ end
 function auction:CheckCurrentBidAgainstEP()
     local currentBid = tonumber(self.bidBox:GetText()) or 0
     if currentBid > 0 and currentBid > self.myEP then
-        --DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Внимание: ваша текущая ставка ("..currentBid..") превышает ваш EP ("..self.myEP..")!")
+        -- не выводим сообщение, только подсветка
     end
 end
 
@@ -182,8 +184,18 @@ function auction:ForceEPUpdate(callback)
         end
         auction.myEP = newEP
         auction.lastEPUpdate = GetTime()
+        
+        -- Обновляем offspecMultiplier из настроек
+        auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
+        
+        -- Обновляем кэш EP для всех игроков в таблице
+        auction:RefreshPlayerEPCache()
+        
         if auction.frame and auction.frame:IsShown() then
             auction.myEPText:SetText("Ваш ЕП: "..auction:FormatNumber(newEP))
+            auction:UpdateMaxBidDisplay()
+            -- Обновляем цвета строк в таблице
+            auction:UpdateBidRowColors()
         end
         auction:Debug("Принудительное обновление завершено, EP="..newEP)
         if callback then callback(true, newEP) end

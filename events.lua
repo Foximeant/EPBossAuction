@@ -148,6 +148,20 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                 auction:UpdateLockCheckbox()
             end
             auction:UpdateLMButtonsState()
+            
+            -- Обновляем состояние слайдера офф-спек в настройках, если панель открыта
+            if auction.optionsPanel and auction.optionsPanel:IsShown() then
+                local slider = _G["EPBAOffspecMultiplierSlider"]
+                if slider then
+                    if auction:IsLootMaster() then
+                        slider:Enable()
+                        slider:SetAlpha(1.0)
+                    else
+                        slider:Disable()
+                        slider:SetAlpha(0.5)
+                    end
+                end
+            end
         end, 2)
 
     elseif event == "PLAYER_LOGOUT" then
