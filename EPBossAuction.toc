@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: RS EPBossAuction
 ## Author: Demissa
-## Version: 1.5.1
+## Version: 1.5.2
 ## Notes: Таблица ставок ЕП
 ## SavedVariables: EPBossAuctionSavedBids, EPBossAuctionSavedVersion, EPBossAuctionSavedTime, EPBossAuctionSavedLM, EPBossAuctionSavedSelectedBoss, EPBossAuctionSavedSelectedItem, EPBossAuctionSettings, EPBossAuctionBidLog
 ## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main
