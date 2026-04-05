@@ -6,7 +6,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.5.2"
+auction.version = "1.5.3"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil

@@ -1,7 +1,7 @@
 local auction = EPBossAuction
 
 -- ======================
--- Создание основного окна
+-- Создание основного окна (НОВЫЙ МАКЕТ: левая панель + таблица справа)
 -- ======================
 function auction:CreateUI()
     local frame = CreateFrame("Frame", "EPBossAuctionFrame", UIParent)
@@ -39,7 +39,7 @@ function auction:CreateUI()
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("RS EPBossAuction 1.5.2")
+    title:SetText("RS EPBossAuction 1.5.3")
 
     -- Кнопка закрытия
     local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame, "UIPanelCloseButton")
@@ -68,10 +68,29 @@ function auction:CreateUI()
     end)
     self.optionsBtn = optionsBtn
 
-    -- Dropdown боссы
-    local dropdown = CreateFrame("Frame", "EPBossDropdown", frame, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("TOPLEFT", 16, -40)
-    UIDropDownMenu_SetWidth(dropdown, 200)
+    -- ======================
+    -- ЛЕВАЯ ПАНЕЛЬ УПРАВЛЕНИЯ
+    -- ======================
+    local leftPanel = CreateFrame("Frame", "EPBossAuctionLeftPanel", frame)
+    leftPanel:SetWidth(160)
+    leftPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -45)
+    leftPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
+    leftPanel:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    leftPanel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+    leftPanel:SetBackdropBorderColor(0,0,0,1)
+    self.leftPanel = leftPanel
+
+    -- 1. Выбор босса
+    local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    bossLabel:SetPoint("TOPLEFT", 10, -10)
+    bossLabel:SetText("Босс:")
+    local dropdown = CreateFrame("Frame", "EPBossDropdown", leftPanel, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("TOPLEFT", bossLabel, "BOTTOMLEFT", -26, -5)
+    UIDropDownMenu_SetWidth(dropdown, 140)
     UIDropDownMenu_SetText(dropdown, "Выбрать босса")
     UIDropDownMenu_Initialize(dropdown, function(selfDD, level)
         for _, bossName in ipairs(auction.bossOrder) do
@@ -90,93 +109,23 @@ function auction:CreateUI()
     end)
     self.bossDropdown = dropdown
 
-    -- ======================
-    -- Чекбокс блокировки ставок
-    -- ======================
-    local lockCheckbox = CreateFrame("CheckButton", "EPBossAuctionLockCheckbox", frame, "UICheckButtonTemplate")
-    lockCheckbox:SetPoint("LEFT", dropdown, "RIGHT", 10, 0)
-    lockCheckbox:SetSize(25, 25)
-    local lockText = lockCheckbox:CreateFontString("EPBossAuctionLockCheckboxText", "OVERLAY", "GameFontNormal")
-    lockText:SetPoint("LEFT", lockCheckbox, "RIGHT", 2, 0)
-    lockText:SetText("Блокировка")
-    lockCheckbox:SetChecked(self.bidsLocked or false)
-    lockCheckbox.text = lockText
-
-    if not self:IsLootMaster() then
-        lockCheckbox:Disable()
-        lockCheckbox:SetAlpha(0.5)
-    else
-        lockCheckbox:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()
-            local state = (checked == 1)
-            auction:SetBidsLocked(state)
-            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
-        end)
-    end
-    self.lockCheckbox = lockCheckbox
-
-    -- ======================
-    -- Чекбокс "Офф-спек"
-    -- ======================
-    local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", frame, "UICheckButtonTemplate")
-    offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 100, 0)
-    offspecCheckbox:SetSize(25, 25)
-    local offspecText = offspecCheckbox:CreateFontString("EPBossAuctionOffspecCheckboxText", "OVERLAY", "GameFontNormal")
-    offspecText:SetPoint("LEFT", offspecCheckbox, "RIGHT", 2, 0)
-    offspecText:SetText("Офф-спек")
-    offspecCheckbox:SetChecked(false)
-    
-    offspecCheckbox:SetScript("OnClick", function(self)
-        local checked = self:GetChecked()
-        if auction.myEP > 0 then
-            auction:UpdateMaxBidDisplay()
-        end
-        local amount = tonumber(auction.bidBox:GetText()) or 0
-        local maxBid = auction:GetMaxBidAmount(checked)
-        if amount > 0 and amount > maxBid then
-            auction.bidBox:SetTextColor(1, 0, 0)
-        else
-            auction.bidBox:SetTextColor(1, 1, 1)
-        end
-    end)
-    self.offspecCheckbox = offspecCheckbox
-
-    -- Фон для скролла
-    local scrollBG = CreateFrame("Frame", nil, frame)
-    scrollBG:SetPoint("TOPLEFT", 16, -102)
-    scrollBG:SetPoint("BOTTOMRIGHT", -30, 80)
-    scrollBG:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    scrollBG:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-    scrollBG:SetBackdropBorderColor(0,0,0,1)
-    scrollBG:Show()
-    self.scrollBG = scrollBG
-
-    -- ScrollFrame
-    local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionScrollFrame", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 16, -102)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -30, 80)
-    self.scrollFrame = scrollFrame
-
-    local content = CreateFrame("Frame", nil, scrollFrame)
-    content:SetSize(580, 300)
-    scrollFrame:SetScrollChild(content)
-    self.content = content
-
-    -- Dropdown предметов
-    local itemDrop = CreateFrame("Frame", "EPItemDropdown", frame, "UIDropDownMenuTemplate")
-    itemDrop:SetPoint("BOTTOMLEFT", 16, 40)
-    UIDropDownMenu_SetWidth(itemDrop, 220)
+    -- 2. Выбор предмета
+    local itemLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    itemLabel:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 26, -15)
+    itemLabel:SetText("Предмет:")
+    local itemDrop = CreateFrame("Frame", "EPItemDropdown", leftPanel, "UIDropDownMenuTemplate")
+    itemDrop:SetPoint("TOPLEFT", itemLabel, "BOTTOMLEFT", -26, -5)
+    UIDropDownMenu_SetWidth(itemDrop, 140)
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
     self.itemDropdown = itemDrop
 
-    -- EditBox (поле ввода)
-    local editBox = CreateFrame("EditBox", "EPBidEditBox", frame, "InputBoxTemplate")
-    editBox:SetSize(100, 25)
-    editBox:SetPoint("LEFT", itemDrop, "RIGHT", 10, 0)
+    -- 3. Поле ввода ставки
+    local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    bidLabel:SetPoint("TOPLEFT", itemDrop, "BOTTOMLEFT", 26, -15)
+    bidLabel:SetText("Сумма ставки:")
+    local editBox = CreateFrame("EditBox", "EPBidEditBox", leftPanel, "InputBoxTemplate")
+    editBox:SetSize(135, 25)
+    editBox:SetPoint("TOPLEFT", bidLabel, "BOTTOMLEFT", 5, -5)
     editBox:SetAutoFocus(false)
     editBox:SetNumeric(true)
     editBox:SetMaxLetters(6)
@@ -208,35 +157,77 @@ function auction:CreateUI()
     end)
     self.bidBox = editBox
 
-    -- Кнопка "Сделать ставку"
-    local button = CreateFrame("Button", "EPBossAuctionBidButton", frame, "UIPanelButtonTemplate")
+    -- 4. Кнопка "Сделать ставку"
+    local button = CreateFrame("Button", "EPBossAuctionBidButton", leftPanel, "UIPanelButtonTemplate")
     self.bidButton = button
     button:SetSize(140, 25)
-    button:SetPoint("LEFT", editBox, "RIGHT", 10, 0)
+    button:SetPoint("TOPLEFT", editBox, "BOTTOMLEFT", -5, -8)
     button:SetText("Сделать ставку")
     button:SetScript("OnClick", function()
         auction:SendBidLocal()
     end)
 
-    -- Кнопка "Запросить"
-    local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", frame, "UIPanelButtonTemplate")
+    -- 5. Чекбоксы
+    local lockCheckbox = CreateFrame("CheckButton", "EPBossAuctionLockCheckbox", leftPanel, "UICheckButtonTemplate")
+    lockCheckbox:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -12)
+    lockCheckbox:SetSize(20, 20)
+    local lockText = lockCheckbox:CreateFontString("EPBossAuctionLockCheckboxText", "OVERLAY", "GameFontNormal")
+    lockText:SetPoint("LEFT", lockCheckbox, "RIGHT", 2, 0)
+    lockText:SetText("Блок")
+    lockCheckbox:SetChecked(self.bidsLocked or false)
+    lockCheckbox.text = lockText
+    if not self:IsLootMaster() then
+        lockCheckbox:Disable()
+        lockCheckbox:SetAlpha(0.5)
+    else
+        lockCheckbox:SetScript("OnClick", function(self)
+            local checked = self:GetChecked()
+            local state = (checked == 1)
+            auction:SetBidsLocked(state)
+            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+        end)
+    end
+    self.lockCheckbox = lockCheckbox
+
+    local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", leftPanel, "UICheckButtonTemplate")
+    offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 35, 0)
+    offspecCheckbox:SetSize(20, 20)
+    local offspecText = offspecCheckbox:CreateFontString("EPBossAuctionOffspecCheckboxText", "OVERLAY", "GameFontNormal")
+    offspecText:SetPoint("LEFT", offspecCheckbox, "RIGHT", 2, 0)
+    offspecText:SetText("Офф-спек")
+    offspecCheckbox:SetChecked(false)
+    offspecCheckbox:SetScript("OnClick", function(self)
+        local checked = self:GetChecked()
+        if auction.myEP > 0 then
+            auction:UpdateMaxBidDisplay()
+        end
+        local amount = tonumber(auction.bidBox:GetText()) or 0
+        local maxBid = auction:GetMaxBidAmount(checked)
+        if amount > 0 and amount > maxBid then
+            auction.bidBox:SetTextColor(1, 0, 0)
+        else
+            auction.bidBox:SetTextColor(1, 1, 1)
+        end
+    end)
+    self.offspecCheckbox = offspecCheckbox
+
+    -- 6. Кнопка "Запросить"
+    local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", leftPanel, "UIPanelButtonTemplate")
     self.requestButton = requestButton
-    requestButton:SetSize(70, 25)
-    requestButton:SetPoint("LEFT", button, "RIGHT", 10, 0)
-    requestButton:SetText("Запросить")
+    requestButton:SetSize(140, 25)
+    requestButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -12)
+    requestButton:SetText("Запросить данные")
     requestButton:SetScript("OnClick", function()
         auction:RequestDataFromLM()
     end)
 
-    -- Кнопка "Очистить таблицу"
-    local endButton = CreateFrame("Button", "EPBossAuctionEndButton", frame, "UIPanelButtonTemplate")
+    -- 7. Кнопка "Очистить таблицу"
+    local endButton = CreateFrame("Button", "EPBossAuctionEndButton", leftPanel, "UIPanelButtonTemplate")
     endButton:SetSize(140, 25)
-    endButton:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -5)
+    endButton:SetPoint("TOPLEFT", requestButton, "BOTTOMLEFT", 0, -8)
     endButton:SetText("Очистить таблицу")
     endButton:SetScript("OnClick", function()
-        if not auction:IsLootMaster() then
-            return
-        end
+        if not auction:IsLootMaster() then return end
         auction:EndAuctionLocal()
         if auction.selectedBoss then
             SendAddonMessage(auction.prefix, "END;"..auction.selectedBoss, "RAID")
@@ -244,48 +235,63 @@ function auction:CreateUI()
     end)
     self.endButton = endButton
 
-    -- Кнопка "Журнал"
-    local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", frame, "UIPanelButtonTemplate")
-    journalButton:SetSize(70, 25)
-    journalButton:SetPoint("LEFT", endButton, "RIGHT", 10, 0)
-    journalButton:SetText("Журнал")
+    -- 8. Кнопка "Журнал"
+    local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", leftPanel, "UIPanelButtonTemplate")
+    journalButton:SetSize(140, 25)
+    journalButton:SetPoint("TOPLEFT", endButton, "BOTTOMLEFT", 0, -8)
+    journalButton:SetText("Журнал ставок")
     journalButton:SetScript("OnClick", function()
         auction:ToggleJournal()
     end)
     self.journalButton = journalButton
 
-    -- Текст "Ваш ЕП"
-    local epText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epText:SetPoint("TOPLEFT", itemDrop, "BOTTOMLEFT", 0, -5)
+    -- 9. Текст "Ваш ЕП"
+    local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    epText:SetPoint("TOPLEFT", journalButton, "BOTTOMLEFT", 0, -15)
     epText:SetText("Ваш ЕП: ...")
     auction.myEPText = epText
 
-    -- Текст максимальной ставки
-    local maxBidText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    -- 10. Текст максимальной ставки
+    local maxBidText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     maxBidText:SetPoint("TOPLEFT", epText, "BOTTOMLEFT", 0, -2)
     maxBidText:SetText("Макс. ставка: ...")
     maxBidText:SetTextColor(0.7, 0.7, 0.7)
     auction.maxBidText = maxBidText
 
     -- ======================
-    -- Кнопка для растягивания окна
+    -- ПРАВАЯ ОБЛАСТЬ – ТАБЛИЦА (скроллфрейм) с фоном
     -- ======================
+    local scrollBG = CreateFrame("Frame", "EPBossAuctionScrollBG", frame)
+    scrollBG:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    scrollBG:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+    scrollBG:SetBackdropBorderColor(0,0,0,1)
+    self.scrollBG = scrollBG
+
+    local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionScrollFrame", frame, "UIPanelScrollFrameTemplate")
+    self.scrollFrame = scrollFrame
+
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    scrollFrame:SetScrollChild(content)
+    self.content = content
+
+    -- Кнопка для растягивания окна
     local sizer = CreateFrame("Button", "EPBossAuctionSizer", frame)
     sizer:SetSize(20, 20)
     sizer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
-    
     local sizerHighlight = sizer:CreateTexture(nil, "OVERLAY")
     sizerHighlight:SetTexture("Interface\\Buttons\\WHITE8x8")
     sizerHighlight:SetVertexColor(1, 0.8, 0, 0)
     sizerHighlight:SetAllPoints()
     sizer.highlight = sizerHighlight
-    
     local sizerTexture = sizer:CreateTexture(nil, "BACKGROUND")
     sizerTexture:SetSize(16, 16)
     sizerTexture:SetPoint("CENTER")
     sizerTexture:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
     sizerTexture:SetTexCoord(0.05, 0.5, 0.05, 0.5, 0.05, 0.5, 0.5, 0.5)
-    
     sizer:SetScript("OnEnter", function(self)
         if self.highlight then
             self.highlight:SetVertexColor(1, 0.8, 0, 0.3)
@@ -315,9 +321,8 @@ function auction:CreateUI()
     end)
     self.sizer = sizer
 
-    -- Настройка растягивания окна
     frame:SetResizable(true)
-    frame:SetMinResize(500, 400)
+    frame:SetMinResize(650, 450)
     frame:SetMaxResize(1200, 900)
 
     frame:SetScript("OnSizeChanged", function()
@@ -334,17 +339,35 @@ function auction:CreateUI()
         end, 0.05)
     end)
 
+    -- Обновляем позиционирование левой панели и скроллфрейма
+    local function updateLayout()
+        if not auction.frame then return end
+        -- скроллфрейм привязываем к правой стороне левой панели и к низу окна
+        auction.scrollFrame:ClearAllPoints()
+        auction.scrollFrame:SetPoint("TOPLEFT", auction.leftPanel, "TOPRIGHT", 10, 0)
+        auction.scrollFrame:SetPoint("BOTTOMRIGHT", auction.frame, "BOTTOMRIGHT", -16, 16)
+        -- фон скроллфрейма занимает ту же область
+        auction.scrollBG:ClearAllPoints()
+        auction.scrollBG:SetPoint("TOPLEFT", auction.scrollFrame, "TOPLEFT", -2, 2)
+        auction.scrollBG:SetPoint("BOTTOMRIGHT", auction.scrollFrame, "BOTTOMRIGHT", 2, -2)
+        auction:RefreshTable()
+    end
+
+    frame:HookScript("OnSizeChanged", updateLayout)
+    updateLayout()
+    -- Корректировка положения скроллбара
+    local scrollBar = _G["EPBossAuctionScrollFrameScrollBar"]
+    if scrollBar then
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPRIGHT", self.scrollFrame, "TOPRIGHT", 2, -17)
+        scrollBar:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, 17)
+    end
     self:UpdateLMButtonsState()
 
     -- Slash команды
     SLASH_EPBA1 = "/epba"
     SlashCmdList["EPBA"] = function()
-        if frame:IsShown() then 
-            frame:Hide() 
-        else 
-            frame:Show()
-            auction:ForceEPUpdate()
-        end
+        if frame:IsShown() then frame:Hide() else frame:Show(); auction:ForceEPUpdate() end
     end
     SLASH_EPGP_FIND1 = "/epgpfind"
     SlashCmdList["EPGP_FIND"] = function()
@@ -364,7 +387,7 @@ function auction:CreateUI()
             end
         end)
     end
-    SLASH_EPBA_ZOOM_IN1 = "/epbazoom+" 
+    SLASH_EPBA_ZOOM_IN1 = "/epbazoom+"
     SlashCmdList["EPBA_ZOOM_IN"] = function()
         auction:ZoomIn()
         print("|cff00ff00[EPBA]|r Масштаб: "..math.floor(auction.windowScale * 100).."%")
@@ -402,6 +425,7 @@ function auction:CreateUI()
     frame:SetScript("OnShow", function()
         auction:ForceClickable()
         auction:UpdateLMButtonsState()
+		auction:ForceEPUpdate()
     end)
 
     self:ApplyElvUISkin()
@@ -409,7 +433,19 @@ function auction:CreateUI()
 end
 
 -- ======================
--- Функция обновления отображения максимальной ставки
+-- Обновление размеров скролл-фрейма
+-- ======================
+function auction:UpdateScrollFrameSize()
+    if not self.frame or not self.scrollFrame then return end
+    if self.scrollBG then
+        self.scrollBG:ClearAllPoints()
+        self.scrollBG:SetPoint("TOPLEFT", self.scrollFrame, "TOPLEFT", -2, 2)
+        self.scrollBG:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, -2)
+    end
+end
+
+-- ======================
+-- Обновление отображения максимальной ставки
 -- ======================
 function auction:UpdateMaxBidDisplay()
     if not self.maxBidText then return end
@@ -419,7 +455,7 @@ function auction:UpdateMaxBidDisplay()
     local currentBid = tonumber(self.bidBox:GetText()) or 0
     
     if isOffspec then
-        self.maxBidText:SetText(string.format("Макс. ставка (офф-спек): %s EP", self:FormatNumber(maxBid)))
+        self.maxBidText:SetText(string.format("Макс. ставка: %s EP", self:FormatNumber(maxBid)))
     else
         self.maxBidText:SetText(string.format("Макс. ставка: %s EP", self:FormatNumber(maxBid)))
     end
@@ -432,32 +468,7 @@ function auction:UpdateMaxBidDisplay()
 end
 
 -- ======================
--- Обновление размеров скролл-фрейма
--- ======================
-function auction:UpdateScrollFrameSize()
-    if not self.frame or not self.scrollFrame then return end
-    
-    local leftOffset = 16
-    local topOffset = 102
-    local rightOffset = 30
-    local bottomOffset = 80
-    
-    self.scrollFrame:ClearAllPoints()
-    self.scrollFrame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
-    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
-    
-    if self.scrollBG then
-        self.scrollBG:ClearAllPoints()
-        self.scrollBG:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
-        self.scrollBG:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
-    end
-    
-    self.db.window.width = self.frame:GetWidth()
-    self.db.window.height = self.frame:GetHeight()
-end
-
--- ======================
--- Установка состояния блокировки (локально)
+-- Установка состояния блокировки
 -- ======================
 function auction:SetBidsLocked(state)
     self.bidsLocked = state
@@ -477,7 +488,7 @@ function auction:SetBidsLocked(state)
 end
 
 -- ======================
--- Обновление состояния чекбокса при смене лутера
+-- Обновление состояния чекбокса
 -- ======================
 function auction:UpdateLockCheckbox()
     if not self.lockCheckbox then return end
@@ -524,7 +535,7 @@ function auction:UpdateLMButtonsState()
 end
 
 -- ======================
--- Обновление таблицы (с динамической шириной колонок, без заголовков)
+-- Обновление таблицы (с правильным отступом для скроллбара)
 -- ======================
 function auction:RefreshTable()
     if not self.selectedBoss then return end
@@ -544,7 +555,6 @@ function auction:RefreshTable()
     local oddColor = dbTable.oddRowColor or {0,0,0,0}
     local selectedColor = dbTable.selectedRowColor or {0.3,0.6,1,0.3}
     local hoverColor = dbTable.hoverRowColor or {0.2,0.2,0.2,0.5}
-    local columnSplit = dbTable.columnSplit or 40
 
     -- Получаем ширину скролл-фрейма
     local scrollWidth = self.scrollFrame:GetWidth()
@@ -554,10 +564,11 @@ function auction:RefreshTable()
     -- Устанавливаем ширину контента равной ширине скролл-фрейма
     self.content:SetWidth(scrollWidth)
 
-    -- Доступная ширина для строк (учитываем отступы слева/справа, если нужно)
-    local availableWidth = scrollWidth - 5
+    -- Ширина строки: полная ширина контента минус отступ справа для скроллбара (обычно 25)
+    local scrollBarWidth = 16
+    local availableWidth = scrollWidth - scrollBarWidth
     if availableWidth < 100 then
-        availableWidth = scrollWidth - 10
+        availableWidth = scrollWidth - 30
     end
 
     -- Динамически распределяем ширину колонок (50/50)
@@ -601,7 +612,7 @@ function auction:RefreshTable()
     for i, itemID in ipairs(items) do
         local rowTable = {}
 
-        -- Фон строки
+        -- Фон строки (ширина availableWidth)
         local bg = content:CreateTexture(nil, "BACKGROUND")
         bg:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -rowHeight*(i-1))
         bg:SetSize(availableWidth, rowHeight)
@@ -736,9 +747,6 @@ function auction:RefreshTable()
             end
         end)
         
-        -- ======================
-        -- ИСПРАВЛЕННЫЙ OnEnter ДЛЯ ПРАВОЙ ЧАСТИ (СТАВКИ)
-        -- ======================
         rightClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
@@ -748,37 +756,36 @@ function auction:RefreshTable()
         end)
         
         rightClickFrame:SetScript("OnEnter", function()
-			local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
-			GameTooltip:SetOwner(rightClickFrame, anchor)
-			
-			local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][currentItemID] or {}
-			table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
-			
-			if #bidsForItem > 0 then
-				GameTooltip:AddLine("Ставки на предмет", 1, 0.8, 0)
-				GameTooltip:AddLine(" ")
-				
-				for _, bid in ipairs(bidsForItem) do
-					local coloredName = self:FormatColoredName(bid.player)
-					-- Получаем актуальный EP без кэша (noCache = true)
-					local ep = self:GetPlayerEP(bid.player, true)
-					local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
-					local offspecMark = bid.isOffspec and " (O)" or ""
-					
-					GameTooltip:AddLine(string.format("%s|r - %s EP%s", coloredName, self:FormatNumber(bid.amount), offspecMark), 1, 1, 1)
-					GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
-					GameTooltip:AddLine(" ")
-				end
-			else
-				GameTooltip:SetText("Нет ставок на этот предмет")
-			end
-			
-			GameTooltip:Show()
-			
-			if currentItemID ~= auction.selectedItem then
-				currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
-			end
-		end)
+            local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
+            GameTooltip:SetOwner(rightClickFrame, anchor)
+            
+            local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][currentItemID] or {}
+            table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
+            
+            if #bidsForItem > 0 then
+                GameTooltip:AddLine("Ставки на предмет", 1, 0.8, 0)
+                GameTooltip:AddLine(" ")
+                
+                for _, bid in ipairs(bidsForItem) do
+                    local coloredName = self:FormatColoredName(bid.player)
+                    local ep = self:GetPlayerEP(bid.player, true)
+                    local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
+                    local offspecMark = bid.isOffspec and " (O)" or ""
+                    
+                    GameTooltip:AddLine(string.format("%s|r - %s EP%s", coloredName, self:FormatNumber(bid.amount), offspecMark), 1, 1, 1)
+                    GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
+                    GameTooltip:AddLine(" ")
+                end
+            else
+                GameTooltip:SetText("Нет ставок на этот предмет")
+            end
+            
+            GameTooltip:Show()
+            
+            if currentItemID ~= auction.selectedItem then
+                currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
+            end
+        end)
         
         rightClickFrame:SetScript("OnLeave", function()
             GameTooltip:Hide()
@@ -970,7 +977,7 @@ function auction:EndAuctionLocal()
 end
 
 -- ======================
--- ElvUI Skin (для главного окна)
+-- ElvUI Skin
 -- ======================
 function auction:ApplyElvUISkin()
     if not IsAddOnLoaded("ElvUI") then return end
@@ -1014,8 +1021,9 @@ function auction:ApplyElvUISkin()
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
 end
+
 -- ======================
--- Обновление цветов строк ставок (красный если EP < ставка)
+-- Обновление цветов строк ставок
 -- ======================
 function auction:UpdateBidRowColors()
     if not self.rowFrames or not self.selectedBoss then return end
@@ -1032,13 +1040,11 @@ function auction:UpdateBidRowColors()
             if bidsForItem[j] then
                 local formatted = self:FormatNumber(bidsForItem[j].amount)
                 local playerName = bidsForItem[j].player
-                -- Используем кэшированный EP (для производительности)
                 local ep = self:GetPlayerEP(playerName, false)
                 local coloredName
                 if ep >= bidsForItem[j].amount then
                     coloredName = self:FormatColoredName(playerName)
                 else
-                    -- Если EP меньше ставки, делаем имя красным
                     coloredName = "|cffff0000" .. playerName .. "|r"
                 end
                 local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
