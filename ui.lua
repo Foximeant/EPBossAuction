@@ -455,9 +455,9 @@ function auction:UpdateMaxBidDisplay()
     local currentBid = tonumber(self.bidBox:GetText()) or 0
     
     if isOffspec then
-        self.maxBidText:SetText(string.format("Макс. ставка: %s EP", self:FormatNumber(maxBid)))
+        self.maxBidText:SetText(string.format("Макс. ставка: %s", self:FormatNumber(maxBid)))
     else
-        self.maxBidText:SetText(string.format("Макс. ставка: %s EP", self:FormatNumber(maxBid)))
+        self.maxBidText:SetText(string.format("Макс. ставка: %s", self:FormatNumber(maxBid)))
     end
     
     if currentBid > 0 and currentBid > maxBid then
