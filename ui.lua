@@ -381,9 +381,9 @@ function auction:CreateUI()
     SlashCmdList["EPBA_UPDATE"] = function()
         auction:ForceEPUpdate(function(success, ep)
             if success then
-                print("|cff00ff00[EPBA]|r EP обновлен: "..auction:FormatNumber(ep))
+                --print("|cff00ff00[EPBA]|r EP обновлен: "..auction:FormatNumber(ep))
             else
-                print("|cffff0000[EPBA]|r Не удалось обновить EP")
+                --print("|cffff0000[EPBA]|r Не удалось обновить EP")
             end
         end)
     end
@@ -866,11 +866,11 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffsp
         self:SendSync(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
         local coloredName = self:FormatColoredName(playerName)
-        print("|cff00ff00[EPBA]|r "..coloredName.."|r отказался от ставки.")
+        --print("|cff00ff00[EPBA]|r "..coloredName.."|r отказался от ставки.")
         return
     end
     if amount < self.db.general.minBid then
-        print("|cff00ff00[EPBA]|r Ставка не может быть меньше минимальной ("..self.db.general.minBid..")")
+        --print("|cff00ff00[EPBA]|r Ставка не может быть меньше минимальной ("..self.db.general.minBid..")")
         return
     end
     local existingBid
@@ -916,7 +916,7 @@ function auction:SendBidLocal()
     
     self:ForceEPUpdate(function(success, currentEP)
         if not success then
-            print("|cffff0000[EPBA]|r Не удалось получить актуальный EP!")
+            --print("|cffff0000[EPBA]|r Не удалось получить актуальный EP!")
             return
         end
         
