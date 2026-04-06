@@ -88,6 +88,8 @@ end
 function auction:StartEPUpdates()
     if self.updateTimer then
         self.updateTimer:SetScript("OnUpdate", nil)
+        self.updateTimer:Hide()
+        self.updateTimer:SetParent(nil)
     end
     local frame = CreateFrame("Frame")
     local elapsed = 0
@@ -148,11 +150,20 @@ function auction:CheckCurrentBidAgainstEP()
     end
 end
 
+-- ИСПРАВЛЕНО: защита от рекурсии
 function auction:ForceEPUpdate(callback)
+    if self.isUpdatingEP then
+        self:Debug("ForceEPUpdate уже выполняется, пропускаем")
+        if callback then callback(false, self.myEP) end
+        return
+    end
+    self.isUpdatingEP = true
+    
     self:Debug("Принудительное обновление EP...")
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
     if not epgpTable then
         if callback then callback(false, 0) end
+        self.isUpdatingEP = false
         return
     end
     if epgpTable.Update then
@@ -185,20 +196,18 @@ function auction:ForceEPUpdate(callback)
         auction.myEP = newEP
         auction.lastEPUpdate = GetTime()
         
-        -- Обновляем offspecMultiplier из настроек
         auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
         
-        -- Обновляем кэш EP для всех игроков в таблице
         auction:RefreshPlayerEPCache()
         
         if auction.frame and auction.frame:IsShown() then
             auction.myEPText:SetText("Ваш ЕП: "..auction:FormatNumber(newEP))
             auction:UpdateMaxBidDisplay()
-            -- Обновляем цвета строк в таблице
             auction:UpdateBidRowColors()
         end
         auction:Debug("Принудительное обновление завершено, EP="..newEP)
         if callback then callback(true, newEP) end
+        auction.isUpdatingEP = false
     end, 0.5)
 end
 

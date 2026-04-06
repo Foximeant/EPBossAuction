@@ -79,20 +79,25 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:StartEPUpdates()
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
-		
-		if auction and auction.ApplyElvUISkin then
-			auction:ApplyElvUISkin()
-		end
+        
+        if auction and auction.ApplyElvUISkin then
+            auction:ApplyElvUISkin()
+        end
 
-		if auction and auction.ApplyJournalSkin then
-			auction:ApplyJournalSkin()
-		end
-		
+        if auction and auction.ApplyJournalSkin then
+            auction:ApplyJournalSkin()
+        end
+        
         if auction.pendingWorldEnter then
             auction:HandleWorldEnter()
             auction.pendingWorldEnter = nil
         end
         auction:Debug("Аддон загружен")
+        
+        -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
+        auction:ScheduleTimer(function()
+            auction:CleanOutbidNotified()
+        end, 300)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         auction:Debug("PLAYER_ENTERING_WORLD (pending)")
@@ -149,7 +154,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end
             auction:UpdateLMButtonsState()
             
-            -- Обновляем состояние слайдера офф-спек в настройках, если панель открыта
             if auction.optionsPanel and auction.optionsPanel:IsShown() then
                 local slider = _G["EPBAOffspecMultiplierSlider"]
                 if slider then
@@ -173,9 +177,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
     elseif event == "EPGP_UPDATE" or event == "EPGP_DATA_CHANGED" then
         if auction.fullyLoaded then
             auction:Debug("Получено обновление от EPGP")
-            auction:ScheduleTimer(function()
-                auction:CheckAndUpdateEP()
-            end, 1)
+            auction:CheckAndUpdateEP()
         end
     end
 end)

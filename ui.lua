@@ -1,7 +1,7 @@
 local auction = EPBossAuction
 
 -- ======================
--- Создание основного окна (НОВЫЙ МАКЕТ: левая панель + таблица справа)
+-- Создание основного окна (левая панель)
 -- ======================
 function auction:CreateUI()
     local frame = CreateFrame("Frame", "EPBossAuctionFrame", UIParent)
@@ -39,7 +39,7 @@ function auction:CreateUI()
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("RS EPBossAuction 1.5.3")
+    title:SetText("RS EPBossAuction "..self.version)
 
     -- Кнопка закрытия
     local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame, "UIPanelCloseButton")
@@ -245,13 +245,23 @@ function auction:CreateUI()
     end)
     self.journalButton = journalButton
 
-    -- 9. Текст "Ваш ЕП"
+    -- 9. Кнопка "Очередь" (новая)
+    local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
+    queueButton:SetSize(140, 25)
+    queueButton:SetPoint("TOPLEFT", journalButton, "BOTTOMLEFT", 0, -8)
+    queueButton:SetText("Очередь")
+    queueButton:SetScript("OnClick", function()
+        auction:ToggleQueue()
+    end)
+    self.queueButton = queueButton
+
+    -- 10. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epText:SetPoint("TOPLEFT", journalButton, "BOTTOMLEFT", 0, -15)
+    epText:SetPoint("TOPLEFT", queueButton, "BOTTOMLEFT", 0, -15)
     epText:SetText("Ваш ЕП: ...")
     auction.myEPText = epText
 
-    -- 10. Текст максимальной ставки
+    -- 11. Текст максимальной ставки
     local maxBidText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     maxBidText:SetPoint("TOPLEFT", epText, "BOTTOMLEFT", 0, -2)
     maxBidText:SetText("Макс. ставка: ...")
@@ -327,7 +337,9 @@ function auction:CreateUI()
 
     frame:SetScript("OnSizeChanged", function()
         if auction.resizeTimer then
-            auction.resizeTimer:Cancel()
+            auction.resizeTimer:SetScript("OnUpdate", nil)
+            auction.resizeTimer:Hide()
+            auction.resizeTimer:SetParent(nil)
             auction.resizeTimer = nil
         end
         auction.resizeTimer = auction:ScheduleTimer(function()
@@ -339,14 +351,11 @@ function auction:CreateUI()
         end, 0.05)
     end)
 
-    -- Обновляем позиционирование левой панели и скроллфрейма
     local function updateLayout()
         if not auction.frame then return end
-        -- скроллфрейм привязываем к правой стороне левой панели и к низу окна
         auction.scrollFrame:ClearAllPoints()
         auction.scrollFrame:SetPoint("TOPLEFT", auction.leftPanel, "TOPRIGHT", 10, 0)
         auction.scrollFrame:SetPoint("BOTTOMRIGHT", auction.frame, "BOTTOMRIGHT", -16, 16)
-        -- фон скроллфрейма занимает ту же область
         auction.scrollBG:ClearAllPoints()
         auction.scrollBG:SetPoint("TOPLEFT", auction.scrollFrame, "TOPLEFT", -2, 2)
         auction.scrollBG:SetPoint("BOTTOMRIGHT", auction.scrollFrame, "BOTTOMRIGHT", 2, -2)
@@ -355,13 +364,14 @@ function auction:CreateUI()
 
     frame:HookScript("OnSizeChanged", updateLayout)
     updateLayout()
-    -- Корректировка положения скроллбара
+    
     local scrollBar = _G["EPBossAuctionScrollFrameScrollBar"]
     if scrollBar then
         scrollBar:ClearAllPoints()
         scrollBar:SetPoint("TOPRIGHT", self.scrollFrame, "TOPRIGHT", 2, -17)
         scrollBar:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, 17)
     end
+    
     self:UpdateLMButtonsState()
 
     -- Slash команды
@@ -379,13 +389,7 @@ function auction:CreateUI()
     end
     SLASH_EPBA_UPDATE1 = "/epbaupdate"
     SlashCmdList["EPBA_UPDATE"] = function()
-        auction:ForceEPUpdate(function(success, ep)
-            if success then
-                --print("|cff00ff00[EPBA]|r EP обновлен: "..auction:FormatNumber(ep))
-            else
-                --print("|cffff0000[EPBA]|r Не удалось обновить EP")
-            end
-        end)
+        auction:ForceEPUpdate(function(success, ep) end)
     end
     SLASH_EPBA_ZOOM_IN1 = "/epbazoom+"
     SlashCmdList["EPBA_ZOOM_IN"] = function()
@@ -425,7 +429,7 @@ function auction:CreateUI()
     frame:SetScript("OnShow", function()
         auction:ForceClickable()
         auction:UpdateLMButtonsState()
-		auction:ForceEPUpdate()
+        auction:ForceEPUpdate()
     end)
 
     self:ApplyElvUISkin()
@@ -532,10 +536,11 @@ function auction:UpdateLMButtonsState()
         self.endButton:SetAlpha(0.5)
         self.journalButton:SetAlpha(1.0)
     end
+    self:UpdateQueueState()
 end
 
 -- ======================
--- Обновление таблицы (с правильным отступом для скроллбара)
+-- Обновление таблицы (основная логика, сокращённо)
 -- ======================
 function auction:RefreshTable()
     if not self.selectedBoss then return end
@@ -556,26 +561,17 @@ function auction:RefreshTable()
     local selectedColor = dbTable.selectedRowColor or {0.3,0.6,1,0.3}
     local hoverColor = dbTable.hoverRowColor or {0.2,0.2,0.2,0.5}
 
-    -- Получаем ширину скролл-фрейма
     local scrollWidth = self.scrollFrame:GetWidth()
-    if scrollWidth < 100 then
-        scrollWidth = 580
-    end
-    -- Устанавливаем ширину контента равной ширине скролл-фрейма
+    if scrollWidth < 100 then scrollWidth = 580 end
     self.content:SetWidth(scrollWidth)
 
-    -- Ширина строки: полная ширина контента минус отступ справа для скроллбара (обычно 25)
     local scrollBarWidth = 16
     local availableWidth = scrollWidth - scrollBarWidth
-    if availableWidth < 100 then
-        availableWidth = scrollWidth - 30
-    end
+    if availableWidth < 100 then availableWidth = scrollWidth - 30 end
 
-    -- Динамически распределяем ширину колонок (50/50)
     local itemWidth = math.floor(availableWidth / 2)
     local bidWidth = availableWidth - itemWidth - 10
 
-    -- Инициализация выпадающего списка предметов
     UIDropDownMenu_Initialize(self.itemDropdown, function(selfDD, level)
         for _, itemID in ipairs(items) do
             local info = UIDropDownMenu_CreateInfo()
@@ -593,10 +589,9 @@ function auction:RefreshTable()
     end)
     UIDropDownMenu_SetText(self.itemDropdown, "Выбрать предмет")
 
-    -- Очистка старых строк
     if self.rowFrames then
         for _, t in ipairs(self.rowFrames) do
-            if t.bg then t.bg:Hide() end
+            if t.bg then t.bg:SetTexture(nil); t.bg:Hide() end
             if t.icon then t.icon:Hide() end
             if t.row then t.row:Hide() end
             if t.bidsStr then t.bidsStr:Hide() end
@@ -611,19 +606,14 @@ function auction:RefreshTable()
 
     for i, itemID in ipairs(items) do
         local rowTable = {}
-
-        -- Фон строки (ширина availableWidth)
         local bg = content:CreateTexture(nil, "BACKGROUND")
         bg:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -rowHeight*(i-1))
         bg:SetSize(availableWidth, rowHeight)
         if itemID == self.selectedItem then
             bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
         else
-            if i % 2 == 0 then
-                bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-            else
-                bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
-            end
+            if i % 2 == 0 then bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+            else bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
         end
         rowTable.bg = bg
 
@@ -636,13 +626,9 @@ function auction:RefreshTable()
             rowTable.icon = icon
         end
 
-        -- Название предмета
         local row = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        if showIcons then
-            row:SetPoint("LEFT", rowTable.icon, "RIGHT", 5, 0)
-        else
-            row:SetPoint("LEFT", content, "LEFT", 5, 0)
-        end
+        if showIcons then row:SetPoint("LEFT", rowTable.icon, "RIGHT", 5, 0)
+        else row:SetPoint("LEFT", content, "LEFT", 5, 0) end
         row:SetWidth(itemWidth)
         row:SetJustifyH("LEFT")
         row:SetWordWrap(true)
@@ -652,20 +638,16 @@ function auction:RefreshTable()
         row:SetText(itemName)
 
         local colorMode = self.db.table.itemColorMode or "gold"
-        if colorMode == "gold" then
-            row:SetTextColor(1, 0.8, 0)
+        if colorMode == "gold" then row:SetTextColor(1, 0.8, 0)
         else
             local _, _, quality = GetItemInfo(itemID)
             if quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
                 local c = ITEM_QUALITY_COLORS[quality]
                 row:SetTextColor(c.r, c.g, c.b)
-            else
-                row:SetTextColor(1, 1, 1)
-            end
+            else row:SetTextColor(1, 1, 1) end
         end
         rowTable.row = row
 
-        -- Текст ставок
         local bidsStr = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         bidsStr:SetPoint("LEFT", row, "LEFT", itemWidth + 10, 0)
         bidsStr:SetWidth(bidWidth)
@@ -681,27 +663,21 @@ function auction:RefreshTable()
         for j = 1, showTopBids do
             if bidsForItem[j] then
                 local formatted = self:FormatNumber(bidsForItem[j].amount)
-                local playerName = bidsForItem[j].player
-                local coloredName = self:FormatColoredName(playerName)
+                local coloredName = self:FormatColoredName(bidsForItem[j].player)
                 local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
-                if j == 1 then
-                    topText = topText .. coloredName .. " - " .. formatted .. offspecMark
-                else
-                    topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark
-                end
+                if j == 1 then topText = topText .. coloredName .. " - " .. formatted .. offspecMark
+                else topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark end
                 topText = topText .. "|r"
             end
         end
         bidsStr:SetText(topText)
         rowTable.bidsStr = bidsStr
 
-        -- Левая часть (название предмета)
         local leftClickFrame = CreateFrame("Button", nil, content)
         leftClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
         leftClickFrame:SetPoint("BOTTOMRIGHT", bg, "TOPLEFT", itemWidth + 10, -rowHeight)
         leftClickFrame:EnableMouse(true)
         
-        -- Правая часть (ставки)
         local rightClickFrame = CreateFrame("Button", nil, content)
         rightClickFrame:SetPoint("TOPLEFT", bg, "TOPLEFT", itemWidth + 10, 0)
         rightClickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
@@ -722,13 +698,9 @@ function auction:RefreshTable()
         leftClickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
             GameTooltip:SetOwner(leftClickFrame, anchor)
-            if IsShiftKeyDown() then
-                GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
-            else
-                GameTooltip:SetHyperlink("item:"..currentItemID)
-            end
+            if IsShiftKeyDown() then GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
+            else GameTooltip:SetHyperlink("item:"..currentItemID) end
             GameTooltip:Show()
-            
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
@@ -739,11 +711,8 @@ function auction:RefreshTable()
             if currentItemID == auction.selectedItem then
                 currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
             else
-                if currentRow % 2 == 0 then
-                    currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-                else
-                    currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
-                end
+                if currentRow % 2 == 0 then currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+                else currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
             end
         end)
         
@@ -758,30 +727,22 @@ function auction:RefreshTable()
         rightClickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
             GameTooltip:SetOwner(rightClickFrame, anchor)
-            
             local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][currentItemID] or {}
             table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
-            
             if #bidsForItem > 0 then
                 GameTooltip:AddLine("Ставки на предмет", 1, 0.8, 0)
                 GameTooltip:AddLine(" ")
-                
                 for _, bid in ipairs(bidsForItem) do
                     local coloredName = self:FormatColoredName(bid.player)
                     local ep = self:GetPlayerEP(bid.player, true)
                     local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
                     local offspecMark = bid.isOffspec and " (O)" or ""
-                    
                     GameTooltip:AddLine(string.format("%s|r - %s EP%s", coloredName, self:FormatNumber(bid.amount), offspecMark), 1, 1, 1)
                     GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
                     GameTooltip:AddLine(" ")
                 end
-            else
-                GameTooltip:SetText("Нет ставок на этот предмет")
-            end
-            
+            else GameTooltip:SetText("Нет ставок на этот предмет") end
             GameTooltip:Show()
-            
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
@@ -792,11 +753,8 @@ function auction:RefreshTable()
             if currentItemID == auction.selectedItem then
                 currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
             else
-                if currentRow % 2 == 0 then
-                    currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-                else
-                    currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
-                end
+                if currentRow % 2 == 0 then currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+                else currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
             end
         end)
         
@@ -807,9 +765,6 @@ function auction:RefreshTable()
     self:ForceClickable()
 end
 
--- ======================
--- Подсветка выбранной строки
--- ======================
 function auction:HighlightSelectedRow(selectedItemID)
     if not self.rowFrames or not self.selectedBoss then return end
     local dbTable = self.db and self.db.table or {}
@@ -818,21 +773,12 @@ function auction:HighlightSelectedRow(selectedItemID)
     local selectedColor = dbTable.selectedRowColor or {0.3,0.6,1,0.3}
     for i, rowTable in ipairs(self.rowFrames) do
         local itemID = self.bosses[self.selectedBoss][i]
-        if itemID == selectedItemID then
-            rowTable.bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
-        else
-            if i % 2 == 0 then
-                rowTable.bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-            else
-                rowTable.bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
-            end
-        end
+        if itemID == selectedItemID then rowTable.bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
+        elseif i % 2 == 0 then rowTable.bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+        else rowTable.bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
     end
 end
 
--- ======================
--- Принудительное обновление кликабельности
--- ======================
 function auction:ForceClickable()
     if not self.rowFrames then return end
     for _, rowTable in ipairs(self.rowFrames) do
@@ -847,6 +793,154 @@ function auction:ForceClickable()
             rowTable.rightClickFrame:SetFrameLevel(self.content:GetFrameLevel() + 20)
         end
     end
+end
+
+-- ======================
+-- Окно очереди на токены Т6
+-- ======================
+function auction:CreateQueueFrame()
+    if self.queueFrame then return end
+    
+    local frame = CreateFrame("Frame", "EPBossAuctionQueueFrame", UIParent)
+    frame:SetSize(500, 400)
+    frame:SetPoint("CENTER")
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 8, right = 8, top = 8, bottom = 8 }
+    })
+    frame:SetBackdropColor(0, 0, 0, 1)
+    frame:SetMovable(true)
+    frame:SetResizable(true)
+    frame:SetMinResize(400, 300)
+    frame:SetMaxResize(800, 600)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:Hide()
+    tinsert(UISpecialFrames, "EPBossAuctionQueueFrame")
+	    --self:ApplyQueueSkin()
+    self.queueFrame = frame
+    
+    -- Заголовок
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -12)
+    title:SetText("Очередь на токены Т6")
+    
+    -- Кнопка закрытия
+    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -5, -5)
+    close:SetScript("OnClick", function()
+        frame:Hide()
+    end)
+    self.queueCloseButton = close
+    
+    -- Многострочное поле
+    local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    editBox:SetMultiLine(true)
+    editBox:SetPoint("TOPLEFT", 16, -45)
+    editBox:SetPoint("BOTTOMRIGHT", -32, 50)
+    editBox:SetAutoFocus(false)
+    editBox:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    editBox:SetBackdropColor(0, 0, 0, 0.3)
+    editBox:SetBackdropBorderColor(0.2, 0.2, 0.2, 0.5)
+    editBox:SetFont(GameFontNormal:GetFont(), 12)
+    editBox:SetTextColor(1, 1, 1)
+    -- Принудительно задаём минимальную высоту, чтобы мультилайн работал
+    editBox:SetHeight(200)
+    self.queueEditBox = editBox
+    
+    -- Кнопка "Сохранить" (только для лутера)
+    local saveBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    saveBtn:SetSize(100, 25)
+    saveBtn:SetPoint("BOTTOMRIGHT", -16, 16)
+    saveBtn:SetText("Сохранить")
+    saveBtn:SetScript("OnClick", function()
+        if not auction:IsLootMaster() then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Только Loot Master может изменять очередь.")
+            return
+        end
+        local newText = auction.queueEditBox:GetText()
+        auction.tokenQueueText = newText
+        auction:SaveTokenQueue()
+        auction:SendQueueToRaid()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь сохранена и отправлена в рейд.")
+    end)
+    self.queueSaveBtn = saveBtn
+    
+    -- Кнопка "Очистить" (только для лутера)
+    local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    clearBtn:SetSize(80, 25)
+    clearBtn:SetPoint("RIGHT", saveBtn, "LEFT", -10, 0)
+    clearBtn:SetText("Очистить")
+    clearBtn:SetScript("OnClick", function()
+        if not auction:IsLootMaster() then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Только Loot Master может изменять очередь.")
+            return
+        end
+        auction.queueEditBox:SetText("")
+        auction.tokenQueueText = ""
+        auction:SaveTokenQueue()
+        auction:SendQueueToRaid()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена.")
+    end)
+	
+	
+    self.queueClearBtn = clearBtn
+    
+    self:UpdateQueueState()
+end
+
+function auction:ToggleQueue()
+    if not self.queueFrame then
+        self:CreateQueueFrame()
+    end
+    if self.queueFrame:IsShown() then
+        self.queueFrame:Hide()
+    else
+        self:RefreshQueueDisplay()
+        self.queueFrame:Show()
+    end
+end
+
+function auction:RefreshQueueDisplay()
+    if self.queueEditBox then
+        self.queueEditBox:SetText(self.tokenQueueText or "")
+    end
+end
+
+function auction:UpdateQueueState()
+    if not self.queueEditBox then return end
+    local isLM = self:IsLootMaster()
+    if isLM then
+        self.queueEditBox:Enable()
+        self.queueEditBox:EnableMouse(true)
+        self.queueEditBox:SetAlpha(1.0)
+        self.queueSaveBtn:Enable()
+        self.queueSaveBtn:SetAlpha(1.0)
+        self.queueClearBtn:Enable()
+        self.queueClearBtn:SetAlpha(1.0)
+    else
+        self.queueEditBox:Disable()
+        self.queueEditBox:EnableMouse(false)
+        self.queueEditBox:SetAlpha(0.8)
+        self.queueSaveBtn:Disable()
+        self.queueSaveBtn:SetAlpha(0.5)
+        self.queueClearBtn:Disable()
+        self.queueClearBtn:SetAlpha(0.5)
+    end
+end
+
+function auction:SendQueueToRaid()
+    local text = self.tokenQueueText or ""
+    DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Sending QUEUE_TEXT, length="..#text)
+    SendAddonMessage(self.prefix, "QUEUE_TEXT;"..text, "RAID")
 end
 
 -- ======================
@@ -865,30 +959,18 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffsp
         self:RefreshTable()
         self:SendSync(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
-        local coloredName = self:FormatColoredName(playerName)
-        --print("|cff00ff00[EPBA]|r "..coloredName.."|r отказался от ставки.")
         return
     end
-    if amount < self.db.general.minBid then
-        --print("|cff00ff00[EPBA]|r Ставка не может быть меньше минимальной ("..self.db.general.minBid..")")
-        return
-    end
+    if amount < self.db.general.minBid then return end
     local existingBid
     for _, bid in ipairs(self.bids[bossName][itemID]) do
-        if bid.player == playerName then
-            existingBid = bid
-            break
-        end
+        if bid.player == playerName then existingBid = bid; break end
     end
     if existingBid then
         existingBid.amount = amount
         existingBid.isOffspec = isOffspec or false
     else
-        table.insert(self.bids[bossName][itemID], {
-            player = playerName,
-            amount = amount,
-            isOffspec = isOffspec or false
-        })
+        table.insert(self.bids[bossName][itemID], {player = playerName, amount = amount, isOffspec = isOffspec or false})
     end
     self:RefreshTable()
     self:SendSync(bossName, itemID)
@@ -896,52 +978,29 @@ function auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffsp
 end
 
 function auction:SendBidLocal()
-    if self.bidsLocked then
-        return
-    end
-
-    if not self.selectedBoss or not self.selectedItem then
-        return
-    end
+    if self.bidsLocked then return end
+    if not self.selectedBoss or not self.selectedItem then return end
     local amount = tonumber(self.bidBox:GetText())
-    if not amount or amount < 0 then
-        return
-    end
+    if not amount or amount < 0 then return end
     if amount ~= 0 and amount < self.db.general.minBid then
         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.db.general.minBid.." EP (0 = отмена ставки)")
         return
     end
-    
     local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
-    
     self:ForceEPUpdate(function(success, currentEP)
-        if not success then
-            --print("|cffff0000[EPBA]|r Не удалось получить актуальный EP!")
-            return
-        end
-        
+        if not success then return end
         local maxBid = self:GetMaxBidAmount(isOffspec)
-        
         if amount > maxBid then
             local modeText = isOffspec and " (офф-спек)" or ""
-            print(string.format("|cffff0000[EPBA]|r Недостаточно EP%s для ставки! Максимум: %s EP", 
-                modeText, self:FormatNumber(maxBid)))
+            print(string.format("|cffff0000[EPBA]|r Недостаточно EP%s для ставки! Максимум: %s EP", modeText, self:FormatNumber(maxBid)))
             return
         end
-        
         if self.db.general.confirmBid and amount > 0 then
-            local maxBidText = self:FormatNumber(maxBid)
             StaticPopupDialogs["EPBA_CONFIRM_BID"] = {
-                text = "Подтвердите ставку\nПредмет: "..GetItemInfo(self.selectedItem).."\nСумма: "..amount.." EP" .. 
-                       (isOffspec and "\n(Офф-спек, максимум: "..maxBidText.." EP)" or ""),
-                button1 = "Да",
-                button2 = "Нет",
-                OnAccept = function()
-                    auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
-                end,
-                timeout = 0,
-                whileDead = true,
-                hideOnEscape = true,
+                text = "Подтвердите ставку\nПредмет: "..GetItemInfo(self.selectedItem).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
+                button1 = "Да", button2 = "Нет",
+                OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec) end,
+                timeout = 0, whileDead = true, hideOnEscape = true,
             }
             StaticPopup_Show("EPBA_CONFIRM_BID")
         else
@@ -954,16 +1013,12 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     local bossName = auction.selectedBoss
     local itemID = auction.selectedItem
     local playerName = UnitName("player")
-    auction:Debug("Отправка ставки: "..playerName.." "..amount.." на "..bossName.." "..itemID.." (офф-спек: "..tostring(isOffspec)..")")
-    
     auction:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspec)
-    
     if auction:IsLootMaster() then
         auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffspec)
     else
         local offspecStr = isOffspec and "true" or "false"
-        local msg = "BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr
-        SendAddonMessage(auction.prefix, msg, "RAID")
+        SendAddonMessage(auction.prefix, "BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr, "RAID")
     end
     auction.bidBox:SetText("")
 end
@@ -984,80 +1039,84 @@ function auction:ApplyElvUISkin()
     local E, L, V, P, G = unpack(ElvUI)
     local S = E:GetModule("Skins")
     if not S then return end
-    
-    if self.frame then
-        self.frame:SetTemplate("Transparent")
-    end
-    
+    if self.frame then self.frame:SetTemplate("Transparent") end
     if self.bidButton then S:HandleButton(self.bidButton) end
     if self.endButton then S:HandleButton(self.endButton) end
     if self.journalButton then S:HandleButton(self.journalButton) end
+    if self.queueButton then S:HandleButton(self.queueButton) end
     if self.requestButton then S:HandleButton(self.requestButton) end
     if self.optionsBtn then S:HandleButton(self.optionsBtn) end
-    if self.sizer then
-        self.sizer:SetTemplate("Default")
-        self.sizer:SetBackdropBorderColor(0, 0, 0, 0)
-        self.sizer:SetBackdropColor(0, 0, 0, 0)
-    end
-    
-    if self.bidBox then
-        self.bidBox:StripTextures()
-        S:HandleEditBox(self.bidBox)
-        self.bidBox:HookScript("OnEditFocusGained", function(box)
-            box.backdrop:SetBackdropBorderColor(1, 0.8, 0)
-        end)
-        self.bidBox:HookScript("OnEditFocusLost", function(box)
-            box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
-        end)
-    end
-    
+    if self.sizer then self.sizer:SetTemplate("Default"); self.sizer:SetBackdropBorderColor(0,0,0,0); self.sizer:SetBackdropColor(0,0,0,0) end
+    if self.bidBox then self.bidBox:StripTextures(); S:HandleEditBox(self.bidBox); self.bidBox:HookScript("OnEditFocusGained", function(box) box.backdrop:SetBackdropBorderColor(1,0.8,0) end); self.bidBox:HookScript("OnEditFocusLost", function(box) box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor)) end) end
     if self.closeButton then S:HandleCloseButton(self.closeButton) end
-    
-    if self.scrollFrame then
-        local scrollBar = _G[self.scrollFrame:GetName().."ScrollBar"]
-        if scrollBar then S:HandleScrollBar(scrollBar) end
-    end
-    
+    if self.scrollFrame then local sb = _G[self.scrollFrame:GetName().."ScrollBar"]; if sb then S:HandleScrollBar(sb) end end
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
+	    --self:ApplyQueueSkin()
 end
 
--- ======================
--- Обновление цветов строк ставок
--- ======================
 function auction:UpdateBidRowColors()
     if not self.rowFrames or not self.selectedBoss then return end
-    
     local showTopBids = self.db.table.showTopBids or 2
-    
     for i, rowTable in ipairs(self.rowFrames) do
         local itemID = self.bosses[self.selectedBoss][i]
         local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
         table.sort(bidsForItem, function(a,b) return a.amount>b.amount end)
-        
         local topText = ""
         for j = 1, showTopBids do
             if bidsForItem[j] then
                 local formatted = self:FormatNumber(bidsForItem[j].amount)
                 local playerName = bidsForItem[j].player
                 local ep = self:GetPlayerEP(playerName, false)
-                local coloredName
-                if ep >= bidsForItem[j].amount then
-                    coloredName = self:FormatColoredName(playerName)
-                else
-                    coloredName = "|cffff0000" .. playerName .. "|r"
-                end
+                local coloredName = (ep >= bidsForItem[j].amount) and self:FormatColoredName(playerName) or ("|cffff0000"..playerName.."|r")
                 local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
-                if j == 1 then
-                    topText = topText .. coloredName .. " - " .. formatted .. offspecMark
-                else
-                    topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark
-                end
+                if j == 1 then topText = topText .. coloredName .. " - " .. formatted .. offspecMark
+                else topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark end
             end
         end
-        
-        if rowTable.bidsStr then
-            rowTable.bidsStr:SetText(topText)
-        end
+        if rowTable.bidsStr then rowTable.bidsStr:SetText(topText) end
     end
+	-- ======================
+-- ElvUI Skin для окна очереди
+-- ======================
+function auction:ApplyQueueSkin()
+    if not IsAddOnLoaded("ElvUI") then return end
+    local E, L, V, P, G = unpack(ElvUI)
+    local S = E:GetModule("Skins")
+    if not S then return end
+    
+    if not self.queueFrame then return end
+    
+    -- Применяем стандартный скин к фрейму
+    self.queueFrame:SetTemplate("Transparent")
+    
+    -- Кнопка закрытия
+    if self.queueCloseButton then
+        S:HandleCloseButton(self.queueCloseButton)
+    end
+    
+    -- Кнопки Сохранить и Очистить
+    if self.queueSaveBtn then
+        S:HandleButton(self.queueSaveBtn)
+    end
+    if self.queueClearBtn then
+        S:HandleButton(self.queueClearBtn)
+    end
+    
+    -- Поле ввода (EditBox)
+    if self.queueEditBox then
+        self.queueEditBox:StripTextures()
+        S:HandleEditBox(self.queueEditBox)
+        self.queueEditBox:HookScript("OnEditFocusGained", function(box)
+            if box.backdrop then
+                box.backdrop:SetBackdropBorderColor(1, 0.8, 0)
+            end
+        end)
+        self.queueEditBox:HookScript("OnEditFocusLost", function(box)
+            if box.backdrop then
+                box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
+            end
+        end)
+    end
+end
 end

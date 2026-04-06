@@ -1,5 +1,12 @@
 local auction = EPBossAuction
 
+local function GetSafeItemInfo(itemID)
+    if not itemID then return "неизвестный предмет" end
+    local name = GetItemInfo(itemID)
+    if name and name ~= "" then return name end
+    return "предмет "..tostring(itemID)
+end
+
 function auction:HandleWorldEnter()
     self:Debug("=== ОБРАБОТКА ВХОДА В МИР ===")
     self:Debug("fullyLoaded = "..tostring(self.fullyLoaded))
@@ -102,7 +109,7 @@ function auction:SendSync(bossName, itemID, force)
         local offspecFlag = bid.isOffspec and ":1" or ":0"
         table.insert(bidStrs, bid.player..":"..bid.amount..offspecFlag)
     end
-    local itemName = GetItemInfo(itemID) or ("item:"..itemID)
+    local itemName = GetSafeItemInfo(itemID)
     local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
     self:Debug("Отправка SYNC для босса "..bossName..": "..itemName.." ("..#bidsForItem.." ставок), версия "..currentVersion)
     SendAddonMessage(self.prefix, message, "RAID")
@@ -157,6 +164,7 @@ function auction:RequestDataFromLM()
     SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
     self:ScheduleTimer(function()
         if not self.receivedSync and not self.receivedAck then
+            self:Debug("Не удалось получить данные от лутера")
         else
             self:Debug("Данные успешно получены")
         end
@@ -167,12 +175,13 @@ end
 -- Обработчик сообщений
 -- ======================
 function auction:HandleMessage(msg, sender)
+DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Raw message: "..msg)
     if not msg or msg == "" then return end
     if not msg:find(";") and msg ~= "LM" and msg ~= "SYNC_COMPLETE" then
         self:Debug("Странное сообщение без разделителя: "..msg)
         return
     end
-    local cmd, rest = msg:match("^(%w+);?(.*)")
+	local cmd, rest = msg:match("^([%w_]+);?(.*)")
     if not cmd then 
         self:Debug("Не удалось определить команду из: "..msg)
         return 
@@ -215,29 +224,23 @@ function auction:HandleMessage(msg, sender)
             self.bids[bossName] = self.bids[bossName] or {}
             self.bids[bossName][itemID] = {}
             if bidsPart and bidsPart ~= "" then
-				local newBids = {}
-				for bidStr in bidsPart:gmatch("([^,]+)") do
-					-- Разбиваем по двоеточию
-					local parts = {}
-					for part in string.gmatch(bidStr, "[^:]+") do
-						table.insert(parts, part)
-					end
-					if #parts >= 2 then
-						local player = parts[1]
-						local amount = tonumber(parts[2])
-						local isOffspec = (#parts >= 3 and parts[3] == "1")
-						if player and amount then
-							table.insert(newBids, {
-								player = player,
-								amount = amount,
-								isOffspec = isOffspec
-							})
-							-- Не добавляем в лог при синхронизации, чтобы избежать дублей
-						end
-					end
-				end
-				self.bids[bossName][itemID] = newBids
-			end
+                local newBids = {}
+                for bidStr in bidsPart:gmatch("([^,]+)") do
+                    local parts = {}
+                    for part in string.gmatch(bidStr, "[^:]+") do
+                        table.insert(parts, part)
+                    end
+                    if #parts >= 2 then
+                        local player = parts[1]
+                        local amount = tonumber(parts[2])
+                        local isOffspec = (#parts >= 3 and parts[3] == "1")
+                        if player and amount then
+                            table.insert(newBids, {player = player, amount = amount, isOffspec = isOffspec})
+                        end
+                    end
+                end
+                self.bids[bossName][itemID] = newBids
+            end
             if self.selectedBoss == bossName then
                 self:RefreshTable()
             end
@@ -369,17 +372,39 @@ function auction:HandleMessage(msg, sender)
             return
         end
         self:SetBidsLocked(state)
-	elseif cmd == "OFFSPEC_MULT" then
+    elseif cmd == "OFFSPEC_MULT" then
         local multiplier = tonumber(rest)
         if multiplier then
             auction.offspecMultiplier = multiplier
-            auction.db.general.offspecMultiplier = multiplier  -- сохраняем в настройки
+            auction.db.general.offspecMultiplier = multiplier
             auction:Debug("Получен новый коэффициент офф-спек: " .. (multiplier * 100) .. "%")
             if auction.myEP > 0 then
                 auction:UpdateMaxBidDisplay()
             end
         end
     elseif cmd == "LOCKED" then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
+    elseif cmd == "QUEUE_REQUEST" then
+        if self:IsLootMaster() then
+            self:SendQueueToRaid()
+        end
+    elseif cmd == "QUEUE_TEXT" then
+        -- Получение текста очереди от лутера
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r QUEUE_TEXT received, length=" .. #rest)
+        self.tokenQueueText = rest
+        self:SaveTokenQueue()
+        -- Обновляем поле ввода, если окно открыто
+        if self.queueEditBox then
+            self.queueEditBox:SetText(rest)
+            DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox updated")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox is nil, text saved to tokenQueueText")
+        end
+        if rest == "" then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена лутером.")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь обновлена лутером.")
+        end
     else
         self:Debug("Неизвестная команда: "..cmd)
     end
@@ -446,11 +471,7 @@ function auction:HandleBidMessage(rest, sender)
         existingBid.amount = amount
         existingBid.isOffspec = isOffspecBool
     else
-        table.insert(self.bids[bossName][itemID], {
-            player = playerName,
-            amount = amount,
-            isOffspec = isOffspecBool
-        })
+        table.insert(self.bids[bossName][itemID], {player = playerName, amount = amount, isOffspec = isOffspecBool})
     end
     self:RefreshTable()
     self:SendSync(bossName, itemID)
@@ -465,6 +486,8 @@ end
 -- ======================
 function auction:CheckIfOutbid(bossName, itemID)
     local playerName = UnitName("player")
+    if not playerName then return end
+    
     local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
     if not bidsForItem then return end
 
@@ -490,12 +513,10 @@ function auction:CheckIfOutbid(bossName, itemID)
     if myBid < maxBid then
         if not self.outbidNotified[key] then
             self.outbidNotified[key] = true
-            local itemName = GetItemInfo(itemID) or ("предмет "..itemID)
+            local itemName = GetSafeItemInfo(itemID)
             local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
-
             UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
             self:PlayOutbidSound()
-            
             if self:IsLootMaster() then
                 DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r " .. message)
             end

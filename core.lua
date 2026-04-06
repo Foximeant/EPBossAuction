@@ -6,7 +6,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.5.3"
+auction.version = "1.6.0"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -63,6 +63,7 @@ auction.updateTimer = nil
 auction.lastEPUpdate = 0
 auction.epUpdateInterval = 60
 auction.epUpdatePending = false
+auction.isUpdatingEP = false
 
 -- Переменные для масштабирования
 auction.windowScale = 1.0
@@ -88,6 +89,10 @@ auction.outbidNotified = {}
 
 -- Кэш EP игроков (для тултипа)
 auction.playerEPCache = {}
+
+-- Очередь на токены Т6
+auction.tokenQueueText = ""
+auction.receivedQueueParts = nil
 
 -- Система настроек (базовые настройки, defaults)
 auction.defaults = {
@@ -136,6 +141,9 @@ auction.defaults = {
         alpha = 1.0,
         locked = false,
     },
+    tokenQueue = {
+        text = "",
+    },
 }
 
 auction.db = {}
@@ -158,8 +166,11 @@ function auction:ScheduleTimer(func, delay)
         if GetTime() - start >= delay then
             func()
             frame:SetScript("OnUpdate", nil)
+            frame:Hide()
+            frame:SetParent(nil)
         end
     end)
+    return frame
 end
 
 function auction:FormatNumber(n)
@@ -169,6 +180,7 @@ function auction:FormatNumber(n)
 end
 
 function auction:GetClassColor(playerName)
+    if not playerName then return "|cffffffff" end
     if playerName == UnitName("player") then
         local _, class = UnitClass("player")
         local color = RAID_CLASS_COLORS[class]
@@ -231,7 +243,7 @@ end
 -- Воспроизведение звука перебитой ставки
 -- ======================
 function auction:PlayOutbidSound()
-    if self.db.general.soundEnabled then
+    if self.db and self.db.general and self.db.general.soundEnabled then
         local soundFile = self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav"
         PlaySoundFile(soundFile)
     end
@@ -243,12 +255,10 @@ end
 function auction:GetPlayerEP(playerName, noCache)
     if not playerName then return 0 end
     
-    -- Если не требуется кэш, получаем EP напрямую
     if noCache then
         return self:FetchPlayerEP(playerName)
     end
     
-    -- Используем кэш
     if self.playerEPCache[playerName] then
         return self.playerEPCache[playerName]
     end
@@ -258,7 +268,6 @@ function auction:GetPlayerEP(playerName, noCache)
     return ep
 end
 
--- Отдельная функция для прямого получения EP (без кэша)
 function auction:FetchPlayerEP(playerName)
     local ep = 0
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
@@ -300,21 +309,22 @@ function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
 end
 
--- Функция для обновления кэша для всех игроков в таблице
 function auction:RefreshPlayerEPCache()
     if not self.rowFrames or not self.selectedBoss then return end
     
-    -- Собираем всех игроков, которые есть в ставках
     local players = {}
-    for _, rowTable in ipairs(self.rowFrames) do
-        local itemID = self.bosses[self.selectedBoss][_]
-        local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
-        for _, bid in ipairs(bidsForItem) do
-            players[bid.player] = true
+    for idx, rowTable in ipairs(self.rowFrames) do
+        local itemID = self.bosses[self.selectedBoss][idx]
+        if itemID then
+            local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
+            for _, bid in ipairs(bidsForItem) do
+                if bid and bid.player then
+                    players[bid.player] = true
+                end
+            end
         end
     end
     
-    -- Обновляем кэш для каждого игрока
     for playerName, _ in pairs(players) do
         self.playerEPCache[playerName] = self:FetchPlayerEP(playerName)
     end
@@ -345,6 +355,15 @@ function auction:ClearBidLog()
 end
 
 -- ======================
+-- Очистка устаревших уведомлений о перебитии
+-- ======================
+function auction:CleanOutbidNotified()
+    for k, _ in pairs(self.outbidNotified) do
+        self.outbidNotified[k] = nil
+    end
+end
+
+-- ======================
 -- Загрузка/сохранение настроек
 -- ======================
 function auction:LoadSettings()
@@ -358,16 +377,30 @@ function auction:LoadSettings()
     self.minimapButtonPosition = self.db.minimap.position
     self:LoadBidLog()
     
-    -- Загружаем коэффициент офф-спек из настроек
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
+    
+    -- Загрузка очереди
+    if self.db.tokenQueue then
+        self.tokenQueueText = self.db.tokenQueue.text or ""
+    else
+        self.tokenQueueText = ""
+    end
     
     self:Debug("Настройки загружены, офф-спек коэффициент: " .. (self.offspecMultiplier * 100) .. "%")
 end
 
 function auction:SaveSettings()
     EPBossAuctionSettings = self.db
+    if not self.db.tokenQueue then self.db.tokenQueue = {} end
+    self.db.tokenQueue.text = self.tokenQueueText
     self:SaveBidLog()
     self:Debug("Настройки сохранены")
+end
+
+function auction:SaveTokenQueue()
+    if not self.db.tokenQueue then self.db.tokenQueue = {} end
+    self.db.tokenQueue.text = self.tokenQueueText
+    self:SaveSettings()
 end
 
 function auction:ApplySettings()
@@ -464,6 +497,8 @@ end
 function auction:InitAutoSave()
     if self.saveTimer then
         self.saveTimer:SetScript("OnUpdate", nil)
+        self.saveTimer:Hide()
+        self.saveTimer:SetParent(nil)
     end
     local frame = CreateFrame("Frame")
     local elapsed = 0
