@@ -175,7 +175,7 @@ end
 -- Обработчик сообщений
 -- ======================
 function auction:HandleMessage(msg, sender)
-DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Raw message: "..msg)
+--DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Raw message: "..msg)
     if not msg or msg == "" then return end
     if not msg:find(";") and msg ~= "LM" and msg ~= "SYNC_COMPLETE" then
         self:Debug("Странное сообщение без разделителя: "..msg)
