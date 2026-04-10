@@ -589,19 +589,37 @@ function auction:RefreshTable()
     end)
     UIDropDownMenu_SetText(self.itemDropdown, "Выбрать предмет")
 
-    if self.rowFrames then
-        for _, t in ipairs(self.rowFrames) do
-            if t.bg then t.bg:SetTexture(nil); t.bg:Hide() end
-            if t.icon then t.icon:Hide() end
-            if t.row then t.row:Hide() end
-            if t.bidsStr then t.bidsStr:Hide() end
-            if t.leftClickFrame then t.leftClickFrame:Hide() end
-            if t.rightClickFrame then t.rightClickFrame:Hide() end
-        end
-    end
+	-- === ПОЛНОЕ УДАЛЕНИЕ СТРОК ТАБЛИЦЫ ===
+	if self.rowFrames then
+		local deletedCount = 0
+		for _, rowTable in ipairs(self.rowFrames) do
+			for _, widget in pairs(rowTable) do
+				if type(widget) == "table" and widget.GetObjectType then
+					local objType = widget:GetObjectType()
+					-- Только для фреймов можно устанавливать родителя в nil
+					if objType == "Frame" or objType == "Button" then
+						widget:SetParent(nil)
+					end
+					-- Скрываем любой виджет
+					widget:Hide()
+					deletedCount = deletedCount + 1
+				end
+			end
+		end
+		auction.debugCounters.rowsDeleted = auction.debugCounters.rowsDeleted + #self.rowFrames
+		auction.debugCounters.currentRows = 0
+		self.rowFrames = {}
+		if auction.debug then
+			print(string.format("|cffaaaaaa[EPBA Debug]|r Удалено строк: %d", #self.rowFrames))
+		end
+	end
 
     self.rowFrames = {}
     local content = self.content
+	for _, child in ipairs({content:GetChildren()}) do
+    child:SetParent(nil)
+    child:Hide()
+	end
     content:SetHeight(rowHeight * #items)
 
     for i, itemID in ipairs(items) do
