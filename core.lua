@@ -13,7 +13,7 @@ auction.debugCounters = {
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.6.1"
+auction.version = "1.6.2"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
