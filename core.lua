@@ -2,6 +2,13 @@ local addonName = ...
 EPBossAuction = {}
 local auction = EPBossAuction
 
+auction.debugCounters = {
+    rowsCreated = 0,
+    rowsDeleted = 0,
+    currentRows = 0,
+    totalFrames = 0
+}
+
 -- ======================
 -- Настройки и переменные
 -- ======================
