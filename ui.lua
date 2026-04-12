@@ -348,7 +348,7 @@ function auction:CreateUI()
                 auction:RefreshTable()
             end
             auction.resizeTimer = nil
-        end, 0.05)
+        end, 0.2)
     end)
 
     local function updateLayout()
@@ -540,7 +540,7 @@ function auction:UpdateLMButtonsState()
 end
 
 -- ======================
--- Обновление таблицы (основная логика, сокращённо)
+-- Обновление таблицы (основная логика)
 -- ======================
 function auction:RefreshTable()
     if not self.selectedBoss then return end
@@ -589,37 +589,24 @@ function auction:RefreshTable()
     end)
     UIDropDownMenu_SetText(self.itemDropdown, "Выбрать предмет")
 
-	-- === ПОЛНОЕ УДАЛЕНИЕ СТРОК ТАБЛИЦЫ ===
+	-- === КОРРЕКТНОЕ УДАЛЕНИЕ СТАРЫХ СТРОК ===
 	if self.rowFrames then
-		local deletedCount = 0
 		for _, rowTable in ipairs(self.rowFrames) do
 			for _, widget in pairs(rowTable) do
 				if type(widget) == "table" and widget.GetObjectType then
 					local objType = widget:GetObjectType()
-					-- Только для фреймов можно устанавливать родителя в nil
 					if objType == "Frame" or objType == "Button" then
 						widget:SetParent(nil)
 					end
-					-- Скрываем любой виджет
 					widget:Hide()
-					deletedCount = deletedCount + 1
 				end
 			end
 		end
-		auction.debugCounters.rowsDeleted = auction.debugCounters.rowsDeleted + #self.rowFrames
-		auction.debugCounters.currentRows = 0
-		self.rowFrames = {}
-		if auction.debug then
-			print(string.format("|cffaaaaaa[EPBA Debug]|r Удалено строк: %d", #self.rowFrames))
-		end
 	end
+	-- Гарантируем, что rowFrames существует
+	self.rowFrames = {}
 
-    self.rowFrames = {}
     local content = self.content
-	for _, child in ipairs({content:GetChildren()}) do
-    child:SetParent(nil)
-    child:Hide()
-	end
     content:SetHeight(rowHeight * #items)
 
     for i, itemID in ipairs(items) do
@@ -839,7 +826,6 @@ function auction:CreateQueueFrame()
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
     tinsert(UISpecialFrames, "EPBossAuctionQueueFrame")
-	    --self:ApplyQueueSkin()
     self.queueFrame = frame
     
     -- Заголовок
@@ -870,7 +856,6 @@ function auction:CreateQueueFrame()
     editBox:SetBackdropBorderColor(0.2, 0.2, 0.2, 0.5)
     editBox:SetFont(GameFontNormal:GetFont(), 12)
     editBox:SetTextColor(1, 1, 1)
-    -- Принудительно задаём минимальную высоту, чтобы мультилайн работал
     editBox:SetHeight(200)
     self.queueEditBox = editBox
     
@@ -908,8 +893,6 @@ function auction:CreateQueueFrame()
         auction:SendQueueToRaid()
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена.")
     end)
-	
-	
     self.queueClearBtn = clearBtn
     
     self:UpdateQueueState()
@@ -957,7 +940,6 @@ end
 
 function auction:SendQueueToRaid()
     local text = self.tokenQueueText or ""
-    DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Sending QUEUE_TEXT, length="..#text)
     SendAddonMessage(self.prefix, "QUEUE_TEXT;"..text, "RAID")
 end
 
@@ -1070,7 +1052,7 @@ function auction:ApplyElvUISkin()
     if self.scrollFrame then local sb = _G[self.scrollFrame:GetName().."ScrollBar"]; if sb then S:HandleScrollBar(sb) end end
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
-	    --self:ApplyQueueSkin()
+    self:ApplyQueueSkin()
 end
 
 function auction:UpdateBidRowColors()
@@ -1094,7 +1076,9 @@ function auction:UpdateBidRowColors()
         end
         if rowTable.bidsStr then rowTable.bidsStr:SetText(topText) end
     end
-	-- ======================
+end
+
+-- ======================
 -- ElvUI Skin для окна очереди
 -- ======================
 function auction:ApplyQueueSkin()
@@ -1105,15 +1089,12 @@ function auction:ApplyQueueSkin()
     
     if not self.queueFrame then return end
     
-    -- Применяем стандартный скин к фрейму
     self.queueFrame:SetTemplate("Transparent")
     
-    -- Кнопка закрытия
     if self.queueCloseButton then
         S:HandleCloseButton(self.queueCloseButton)
     end
     
-    -- Кнопки Сохранить и Очистить
     if self.queueSaveBtn then
         S:HandleButton(self.queueSaveBtn)
     end
@@ -1121,7 +1102,6 @@ function auction:ApplyQueueSkin()
         S:HandleButton(self.queueClearBtn)
     end
     
-    -- Поле ввода (EditBox)
     if self.queueEditBox then
         self.queueEditBox:StripTextures()
         S:HandleEditBox(self.queueEditBox)
@@ -1136,5 +1116,4 @@ function auction:ApplyQueueSkin()
             end
         end)
     end
-end
 end
