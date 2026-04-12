@@ -172,248 +172,24 @@ function auction:RequestDataFromLM()
 end
 
 -- ======================
--- Обработчик сообщений
+-- Обработчики сообщений
 -- ======================
 function auction:HandleMessage(msg, sender)
---DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r Raw message: "..msg)
     if not msg or msg == "" then return end
-    if not msg:find(";") and msg ~= "LM" and msg ~= "SYNC_COMPLETE" then
-        self:Debug("Странное сообщение без разделителя: "..msg)
+    local cmd, rest = msg:match("^([%w_]+);?(.*)")
+    if not cmd then
+        self:Debug("Не удалось определить команду из: "..msg)
         return
     end
-	local cmd, rest = msg:match("^([%w_]+);?(.*)")
-    if not cmd then 
-        self:Debug("Не удалось определить команду из: "..msg)
-        return 
-    end
-    self:Debug("Получено сообщение: "..cmd.." от "..sender.." ("..(rest or "")..")")
-
-    if cmd == "BID" then
-        self:HandleBidMessage(rest, sender)
-    elseif cmd == "SYNC" then
-        local bossName, itemID, bidsPart, version = rest:match("([^;]+);([^;]+);(.*);(%d+)")
-        if not bossName or not itemID then
-            bossName, itemID, bidsPart = rest:match("([^;]+);([^;]+);(.*)")
-            version = 0
-        end
-        if not bossName or not itemID then
-            self:Debug("Ошибка парсинга SYNC: "..rest)
-            return 
-        end
-        itemID = tonumber(itemID)
-        version = tonumber(version) or 0
-        self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender)
-        self.receivedSync = true
-        local isLootMaster = self:IsLootMaster()
-        local senderIsLM = false
-        if isLootMaster then
-            self:Debug("Я лутер, игнорирую SYNC от "..sender)
-            return
-        else
-            senderIsLM = true
-        end
-        local lastVersion = self.lastVersions[bossName] or 0
-        if version > lastVersion or senderIsLM then
-            if version <= lastVersion and senderIsLM then
-                self:Debug("Принимаем данные от лутера с версией "..version.." (моя версия "..lastVersion..")")
-            end
-            if version > 0 then
-                self.lastVersions[bossName] = version
-            end
-            self.receivedItems[itemID] = true
-            self.bids[bossName] = self.bids[bossName] or {}
-            self.bids[bossName][itemID] = {}
-            if bidsPart and bidsPart ~= "" then
-                local newBids = {}
-                for bidStr in bidsPart:gmatch("([^,]+)") do
-                    local parts = {}
-                    for part in string.gmatch(bidStr, "[^:]+") do
-                        table.insert(parts, part)
-                    end
-                    if #parts >= 2 then
-                        local player = parts[1]
-                        local amount = tonumber(parts[2])
-                        local isOffspec = (#parts >= 3 and parts[3] == "1")
-                        if player and amount then
-                            table.insert(newBids, {player = player, amount = amount, isOffspec = isOffspec})
-                        end
-                    end
-                end
-                self.bids[bossName][itemID] = newBids
-            end
-            if self.selectedBoss == bossName then
-                self:RefreshTable()
-            end
-            self:CheckIfOutbid(bossName, itemID)
-            self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#(self.bids[bossName][itemID] or {}))
-        else
-            self:Debug("Игнорируем SYNC с версией "..version.." <= "..lastVersion)
-        end
-    elseif cmd == "HELLO" then
-        if rest == "_ACK" then
-            self:Debug("Получено HELLO_ACK, обрабатываем как подтверждение")
-            self.receivedAck = true
-            return
-        end
-        local requestedBoss = rest
-        if requestedBoss == "" then requestedBoss = nil end
-        local playerName = sender
-        self:Debug("Получен HELLO от "..playerName.." для босса "..(requestedBoss or "всех"))
-        if not self:IsLootMaster() then 
-            self:Debug("Игнорируем HELLO, я не лутер")
-            return 
-        end
-        if requestedBoss then
-            self:SendAllBidsForBoss(requestedBoss, playerName)
-        else
-            if self.selectedBoss then
-                self:SendAllBidsForBoss(self.selectedBoss, playerName)
-            else
-                local sentAny = false
-                for bossName, _ in pairs(self.bids) do
-                    if self:SendAllBidsForBoss(bossName, playerName) then
-                        sentAny = true
-                    end
-                end
-                if not sentAny then
-                    self:Debug("Нет данных для отправки "..playerName)
-                end
-            end
-        end
-        SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
-        SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
-    elseif cmd == "HELLO_ACK" then
-        self.receivedAck = true
-        self:Debug("Получено подтверждение HELLO_ACK от "..sender)
-    elseif cmd == "LM" then
-        self:Debug("Получено LM от "..sender)
-        if not self:IsLootMaster() then
-            local bossParam = ""
-            if self.selectedBoss then
-                bossParam = ";"..self.selectedBoss
-            end
-            SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
-        end
-    elseif cmd == "LM_REQUEST" then
-        self:Debug("Получен LM_REQUEST от "..sender)
-        if self:IsLootMaster() then
-            SendAddonMessage(self.prefix, "LM_RESPONSE;"..UnitName("player"), "WHISPER", sender)
-            self:Debug("Отправлен LM_RESPONSE")
-        end
-    elseif cmd == "LM_RESPONSE" then
-        local lmName = rest
-        self:Debug("Лутер найден: "..lmName)
-    elseif cmd == "CHECK_VERSION" or cmd == "CHECK" then
-        self:Debug("Получен CHECK_VERSION от "..sender)
-        if self:IsLootMaster() then
-            local versionMsg = "VERSIONS"
-            for bossName, version in pairs(self.dataVersions) do
-                versionMsg = versionMsg .. ";" .. bossName .. ":" .. version
-            end
-            SendAddonMessage(self.prefix, versionMsg, "WHISPER", sender)
-            self:Debug("Отправлены версии: "..versionMsg)
-        end
-    elseif cmd == "VERSION" then
-        local serverVersion = tonumber(rest) or 0
-        self:Debug("Получена старая версия от лутера: "..serverVersion)
-    elseif cmd == "VERSIONS" then
-        self:Debug("Получены версии от лутера: "..rest)
-        local needUpdate = false
-        local bossVersions = {}
-        for bossVersion in rest:gmatch("([^;]+)") do
-            local bossName, version = bossVersion:match("([^:]+):(%d+)")
-            if bossName and version then
-                version = tonumber(version)
-                bossVersions[bossName] = version
-                local myVersion = self.lastVersions[bossName] or 0
-                if version > myVersion then
-                    needUpdate = true
-                    self:Debug("Босс "..bossName..": версия лутера "..version.." > моей "..myVersion)
-                end
-            end
-        end
-        if needUpdate then
-            local bossParam = ""
-            if self.selectedBoss then
-                bossParam = ";"..self.selectedBoss
-            end
-            SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
-        end
-    elseif cmd == "TOOLOW" then
-        local amount, maxBid = rest:match("([^;]+);([^;]+)")
-    elseif cmd == "BIDOK" then
-        local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
-        if not amount then amount = rest end
-        if bossName and itemID and self:IsLootMaster() then
-            auction:AddBidLogEntry(playerName, tonumber(amount), tonumber(itemID), bossName)
-        end
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
-        if auction.bidBox then
-            auction.bidBox:SetText("")
-        end
-    elseif cmd == "SYNC_COMPLETE" then
-        self.receivedSync = true
-        self:Debug("Синхронизация завершена")
-    elseif cmd == "END" then
-        local bossName = rest
-        self.bids[bossName] = {}
-        self.dataVersions[bossName] = (self.dataVersions[bossName] or 0) + 1
-        if self.selectedBoss == bossName then
-            self:RefreshTable()
-        end
-        self:SaveData()
-    elseif cmd == "LOCK" then
-        self:Debug("LOCK получен, rest='"..tostring(rest).."'")
-        local cleanRest = rest:gsub("%s+", "")
-        local state = (cleanRest == "true")
-        self:Debug("state="..tostring(state))
-        if self:IsLootMaster() then
-            self:Debug("Я лутер, игнорирую свой LOCK")
-            return
-        end
-        self:SetBidsLocked(state)
-    elseif cmd == "OFFSPEC_MULT" then
-        local multiplier = tonumber(rest)
-        if multiplier then
-            auction.offspecMultiplier = multiplier
-            auction.db.general.offspecMultiplier = multiplier
-            auction:Debug("Получен новый коэффициент офф-спек: " .. (multiplier * 100) .. "%")
-            if auction.myEP > 0 then
-                auction:UpdateMaxBidDisplay()
-            end
-        end
-    elseif cmd == "LOCKED" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
-    elseif cmd == "QUEUE_REQUEST" then
-        if self:IsLootMaster() then
-            self:SendQueueToRaid()
-        end
-    elseif cmd == "QUEUE_TEXT" then
-        -- Получение текста очереди от лутера
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r QUEUE_TEXT received, length=" .. #rest)
-        self.tokenQueueText = rest
-        self:SaveTokenQueue()
-        -- Обновляем поле ввода, если окно открыто
-        if self.queueEditBox then
-            self.queueEditBox:SetText(rest)
-            DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox updated")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox is nil, text saved to tokenQueueText")
-        end
-        if rest == "" then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена лутером.")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь обновлена лутером.")
-        end
+    local handler = self["Handle_"..cmd]
+    if handler then
+        handler(self, rest, sender)
     else
         self:Debug("Неизвестная команда: "..cmd)
     end
 end
 
--- ======================
--- Обработка входящей ставки (BID)
--- ======================
-function auction:HandleBidMessage(rest, sender)
+function auction:Handle_BID(rest, sender)
     if not self:IsLootMaster() then 
         self:Debug("Игнорируем BID, я не лутер")
         return 
@@ -479,6 +255,246 @@ function auction:HandleBidMessage(rest, sender)
     self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspecBool)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "RAID")
     self:Debug("Ставка обработана, отправлен SYNC")
+end
+
+function auction:Handle_SYNC(rest, sender)
+    local bossName, itemID, bidsPart, version = rest:match("([^;]+);([^;]+);(.*);(%d+)")
+    if not bossName or not itemID then
+        bossName, itemID, bidsPart = rest:match("([^;]+);([^;]+);(.*)")
+        version = 0
+    end
+    if not bossName or not itemID then
+        self:Debug("Ошибка парсинга SYNC: "..rest)
+        return 
+    end
+    itemID = tonumber(itemID)
+    version = tonumber(version) or 0
+    self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender)
+    self.receivedSync = true
+    local isLootMaster = self:IsLootMaster()
+    local senderIsLM = false
+    if isLootMaster then
+        self:Debug("Я лутер, игнорирую SYNC от "..sender)
+        return
+    else
+        senderIsLM = true
+    end
+    local lastVersion = self.lastVersions[bossName] or 0
+    if version > lastVersion or senderIsLM then
+        if version <= lastVersion and senderIsLM then
+            self:Debug("Принимаем данные от лутера с версией "..version.." (моя версия "..lastVersion..")")
+        end
+        if version > 0 then
+            self.lastVersions[bossName] = version
+        end
+        self.receivedItems[itemID] = true
+        self.bids[bossName] = self.bids[bossName] or {}
+        self.bids[bossName][itemID] = {}
+        if bidsPart and bidsPart ~= "" then
+            local newBids = {}
+            for bidStr in bidsPart:gmatch("([^,]+)") do
+                local parts = {}
+                for part in string.gmatch(bidStr, "[^:]+") do
+                    table.insert(parts, part)
+                end
+                if #parts >= 2 then
+                    local player = parts[1]
+                    local amount = tonumber(parts[2])
+                    local isOffspec = (#parts >= 3 and parts[3] == "1")
+                    if player and amount then
+                        table.insert(newBids, {player = player, amount = amount, isOffspec = isOffspec})
+                    end
+                end
+            end
+            self.bids[bossName][itemID] = newBids
+        end
+        if self.selectedBoss == bossName then
+            self:RefreshTable()
+        end
+        self:CheckIfOutbid(bossName, itemID)
+        self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#(self.bids[bossName][itemID] or {}))
+    else
+        self:Debug("Игнорируем SYNC с версией "..version.." <= "..lastVersion)
+    end
+end
+
+function auction:Handle_HELLO(rest, sender)
+    if rest == "_ACK" then
+        self:Debug("Получено HELLO_ACK, обрабатываем как подтверждение")
+        self.receivedAck = true
+        return
+    end
+    local requestedBoss = rest
+    if requestedBoss == "" then requestedBoss = nil end
+    local playerName = sender
+    self:Debug("Получен HELLO от "..playerName.." для босса "..(requestedBoss or "всех"))
+    if not self:IsLootMaster() then 
+        self:Debug("Игнорируем HELLO, я не лутер")
+        return 
+    end
+    if requestedBoss then
+        self:SendAllBidsForBoss(requestedBoss, playerName)
+    else
+        if self.selectedBoss then
+            self:SendAllBidsForBoss(self.selectedBoss, playerName)
+        else
+            local sentAny = false
+            for bossName, _ in pairs(self.bids) do
+                if self:SendAllBidsForBoss(bossName, playerName) then
+                    sentAny = true
+                end
+            end
+            if not sentAny then
+                self:Debug("Нет данных для отправки "..playerName)
+            end
+        end
+    end
+    SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
+    SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
+end
+
+function auction:Handle_HELLO_ACK(rest, sender)
+    self.receivedAck = true
+    self:Debug("Получено подтверждение HELLO_ACK от "..sender)
+end
+
+function auction:Handle_LM(rest, sender)
+    self:Debug("Получено LM от "..sender)
+    if not self:IsLootMaster() then
+        local bossParam = ""
+        if self.selectedBoss then
+            bossParam = ";"..self.selectedBoss
+        end
+        SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
+    end
+end
+
+function auction:Handle_LM_REQUEST(rest, sender)
+    self:Debug("Получен LM_REQUEST от "..sender)
+    if self:IsLootMaster() then
+        SendAddonMessage(self.prefix, "LM_RESPONSE;"..UnitName("player"), "WHISPER", sender)
+        self:Debug("Отправлен LM_RESPONSE")
+    end
+end
+
+function auction:Handle_LM_RESPONSE(rest, sender)
+    local lmName = rest
+    self:Debug("Лутер найден: "..lmName)
+end
+
+function auction:Handle_CHECK_VERSION(rest, sender)
+    self:Debug("Получен CHECK_VERSION от "..sender)
+    if self:IsLootMaster() then
+        local versionMsg = "VERSIONS"
+        for bossName, version in pairs(self.dataVersions) do
+            versionMsg = versionMsg .. ";" .. bossName .. ":" .. version
+        end
+        SendAddonMessage(self.prefix, versionMsg, "WHISPER", sender)
+        self:Debug("Отправлены версии: "..versionMsg)
+    end
+end
+
+function auction:Handle_VERSIONS(rest, sender)
+    self:Debug("Получены версии от лутера: "..rest)
+    local needUpdate = false
+    local bossVersions = {}
+    for bossVersion in rest:gmatch("([^;]+)") do
+        local bossName, version = bossVersion:match("([^:]+):(%d+)")
+        if bossName and version then
+            version = tonumber(version)
+            bossVersions[bossName] = version
+            local myVersion = self.lastVersions[bossName] or 0
+            if version > myVersion then
+                needUpdate = true
+                self:Debug("Босс "..bossName..": версия лутера "..version.." > моей "..myVersion)
+            end
+        end
+    end
+    if needUpdate then
+        local bossParam = ""
+        if self.selectedBoss then
+            bossParam = ";"..self.selectedBoss
+        end
+        SendAddonMessage(self.prefix, "HELLO"..bossParam, "RAID")
+    end
+end
+
+function auction:Handle_BIDOK(rest, sender)
+    local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
+    if not amount then amount = rest end
+    if bossName and itemID and self:IsLootMaster() then
+        auction:AddBidLogEntry(playerName, tonumber(amount), tonumber(itemID), bossName)
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
+    if auction.bidBox then
+        auction.bidBox:SetText("")
+    end
+end
+
+function auction:Handle_SYNC_COMPLETE(rest, sender)
+    self.receivedSync = true
+    self:Debug("Синхронизация завершена")
+end
+
+function auction:Handle_END(rest, sender)
+    local bossName = rest
+    self.bids[bossName] = {}
+    self.dataVersions[bossName] = (self.dataVersions[bossName] or 0) + 1
+    if self.selectedBoss == bossName then
+        self:RefreshTable()
+    end
+    self:SaveData()
+end
+
+function auction:Handle_LOCK(rest, sender)
+    self:Debug("LOCK получен, rest='"..tostring(rest).."'")
+    local cleanRest = rest:gsub("%s+", "")
+    local state = (cleanRest == "true")
+    self:Debug("state="..tostring(state))
+    if self:IsLootMaster() then
+        self:Debug("Я лутер, игнорирую свой LOCK")
+        return
+    end
+    self:SetBidsLocked(state)
+end
+
+function auction:Handle_OFFSPEC_MULT(rest, sender)
+    local multiplier = tonumber(rest)
+    if multiplier then
+        auction.offspecMultiplier = multiplier
+        auction.db.general.offspecMultiplier = multiplier
+        auction:Debug("Получен новый коэффициент офф-спек: " .. (multiplier * 100) .. "%")
+        if auction.myEP > 0 then
+            auction:UpdateMaxBidDisplay()
+        end
+    end
+end
+
+function auction:Handle_LOCKED(rest, sender)
+    DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
+end
+
+function auction:Handle_QUEUE_REQUEST(rest, sender)
+    if self:IsLootMaster() then
+        self:SendQueueToRaid()
+    end
+end
+
+function auction:Handle_QUEUE_TEXT(rest, sender)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r QUEUE_TEXT received, length=" .. #rest)
+    self.tokenQueueText = rest
+    self:SaveTokenQueue()
+    if self.queueEditBox then
+        self.queueEditBox:SetText(rest)
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox updated")
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox is nil, text saved to tokenQueueText")
+    end
+    if rest == "" then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена лутером.")
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь обновлена лутером.")
+    end
 end
 
 -- ======================

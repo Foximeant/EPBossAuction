@@ -101,6 +101,9 @@ function auction:CreateUI()
                 auction.selectedItem = nil
                 UIDropDownMenu_SetText(dropdown, bossName)
                 UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+                if auction.itemDropdown then
+                    UIDropDownMenu_Refresh(auction.itemDropdown)
+                end
                 auction:RefreshTable()
             end
             info.checked = (auction.selectedBoss == bossName)
@@ -117,6 +120,26 @@ function auction:CreateUI()
     itemDrop:SetPoint("TOPLEFT", itemLabel, "BOTTOMLEFT", -26, -5)
     UIDropDownMenu_SetWidth(itemDrop, 140)
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
+
+    -- === ИНИЦИАЛИЗАЦИЯ ВЫПАДАЮЩЕГО СПИСКА ПРЕДМЕТОВ ===
+    UIDropDownMenu_Initialize(itemDrop, function(selfDD, level)
+        if not auction.selectedBoss then return end
+        local items = auction.bosses[auction.selectedBoss]
+        if not items then return end
+        for _, itemID in ipairs(items) do
+            local info = UIDropDownMenu_CreateInfo()
+            local itemName = GetItemInfo(itemID) or ("item:"..tostring(itemID))
+            info.text = itemName
+            info.func = function()
+                auction.selectedItem = itemID
+                UIDropDownMenu_SetText(auction.itemDropdown, itemName)
+                auction:HighlightSelectedRow(itemID)
+                auction.bidBox:SetFocus()
+            end
+            info.checked = (auction.selectedItem == itemID)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
     self.itemDropdown = itemDrop
 
     -- 3. Поле ввода ставки
@@ -245,7 +268,7 @@ function auction:CreateUI()
     end)
     self.journalButton = journalButton
 
-    -- 9. Кнопка "Очередь" (новая)
+    -- 9. Кнопка "Очередь"
     local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
     queueButton:SetSize(140, 25)
     queueButton:SetPoint("TOPLEFT", journalButton, "BOTTOMLEFT", 0, -8)
@@ -269,7 +292,7 @@ function auction:CreateUI()
     auction.maxBidText = maxBidText
 
     -- ======================
-    -- ПРАВАЯ ОБЛАСТЬ – ТАБЛИЦА (скроллфрейм) с фоном
+    -- ПРАВАЯ ОБЛАСТЬ – ТАБЛИЦА
     -- ======================
     local scrollBG = CreateFrame("Frame", "EPBossAuctionScrollBG", frame)
     scrollBG:SetBackdrop({
@@ -337,9 +360,7 @@ function auction:CreateUI()
 
     frame:SetScript("OnSizeChanged", function()
         if auction.resizeTimer then
-            auction.resizeTimer:SetScript("OnUpdate", nil)
-            auction.resizeTimer:Hide()
-            auction.resizeTimer:SetParent(nil)
+            auction:CancelTimer(auction.resizeTimer)
             auction.resizeTimer = nil
         end
         auction.resizeTimer = auction:ScheduleTimer(function()
@@ -543,13 +564,29 @@ end
 -- Обновление таблицы (основная логика)
 -- ======================
 function auction:RefreshTable()
-    if not self.selectedBoss then return end
+    if self.refreshing then return end
+    self.refreshing = true
+    
+    if not self.selectedBoss then self.refreshing = false; return end
     local items = self.bosses[self.selectedBoss]
     if not items then
         self:Debug("Ошибка: нет предметов для босса "..tostring(self.selectedBoss))
         self.selectedBoss = nil
+        self.refreshing = false
         return
     end
+
+    -- Обновляем дропдаун предметов
+    if self.itemDropdown then
+        UIDropDownMenu_Refresh(self.itemDropdown)
+        if self.selectedItem then
+            local itemName = GetItemInfo(self.selectedItem) or ("item:"..tostring(self.selectedItem))
+            UIDropDownMenu_SetText(self.itemDropdown, itemName)
+        else
+            UIDropDownMenu_SetText(self.itemDropdown, "Выбрать предмет")
+        end
+    end
+
     local dbTable = self.db and self.db.table or {}
     local itemFontSize = dbTable.itemFontSize or 12
     local bidFontSize = dbTable.bidFontSize or 12
@@ -572,39 +609,21 @@ function auction:RefreshTable()
     local itemWidth = math.floor(availableWidth / 2)
     local bidWidth = availableWidth - itemWidth - 10
 
-    UIDropDownMenu_Initialize(self.itemDropdown, function(selfDD, level)
-        for _, itemID in ipairs(items) do
-            local info = UIDropDownMenu_CreateInfo()
-            local itemName = GetItemInfo(itemID) or ("item:"..tostring(itemID))
-            info.text = itemName
-            info.func = function()
-                auction.selectedItem = itemID
-                UIDropDownMenu_SetText(auction.itemDropdown, itemName)
-                auction:HighlightSelectedRow(itemID)
-                auction.bidBox:SetFocus()
+    -- Удаление старых строк
+    if self.rowFrames then
+        for _, rowTable in ipairs(self.rowFrames) do
+            for _, widget in pairs(rowTable) do
+                if type(widget) == "table" and widget.GetObjectType then
+                    local objType = widget:GetObjectType()
+                    if objType == "Frame" or objType == "Button" then
+                        widget:SetParent(nil)
+                    end
+                    widget:Hide()
+                end
             end
-            info.checked = (auction.selectedItem == itemID)
-            UIDropDownMenu_AddButton(info)
         end
-    end)
-    UIDropDownMenu_SetText(self.itemDropdown, "Выбрать предмет")
-
-	-- === КОРРЕКТНОЕ УДАЛЕНИЕ СТАРЫХ СТРОК ===
-	if self.rowFrames then
-		for _, rowTable in ipairs(self.rowFrames) do
-			for _, widget in pairs(rowTable) do
-				if type(widget) == "table" and widget.GetObjectType then
-					local objType = widget:GetObjectType()
-					if objType == "Frame" or objType == "Button" then
-						widget:SetParent(nil)
-					end
-					widget:Hide()
-				end
-			end
-		end
-	end
-	-- Гарантируем, что rowFrames существует
-	self.rowFrames = {}
+    end
+    self.rowFrames = {}
 
     local content = self.content
     content:SetHeight(rowHeight * #items)
@@ -768,6 +787,7 @@ function auction:RefreshTable()
         table.insert(self.rowFrames, rowTable)
     end
     self:ForceClickable()
+    self.refreshing = false
 end
 
 function auction:HighlightSelectedRow(selectedItemID)
@@ -859,7 +879,7 @@ function auction:CreateQueueFrame()
     editBox:SetHeight(200)
     self.queueEditBox = editBox
     
-    -- Кнопка "Сохранить" (только для лутера)
+    -- Кнопка "Сохранить"
     local saveBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     saveBtn:SetSize(100, 25)
     saveBtn:SetPoint("BOTTOMRIGHT", -16, 16)
@@ -877,7 +897,7 @@ function auction:CreateQueueFrame()
     end)
     self.queueSaveBtn = saveBtn
     
-    -- Кнопка "Очистить" (только для лутера)
+    -- Кнопка "Очистить"
     local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clearBtn:SetSize(80, 25)
     clearBtn:SetPoint("RIGHT", saveBtn, "LEFT", -10, 0)

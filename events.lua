@@ -115,6 +115,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
 
     elseif event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE" then
         if not auction.fullyLoaded then return end
+        auction:CacheRaidClasses()
         auction:ScheduleTimer(function()
             local playerName = UnitName("player")
             if auction:IsLootMaster() then

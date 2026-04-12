@@ -86,21 +86,14 @@ function auction:DoUpdateMyEP(epgpTable, playerName)
 end
 
 function auction:StartEPUpdates()
-    if self.updateTimer then
-        self.updateTimer:SetScript("OnUpdate", nil)
-        self.updateTimer:Hide()
-        self.updateTimer:SetParent(nil)
+    if self.epUpdateTimer then
+        self:CancelTimer(self.epUpdateTimer)
     end
-    local frame = CreateFrame("Frame")
-    local elapsed = 0
-    frame:SetScript("OnUpdate", function(self, e)
-        elapsed = elapsed + e
-        if elapsed >= auction.epUpdateInterval then
-            elapsed = 0
-            auction:CheckAndUpdateEP()
-        end
-    end)
-    self.updateTimer = frame
+    local function updateFunc()
+        auction:CheckAndUpdateEP()
+        auction.epUpdateTimer = auction:ScheduleTimer(updateFunc, auction.epUpdateInterval)
+    end
+    self.epUpdateTimer = self:ScheduleTimer(updateFunc, self.epUpdateInterval)
     self:Debug("Запущено периодическое обновление EP (интервал "..self.epUpdateInterval.." сек)")
 end
 
@@ -150,7 +143,6 @@ function auction:CheckCurrentBidAgainstEP()
     end
 end
 
--- ИСПРАВЛЕНО: защита от рекурсии
 function auction:ForceEPUpdate(callback)
     if self.isUpdatingEP then
         self:Debug("ForceEPUpdate уже выполняется, пропускаем")

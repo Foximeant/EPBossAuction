@@ -2,18 +2,11 @@ local addonName = ...
 EPBossAuction = {}
 local auction = EPBossAuction
 
-auction.debugCounters = {
-    rowsCreated = 0,
-    rowsDeleted = 0,
-    currentRows = 0,
-    totalFrames = 0
-}
-
 -- ======================
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "1.6.3"
+auction.version = "1.6.4"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -96,6 +89,8 @@ auction.outbidNotified = {}
 
 -- Кэш EP игроков (для тултипа)
 auction.playerEPCache = {}
+-- Кэш классов игроков
+auction.playerClassCache = {}
 
 -- Очередь на токены Т6
 auction.tokenQueueText = ""
@@ -109,7 +104,7 @@ auction.defaults = {
         autoRequest = true,
         confirmBid = false,
         soundEnabled = true,
-        soundFile = "Sound\\Interface\\RaidWarning.wav",
+        soundFile = "Interface\AddOns\EPBossAuction\sounds\bid.ogg",
         offspecMultiplier = 0.5,
     },
     table = {
@@ -155,6 +150,11 @@ auction.defaults = {
 
 auction.db = {}
 
+-- Единый менеджер таймеров
+auction.timerFrame = CreateFrame("Frame")
+auction.timers = {}
+auction.timerId = 0
+
 -- ======================
 -- Утилиты
 -- ======================
@@ -166,18 +166,31 @@ function auction:Debug(msg, ...)
     DEFAULT_CHAT_FRAME:AddMessage("|cff888888[EPBA DEBUG]|r "..msg)
 end
 
-function auction:ScheduleTimer(func, delay)
-    local frame = CreateFrame("Frame")
-    local start = GetTime()
-    frame:SetScript("OnUpdate", function()
-        if GetTime() - start >= delay then
-            func()
-            frame:SetScript("OnUpdate", nil)
-            frame:Hide()
-            frame:SetParent(nil)
-        end
-    end)
-    return frame
+function auction:ScheduleTimer(callback, delay)
+    self.timerId = self.timerId + 1
+    local id = tostring(self.timerId)
+    self.timers[id] = { cb = callback, start = GetTime(), delay = delay }
+    if not self.timerFrame:GetScript("OnUpdate") then
+        self.timerFrame:SetScript("OnUpdate", function()
+            local now = GetTime()
+            for k, v in pairs(self.timers) do
+                if now - v.start >= v.delay then
+                    v.cb()
+                    self.timers[k] = nil
+                end
+            end
+            if not next(self.timers) then
+                self.timerFrame:SetScript("OnUpdate", nil)
+            end
+        end)
+    end
+    return id
+end
+
+function auction:CancelTimer(id)
+    if id then
+        self.timers[id] = nil
+    end
 end
 
 function auction:FormatNumber(n)
@@ -186,38 +199,42 @@ function auction:FormatNumber(n)
     return left .. (num:reverse():gsub("(%d%d%d)", "%1 "):reverse()) .. right
 end
 
-function auction:GetClassColor(playerName)
-    if not playerName then return "|cffffffff" end
-    if playerName == UnitName("player") then
-        local _, class = UnitClass("player")
-        local color = RAID_CLASS_COLORS[class]
-        if color then
-            return string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
-        end
-    end
+function auction:CacheRaidClasses()
+    self.playerClassCache = {}
     if IsInRaid() then
         for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, class = GetRaidRosterInfo(i)
-            if name == playerName then
-                if class and RAID_CLASS_COLORS[class] then
-                    local color = RAID_CLASS_COLORS[class]
-                    return string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
-                end
-                break
+            if name and class then
+                self.playerClassCache[name] = class
             end
         end
     elseif IsInGroup() then
         for i = 1, GetNumPartyMembers() do
             local unit = "party"..i
             local name = UnitName(unit)
-            if name == playerName then
-                local _, class = UnitClass(unit)
-                if class and RAID_CLASS_COLORS[class] then
-                    local color = RAID_CLASS_COLORS[class]
-                    return string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
-                end
-                break
+            local _, class = UnitClass(unit)
+            if name and class then
+                self.playerClassCache[name] = class
             end
+        end
+    end
+    local _, playerClass = UnitClass("player")
+    self.playerClassCache[UnitName("player")] = playerClass
+end
+
+function auction:GetClassColor(playerName)
+    if not playerName then return "|cffffffff" end
+    local class = self.playerClassCache[playerName]
+    if class and RAID_CLASS_COLORS[class] then
+        local c = RAID_CLASS_COLORS[class]
+        return string.format("|cff%02x%02x%02x", c.r*255, c.g*255, c.b*255)
+    end
+    -- fallback для неизвестных игроков
+    if playerName == UnitName("player") then
+        local _, playerClass = UnitClass("player")
+        local color = RAID_CLASS_COLORS[playerClass]
+        if color then
+            return string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
         end
     end
     return "|cffffffff"
@@ -503,22 +520,14 @@ end
 -- ======================
 function auction:InitAutoSave()
     if self.saveTimer then
-        self.saveTimer:SetScript("OnUpdate", nil)
-        self.saveTimer:Hide()
-        self.saveTimer:SetParent(nil)
+        self:CancelTimer(self.saveTimer)
     end
-    local frame = CreateFrame("Frame")
-    local elapsed = 0
-    local SAVE_INTERVAL = 10
-    frame:SetScript("OnUpdate", function(self, e)
-        elapsed = elapsed + e
-        if elapsed >= SAVE_INTERVAL then
-            elapsed = 0
-            auction:SaveData()
-        end
-    end)
-    self.saveTimer = frame
-    self:Debug("Автосохранение запущено (интервал "..SAVE_INTERVAL.." сек)")
+    local function saveFunc()
+        auction:SaveData()
+        auction.saveTimer = auction:ScheduleTimer(saveFunc, 10)
+    end
+    self.saveTimer = self:ScheduleTimer(saveFunc, 10)
+    self:Debug("Автосохранение запущено (интервал 10 сек)")
 end
 
 -- ======================
