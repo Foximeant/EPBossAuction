@@ -92,10 +92,6 @@ auction.playerEPCache = {}
 -- Кэш классов игроков
 auction.playerClassCache = {}
 
--- Очередь на токены Т6
-auction.tokenQueueText = ""
-auction.receivedQueueParts = nil
-
 -- Система настроек (базовые настройки, defaults)
 auction.defaults = {
     general = {
@@ -104,7 +100,7 @@ auction.defaults = {
         autoRequest = true,
         confirmBid = false,
         soundEnabled = true,
-        soundFile = "Interface\AddOns\EPBossAuction\sounds\bid.ogg",
+        soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
         offspecMultiplier = 0.5,
     },
     table = {
@@ -403,12 +399,15 @@ function auction:LoadSettings()
     
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
     
-    -- Загрузка очереди
+    -- Загрузка старой очереди (если нужна)
     if self.db.tokenQueue then
         self.tokenQueueText = self.db.tokenQueue.text or ""
     else
         self.tokenQueueText = ""
     end
+
+    -- Загрузка новой очереди
+    self:LoadTokenQueues()
     
     self:Debug("Настройки загружены, офф-спек коэффициент: " .. (self.offspecMultiplier * 100) .. "%")
 end

@@ -121,7 +121,7 @@ function auction:CreateUI()
     UIDropDownMenu_SetWidth(itemDrop, 140)
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
 
-    -- === ИНИЦИАЛИЗАЦИЯ ВЫПАДАЮЩЕГО СПИСКА ПРЕДМЕТОВ ===
+    -- Инициализация выпадающего списка предметов
     UIDropDownMenu_Initialize(itemDrop, function(selfDD, level)
         if not auction.selectedBoss then return end
         local items = auction.bosses[auction.selectedBoss]
@@ -557,7 +557,6 @@ function auction:UpdateLMButtonsState()
         self.endButton:SetAlpha(0.5)
         self.journalButton:SetAlpha(1.0)
     end
-    self:UpdateQueueState()
 end
 
 -- ======================
@@ -821,149 +820,6 @@ function auction:ForceClickable()
 end
 
 -- ======================
--- Окно очереди на токены Т6
--- ======================
-function auction:CreateQueueFrame()
-    if self.queueFrame then return end
-    
-    local frame = CreateFrame("Frame", "EPBossAuctionQueueFrame", UIParent)
-    frame:SetSize(500, 400)
-    frame:SetPoint("CENTER")
-    frame:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 8, right = 8, top = 8, bottom = 8 }
-    })
-    frame:SetBackdropColor(0, 0, 0, 1)
-    frame:SetMovable(true)
-    frame:SetResizable(true)
-    frame:SetMinResize(400, 300)
-    frame:SetMaxResize(800, 600)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:Hide()
-    tinsert(UISpecialFrames, "EPBossAuctionQueueFrame")
-    self.queueFrame = frame
-    
-    -- Заголовок
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -12)
-    title:SetText("Очередь на токены Т6")
-    
-    -- Кнопка закрытия
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -5, -5)
-    close:SetScript("OnClick", function()
-        frame:Hide()
-    end)
-    self.queueCloseButton = close
-    
-    -- Многострочное поле
-    local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    editBox:SetMultiLine(true)
-    editBox:SetPoint("TOPLEFT", 16, -45)
-    editBox:SetPoint("BOTTOMRIGHT", -32, 50)
-    editBox:SetAutoFocus(false)
-    editBox:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    editBox:SetBackdropColor(0, 0, 0, 0.3)
-    editBox:SetBackdropBorderColor(0.2, 0.2, 0.2, 0.5)
-    editBox:SetFont(GameFontNormal:GetFont(), 12)
-    editBox:SetTextColor(1, 1, 1)
-    editBox:SetHeight(200)
-    self.queueEditBox = editBox
-    
-    -- Кнопка "Сохранить"
-    local saveBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    saveBtn:SetSize(100, 25)
-    saveBtn:SetPoint("BOTTOMRIGHT", -16, 16)
-    saveBtn:SetText("Сохранить")
-    saveBtn:SetScript("OnClick", function()
-        if not auction:IsLootMaster() then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Только Loot Master может изменять очередь.")
-            return
-        end
-        local newText = auction.queueEditBox:GetText()
-        auction.tokenQueueText = newText
-        auction:SaveTokenQueue()
-        auction:SendQueueToRaid()
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь сохранена и отправлена в рейд.")
-    end)
-    self.queueSaveBtn = saveBtn
-    
-    -- Кнопка "Очистить"
-    local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    clearBtn:SetSize(80, 25)
-    clearBtn:SetPoint("RIGHT", saveBtn, "LEFT", -10, 0)
-    clearBtn:SetText("Очистить")
-    clearBtn:SetScript("OnClick", function()
-        if not auction:IsLootMaster() then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Только Loot Master может изменять очередь.")
-            return
-        end
-        auction.queueEditBox:SetText("")
-        auction.tokenQueueText = ""
-        auction:SaveTokenQueue()
-        auction:SendQueueToRaid()
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена.")
-    end)
-    self.queueClearBtn = clearBtn
-    
-    self:UpdateQueueState()
-end
-
-function auction:ToggleQueue()
-    if not self.queueFrame then
-        self:CreateQueueFrame()
-    end
-    if self.queueFrame:IsShown() then
-        self.queueFrame:Hide()
-    else
-        self:RefreshQueueDisplay()
-        self.queueFrame:Show()
-    end
-end
-
-function auction:RefreshQueueDisplay()
-    if self.queueEditBox then
-        self.queueEditBox:SetText(self.tokenQueueText or "")
-    end
-end
-
-function auction:UpdateQueueState()
-    if not self.queueEditBox then return end
-    local isLM = self:IsLootMaster()
-    if isLM then
-        self.queueEditBox:Enable()
-        self.queueEditBox:EnableMouse(true)
-        self.queueEditBox:SetAlpha(1.0)
-        self.queueSaveBtn:Enable()
-        self.queueSaveBtn:SetAlpha(1.0)
-        self.queueClearBtn:Enable()
-        self.queueClearBtn:SetAlpha(1.0)
-    else
-        self.queueEditBox:Disable()
-        self.queueEditBox:EnableMouse(false)
-        self.queueEditBox:SetAlpha(0.8)
-        self.queueSaveBtn:Disable()
-        self.queueSaveBtn:SetAlpha(0.5)
-        self.queueClearBtn:Disable()
-        self.queueClearBtn:SetAlpha(0.5)
-    end
-end
-
-function auction:SendQueueToRaid()
-    local text = self.tokenQueueText or ""
-    SendAddonMessage(self.prefix, "QUEUE_TEXT;"..text, "RAID")
-end
-
--- ======================
 -- Локальные функции ставок
 -- ======================
 function auction:ProcessBidLocally(bossName, itemID, playerName, amount, isOffspec)
@@ -1072,7 +928,6 @@ function auction:ApplyElvUISkin()
     if self.scrollFrame then local sb = _G[self.scrollFrame:GetName().."ScrollBar"]; if sb then S:HandleScrollBar(sb) end end
     if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
     if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
-    self:ApplyQueueSkin()
 end
 
 function auction:UpdateBidRowColors()
@@ -1095,45 +950,5 @@ function auction:UpdateBidRowColors()
             end
         end
         if rowTable.bidsStr then rowTable.bidsStr:SetText(topText) end
-    end
-end
-
--- ======================
--- ElvUI Skin для окна очереди
--- ======================
-function auction:ApplyQueueSkin()
-    if not IsAddOnLoaded("ElvUI") then return end
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-    
-    if not self.queueFrame then return end
-    
-    self.queueFrame:SetTemplate("Transparent")
-    
-    if self.queueCloseButton then
-        S:HandleCloseButton(self.queueCloseButton)
-    end
-    
-    if self.queueSaveBtn then
-        S:HandleButton(self.queueSaveBtn)
-    end
-    if self.queueClearBtn then
-        S:HandleButton(self.queueClearBtn)
-    end
-    
-    if self.queueEditBox then
-        self.queueEditBox:StripTextures()
-        S:HandleEditBox(self.queueEditBox)
-        self.queueEditBox:HookScript("OnEditFocusGained", function(box)
-            if box.backdrop then
-                box.backdrop:SetBackdropBorderColor(1, 0.8, 0)
-            end
-        end)
-        self.queueEditBox:HookScript("OnEditFocusLost", function(box)
-            if box.backdrop then
-                box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
-            end
-        end)
     end
 end

@@ -13,3 +13,4 @@ ui.lua
 options.lua
 events.lua
 journal.lua
+queue.lua

@@ -52,6 +52,18 @@ function auction:HandleWorldEnter()
         end
         self:UpdateMyEP()
     end, 2)
+
+    -- Автоматический запрос очередей
+    if not self:IsLootMaster() and (IsInRaid() or IsInGroup()) then
+        self:ScheduleTimer(function()
+            self:RequestQueuesFromLM()
+        end, 5)
+    elseif self:IsLootMaster() then
+        self:ScheduleTimer(function()
+            self:SyncAllQueuesToRaid()
+        end, 4)
+    end
+
     self:Debug("===============================")
 end
 
@@ -474,27 +486,44 @@ function auction:Handle_LOCKED(rest, sender)
     DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
 end
 
-function auction:Handle_QUEUE_REQUEST(rest, sender)
-    if self:IsLootMaster() then
-        self:SendQueueToRaid()
+-- ======================
+-- Обработчики очереди
+-- ======================
+function auction:Handle_QUEUE_UPDATE(rest, sender)
+    local itemKey, players = rest:match("([^;]+);(.*)")
+    if not itemKey or not self.tokenQueues then return end
+    local queue = {}
+    if players ~= "" then
+        for name in players:gmatch("([^,]+)") do
+            table.insert(queue, name)
+        end
     end
+    self.tokenQueues[itemKey] = queue
+    if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
+        self:RefreshQueueList()
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
 end
 
-function auction:Handle_QUEUE_TEXT(rest, sender)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r QUEUE_TEXT received, length=" .. #rest)
-    self.tokenQueueText = rest
-    self:SaveTokenQueue()
-    if self.queueEditBox then
-        self.queueEditBox:SetText(rest)
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox updated")
-    else
-        DEFAULT_CHAT_FRAME:AddMessage("|cff888888[DEBUG]|r queueEditBox is nil, text saved to tokenQueueText")
+function auction:Handle_QUEUE_REQUEST(rest, sender)
+    if not self:IsLootMaster() then return end
+    self:SyncAllQueuesToRaid(sender)
+end
+
+function auction:Handle_QUEUE_SYNC(rest, sender)
+    local itemKey, players = rest:match("([^;]+);(.*)")
+    if not itemKey then return end
+    local queue = {}
+    if players ~= "" then
+        for name in players:gmatch("([^,]+)") do
+            table.insert(queue, name)
+        end
     end
-    if rest == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь очищена лутером.")
-    else
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь обновлена лутером.")
+    self.tokenQueues[itemKey] = queue
+    if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
+        self:RefreshQueueList()
     end
+    self:Debug("Очередь синхронизирована: "..itemKey)
 end
 
 -- ======================
