@@ -608,9 +608,21 @@ function auction:RefreshTable()
     local itemWidth = math.floor(availableWidth / 2)
     local bidWidth = availableWidth - itemWidth - 10
 
-    -- Удаление старых строк
-    if self.rowFrames then
-        for _, rowTable in ipairs(self.rowFrames) do
+    local content = self.content
+    content:SetHeight(rowHeight * #items)
+
+    -- Инициализация таблицы строк, если её нет
+    if not self.rowFrames then
+        self.rowFrames = {}
+    end
+
+    local oldRowCount = #self.rowFrames
+    local newRowCount = #items
+
+    -- Удаляем лишние строки, если их стало меньше
+    for i = newRowCount + 1, oldRowCount do
+        local rowTable = self.rowFrames[i]
+        if rowTable then
             for _, widget in pairs(rowTable) do
                 if type(widget) == "table" and widget.GetObjectType then
                     local objType = widget:GetObjectType()
@@ -620,24 +632,16 @@ function auction:RefreshTable()
                     widget:Hide()
                 end
             end
+            self.rowFrames[i] = nil
         end
     end
-    self.rowFrames = {}
 
-    local content = self.content
-    content:SetHeight(rowHeight * #items)
-
-    for i, itemID in ipairs(items) do
+    -- Создаём недостающие строки
+    for i = oldRowCount + 1, newRowCount do
         local rowTable = {}
         local bg = content:CreateTexture(nil, "BACKGROUND")
         bg:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -rowHeight*(i-1))
         bg:SetSize(availableWidth, rowHeight)
-        if itemID == self.selectedItem then
-            bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
-        else
-            if i % 2 == 0 then bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-            else bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
-        end
         rowTable.bg = bg
 
         if showIcons then
@@ -645,30 +649,20 @@ function auction:RefreshTable()
             local iconSize = rowHeight - 2
             icon:SetSize(iconSize, iconSize)
             icon:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -(rowHeight*(i-1) + 2))
-            icon:SetTexture(GetItemIcon(itemID) or "Interface/Icons/INV_Misc_QuestionMark")
             rowTable.icon = icon
         end
 
         local row = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        if showIcons then row:SetPoint("LEFT", rowTable.icon, "RIGHT", 5, 0)
-        else row:SetPoint("LEFT", content, "LEFT", 5, 0) end
+        if showIcons then
+            row:SetPoint("LEFT", rowTable.icon, "RIGHT", 5, 0)
+        else
+            row:SetPoint("LEFT", content, "LEFT", 5, 0)
+        end
         row:SetWidth(itemWidth)
         row:SetJustifyH("LEFT")
         row:SetWordWrap(true)
         row:SetFont(GameFontNormal:GetFont(), itemFontSize)
         row:SetHeight(rowHeight)
-        local itemName = GetItemInfo(itemID) or ("item:"..itemID)
-        row:SetText(itemName)
-
-        local colorMode = self.db.table.itemColorMode or "gold"
-        if colorMode == "gold" then row:SetTextColor(1, 0.8, 0)
-        else
-            local _, _, quality = GetItemInfo(itemID)
-            if quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
-                local c = ITEM_QUALITY_COLORS[quality]
-                row:SetTextColor(c.r, c.g, c.b)
-            else row:SetTextColor(1, 1, 1) end
-        end
         rowTable.row = row
 
         local bidsStr = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -678,22 +672,6 @@ function auction:RefreshTable()
         bidsStr:SetWordWrap(true)
         bidsStr:SetFont(GameFontNormal:GetFont(), bidFontSize)
         bidsStr:SetHeight(rowHeight)
-        
-        local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
-        table.sort(bidsForItem, function(a,b) return a.amount>b.amount end)
-        
-        local topText = ""
-        for j = 1, showTopBids do
-            if bidsForItem[j] then
-                local formatted = self:FormatNumber(bidsForItem[j].amount)
-                local coloredName = self:FormatColoredName(bidsForItem[j].player)
-                local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
-                if j == 1 then topText = topText .. coloredName .. " - " .. formatted .. offspecMark
-                else topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark end
-                topText = topText .. "|r"
-            end
-        end
-        bidsStr:SetText(topText)
         rowTable.bidsStr = bidsStr
 
         local leftClickFrame = CreateFrame("Button", nil, content)
@@ -706,11 +684,83 @@ function auction:RefreshTable()
         rightClickFrame:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
         rightClickFrame:EnableMouse(true)
         
+        rowTable.leftClickFrame = leftClickFrame
+        rowTable.rightClickFrame = rightClickFrame
+
+        self.rowFrames[i] = rowTable
+    end
+
+    -- Обновляем данные во всех строках
+    for i, itemID in ipairs(items) do
+        local rowTable = self.rowFrames[i]
+        if not rowTable then break end
+
+        -- Обновляем позицию (на случай, если изменилась высота строки)
+        rowTable.bg:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -rowHeight*(i-1))
+        if showIcons and rowTable.icon then
+            rowTable.icon:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -(rowHeight*(i-1) + 2))
+        end
+        if not showIcons and rowTable.icon then
+            rowTable.icon:Hide()
+        end
+
+        -- Цвет фона
+        if itemID == self.selectedItem then
+            rowTable.bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
+        else
+            if i % 2 == 0 then
+                rowTable.bg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+            else
+                rowTable.bg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
+            end
+        end
+
+        -- Иконка
+        if showIcons and rowTable.icon then
+            rowTable.icon:SetTexture(GetItemIcon(itemID) or "Interface/Icons/INV_Misc_QuestionMark")
+        end
+
+        -- Название предмета
+        local itemName = GetItemInfo(itemID) or ("item:"..itemID)
+        rowTable.row:SetText(itemName)
+        local colorMode = self.db.table.itemColorMode or "gold"
+        if colorMode == "gold" then
+            rowTable.row:SetTextColor(1, 0.8, 0)
+        else
+            local _, _, quality = GetItemInfo(itemID)
+            if quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
+                local c = ITEM_QUALITY_COLORS[quality]
+                rowTable.row:SetTextColor(c.r, c.g, c.b)
+            else
+                rowTable.row:SetTextColor(1, 1, 1)
+            end
+        end
+
+        -- Ставки
+        local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
+        table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
+        local topText = ""
+        for j = 1, showTopBids do
+            if bidsForItem[j] then
+                local formatted = self:FormatNumber(bidsForItem[j].amount)
+                local coloredName = self:FormatColoredName(bidsForItem[j].player)
+                local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
+                if j == 1 then
+                    topText = topText .. coloredName .. " - " .. formatted .. offspecMark
+                else
+                    topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark
+                end
+                topText = topText .. "|r"
+            end
+        end
+        rowTable.bidsStr:SetText(topText)
+
+        -- Обновляем скрипты кнопок
         local currentItemID = itemID
         local currentRow = i
-        local currentBg = bg
+        local currentBg = rowTable.bg
 
-        leftClickFrame:SetScript("OnClick", function()
+        rowTable.leftClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
             UIDropDownMenu_SetText(auction.itemDropdown, itemName)
@@ -718,28 +768,34 @@ function auction:RefreshTable()
             auction.bidBox:SetFocus()
         end)
         
-        leftClickFrame:SetScript("OnEnter", function()
+        rowTable.leftClickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
-            GameTooltip:SetOwner(leftClickFrame, anchor)
-            if IsShiftKeyDown() then GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
-            else GameTooltip:SetHyperlink("item:"..currentItemID) end
+            GameTooltip:SetOwner(rowTable.leftClickFrame, anchor)
+            if IsShiftKeyDown() then
+                GameTooltip:SetHyperlinkCompareItem("item:"..currentItemID)
+            else
+                GameTooltip:SetHyperlink("item:"..currentItemID)
+            end
             GameTooltip:Show()
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
         end)
         
-        leftClickFrame:SetScript("OnLeave", function()
+        rowTable.leftClickFrame:SetScript("OnLeave", function()
             GameTooltip:Hide()
             if currentItemID == auction.selectedItem then
                 currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
             else
-                if currentRow % 2 == 0 then currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-                else currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
+                if currentRow % 2 == 0 then
+                    currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+                else
+                    currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
+                end
             end
         end)
         
-        rightClickFrame:SetScript("OnClick", function()
+        rowTable.rightClickFrame:SetScript("OnClick", function()
             auction.selectedItem = currentItemID
             local itemName = GetItemInfo(currentItemID) or ("item:"..tostring(currentItemID))
             UIDropDownMenu_SetText(auction.itemDropdown, itemName)
@@ -747,9 +803,9 @@ function auction:RefreshTable()
             auction.bidBox:SetFocus()
         end)
         
-        rightClickFrame:SetScript("OnEnter", function()
+        rowTable.rightClickFrame:SetScript("OnEnter", function()
             local anchor = "ANCHOR_" .. (self.db.table.tooltipAnchor or "CURSOR")
-            GameTooltip:SetOwner(rightClickFrame, anchor)
+            GameTooltip:SetOwner(rowTable.rightClickFrame, anchor)
             local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][currentItemID] or {}
             table.sort(bidsForItem, function(a,b) return a.amount > b.amount end)
             if #bidsForItem > 0 then
@@ -764,27 +820,29 @@ function auction:RefreshTable()
                     GameTooltip:AddLine(string.format("  EP: %s%s|r", epColor, self:FormatNumber(ep)), 0.8, 0.8, 0.8)
                     GameTooltip:AddLine(" ")
                 end
-            else GameTooltip:SetText("Нет ставок на этот предмет") end
+            else
+                GameTooltip:SetText("Нет ставок на этот предмет")
+            end
             GameTooltip:Show()
             if currentItemID ~= auction.selectedItem then
                 currentBg:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], hoverColor[4])
             end
         end)
         
-        rightClickFrame:SetScript("OnLeave", function()
+        rowTable.rightClickFrame:SetScript("OnLeave", function()
             GameTooltip:Hide()
             if currentItemID == auction.selectedItem then
                 currentBg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
             else
-                if currentRow % 2 == 0 then currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
-                else currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4]) end
+                if currentRow % 2 == 0 then
+                    currentBg:SetTexture(evenColor[1], evenColor[2], evenColor[3], evenColor[4])
+                else
+                    currentBg:SetTexture(oddColor[1], oddColor[2], oddColor[3], oddColor[4])
+                end
             end
         end)
-        
-        rowTable.leftClickFrame = leftClickFrame
-        rowTable.rightClickFrame = rightClickFrame
-        table.insert(self.rowFrames, rowTable)
     end
+
     self:ForceClickable()
     self.refreshing = false
 end
