@@ -47,9 +47,11 @@ auction.selectedItem = nil
 auction.lastLM = nil
 auction.myEP = 0
 
--- Версии для каждого босса
 auction.dataVersions = {}
 auction.lastVersions = {}
+auction.sortedBids = {}
+auction.maxBidCache = {}
+auction.myBidCache = {}
 
 auction.saveTimer = nil
 auction.lastSaveTime = 0
@@ -58,41 +60,31 @@ auction.receivedItems = {}
 auction.receivedSync = false
 auction.receivedAck = false
 
--- Переменные для динамического обновления EP
 auction.updateTimer = nil
 auction.lastEPUpdate = 0
 auction.epUpdateInterval = 60
 auction.epUpdatePending = false
 auction.isUpdatingEP = false
 
--- Переменные для масштабирования
 auction.windowScale = 1.0
 auction.minScale = 0.7
 auction.maxScale = 1.5
 auction.scaleStep = 0.1
 
--- Переменные для кнопки миникарты
 auction.minimapButton = nil
 auction.minimapButtonPosition = { angle = 0 }
 
--- Переменная для блокировки ставок
 auction.bidsLocked = false
-
--- Коэффициент офф-спек (устанавливается лутером)
 auction.offspecMultiplier = 0.5
 
--- Лог ставок (хранит историю)
 auction.bidLog = {}
-
--- Таблица для отслеживания уже показанных уведомлений
 auction.outbidNotified = {}
+auction.outbidThrottle = {}
 
--- Кэш EP игроков (для тултипа)
 auction.playerEPCache = {}
--- Кэш классов игроков
+auction.playerEPCacheTime = {}
 auction.playerClassCache = {}
 
--- Система настроек (базовые настройки, defaults)
 auction.defaults = {
     general = {
         debug = false,
@@ -146,10 +138,46 @@ auction.defaults = {
 
 auction.db = {}
 
--- Единый менеджер таймеров
+-- ======================
+-- Таймеры (оптимизированные, без сортировки)
+-- ======================
 auction.timerFrame = CreateFrame("Frame")
-auction.timers = {}
 auction.timerId = 0
+auction.timers = {}
+
+auction.timerFrame:SetScript("OnUpdate", function()
+    local now = GetTime()
+    local i = 1
+    while i <= #auction.timers do
+        local timer = auction.timers[i]
+        if timer.expires <= now then
+            table.remove(auction.timers, i)
+            local ok, err = pcall(timer.cb)
+            if not ok and auction.Debug then
+                auction:Debug("Timer error: " .. tostring(err))
+            end
+        else
+            i = i + 1
+        end
+    end
+end)
+
+function auction:ScheduleTimer(callback, delay)
+    self.timerId = self.timerId + 1
+    local id = tostring(self.timerId)
+    local expires = GetTime() + delay
+    table.insert(self.timers, { id = id, cb = callback, expires = expires })
+    return id
+end
+
+function auction:CancelTimer(id)
+    for i, timer in ipairs(self.timers) do
+        if timer.id == id then
+            table.remove(self.timers, i)
+            break
+        end
+    end
+end
 
 -- ======================
 -- Утилиты
@@ -162,46 +190,37 @@ function auction:Debug(msg, ...)
     DEFAULT_CHAT_FRAME:AddMessage("|cff888888[EPBA DEBUG]|r "..msg)
 end
 
-function auction:ScheduleTimer(callback, delay)
-    self.timerId = self.timerId + 1
-    local id = tostring(self.timerId)
-    self.timers[id] = { cb = callback, start = GetTime(), delay = delay }
-    if not self.timerFrame:GetScript("OnUpdate") then
-        self.timerFrame:SetScript("OnUpdate", function()
-            local now = GetTime()
-            for k, v in pairs(self.timers) do
-                if now - v.start >= v.delay then
-                    v.cb()
-                    self.timers[k] = nil
-                end
-            end
-            if not next(self.timers) then
-                self.timerFrame:SetScript("OnUpdate", nil)
-            end
-        end)
+function auction:DeepCopy(orig)
+    if type(orig) ~= "table" then return orig end
+    local copy = {}
+    for k, v in pairs(orig) do
+        copy[k] = self:DeepCopy(v)
     end
-    return id
-end
-
-function auction:CancelTimer(id)
-    if id then
-        self.timers[id] = nil
-    end
+    return copy
 end
 
 function auction:FormatNumber(n)
     if not n then return "0" end
-    local left, num, right = tostring(n):match("^([^%d]*%d)(%d*)(.-)$")
-    return left .. (num:reverse():gsub("(%d%d%d)", "%1 "):reverse()) .. right
+    local sign = ""
+    if n < 0 then
+        sign = "-"
+        n = -n
+    end
+    local int_part, frac_part = math.modf(n)
+    local formatted = tostring(int_part):reverse():gsub("(%d%d%d)", "%1 "):reverse()
+    if frac_part > 0 then
+        formatted = formatted .. string.format("%.2f", frac_part):sub(2)
+    end
+    return sign .. formatted
 end
 
 function auction:CacheRaidClasses()
-    self.playerClassCache = {}
+    local newCache = {}
     if IsInRaid() then
         for i = 1, GetNumRaidMembers() do
             local name, _, _, _, _, class = GetRaidRosterInfo(i)
-            if name and class then
-                self.playerClassCache[name] = class
+            if name then
+                newCache[name] = class or "UNKNOWN"
             end
         end
     elseif IsInGroup() then
@@ -209,13 +228,14 @@ function auction:CacheRaidClasses()
             local unit = "party"..i
             local name = UnitName(unit)
             local _, class = UnitClass(unit)
-            if name and class then
-                self.playerClassCache[name] = class
+            if name then
+                newCache[name] = class or "UNKNOWN"
             end
         end
     end
     local _, playerClass = UnitClass("player")
-    self.playerClassCache[UnitName("player")] = playerClass
+    newCache[UnitName("player")] = playerClass
+    self.playerClassCache = newCache
 end
 
 function auction:GetClassColor(playerName)
@@ -225,7 +245,6 @@ function auction:GetClassColor(playerName)
         local c = RAID_CLASS_COLORS[class]
         return string.format("|cff%02x%02x%02x", c.r*255, c.g*255, c.b*255)
     end
-    -- fallback для неизвестных игроков
     if playerName == UnitName("player") then
         local _, playerClass = UnitClass("player")
         local color = RAID_CLASS_COLORS[playerClass]
@@ -240,17 +259,35 @@ function auction:FormatColoredName(playerName)
     return self:GetClassColor(playerName) .. playerName
 end
 
-function auction:TableToString(t)
-    local parts = {}
-    for k, v in pairs(t or {}) do
-        table.insert(parts, k.."="..v)
+function auction:GetCachedItemName(itemID)
+    if not self.itemNameCache then self.itemNameCache = {} end
+    if self.itemNameCache[itemID] then return self.itemNameCache[itemID] end
+    local name = GetItemInfo(itemID)
+    if name then
+        self.itemNameCache[itemID] = name
+        return name
     end
-    return "{"..table.concat(parts, ", ").."}"
+    return "item:" .. itemID
 end
 
--- ======================
--- Расчёт максимальной ставки с учётом офф-спек
--- ======================
+function auction:ClearPlayerEPCache()
+    self.playerEPCache = {}
+    self.playerEPCacheTime = {}
+end
+
+function auction:SetCachedPlayerEP(playerName, ep)
+    self.playerEPCache[playerName] = ep
+    self.playerEPCacheTime[playerName] = GetTime()
+end
+
+function auction:GetCachedPlayerEP(playerName)
+    local ep = self.playerEPCache[playerName]
+    if ep and (GetTime() - (self.playerEPCacheTime[playerName] or 0)) < 300 then
+        return ep
+    end
+    return nil
+end
+
 function auction:GetMaxBidAmount(isOffspec)
     local currentEP = self.myEP or 0
     if isOffspec then
@@ -259,9 +296,6 @@ function auction:GetMaxBidAmount(isOffspec)
     return currentEP
 end
 
--- ======================
--- Воспроизведение звука перебитой ставки
--- ======================
 function auction:PlayOutbidSound()
     if self.db and self.db.general and self.db.general.soundEnabled then
         local soundFile = self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav"
@@ -269,147 +303,249 @@ function auction:PlayOutbidSound()
     end
 end
 
--- ======================
--- Функции для работы с EP игроков (для тултипа)
--- ======================
-function auction:GetPlayerEP(playerName, noCache)
-    if not playerName then return 0 end
-    
-    if noCache then
-        return self:FetchPlayerEP(playerName)
+function auction:UpdateSortedBids(bossName, itemID)
+    self.sortedBids[bossName] = self.sortedBids[bossName] or {}
+    local bids = self.bids[bossName] and self.bids[bossName][itemID]
+    if bids then
+        local sorted = {}
+        for _, bid in ipairs(bids) do
+            table.insert(sorted, bid)
+        end
+        table.sort(sorted, function(a,b) return a.amount > b.amount end)
+        self.sortedBids[bossName][itemID] = sorted
+    else
+        self.sortedBids[bossName][itemID] = {}
     end
-    
-    if self.playerEPCache[playerName] then
-        return self.playerEPCache[playerName]
-    end
-    
-    local ep = self:FetchPlayerEP(playerName)
-    self.playerEPCache[playerName] = ep
-    return ep
 end
 
-function auction:FetchPlayerEP(playerName)
-    local ep = 0
-    local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
-    
-    if epgpTable and epgpTable.GetEPGP then
-        local epVal, gp, main = epgpTable:GetEPGP(playerName)
-        if epVal then
-            if main then
-                local mainEP, _, _ = epgpTable:GetEPGP(main)
-                if mainEP then
-                    ep = tonumber(mainEP) or 0
-                else
-                    ep = tonumber(epVal) or 0
+function auction:UpdateBidCaches(bossName, itemID)
+    local bids = self.bids[bossName] and self.bids[bossName][itemID]
+    local key = bossName .. ":" .. itemID
+    local playerName = UnitName("player")
+    local maxBid = 0
+    local myBid = 0
+    if bids then
+        for _, bid in ipairs(bids) do
+            if bid.amount > maxBid then maxBid = bid.amount end
+            if bid.player == playerName then myBid = bid.amount end
+        end
+    end
+    self.maxBidCache[key] = maxBid
+    self.myBidCache[key] = myBid
+end
+
+function auction:GetVersionKey(bossName, itemID)
+    if not bossName or not itemID then return nil end
+    return tostring(bossName) .. ":" .. tostring(itemID)
+end
+
+function auction:NormalizeVersionTable(versionTable)
+    local normalized = {}
+    if type(versionTable) ~= "table" then
+        return normalized
+    end
+
+    for key, version in pairs(versionTable) do
+        if type(version) == "number" then
+            local keyStr = tostring(key)
+            if keyStr:find(":", 1, true) then
+                normalized[keyStr] = version
+            elseif self.bosses[keyStr] then
+                for _, itemID in ipairs(self.bosses[keyStr]) do
+                    normalized[self:GetVersionKey(keyStr, itemID)] = version
                 end
-            else
-                ep = tonumber(epVal) or 0
             end
         end
-    elseif epgpTable and epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
+    end
+
+    return normalized
+end
+
+function auction:GetDataVersion(bossName, itemID)
+    local key = self:GetVersionKey(bossName, itemID)
+    return (key and self.dataVersions[key]) or 0
+end
+
+function auction:IncrementDataVersion(bossName, itemID)
+    local key = self:GetVersionKey(bossName, itemID)
+    if not key then return 0 end
+    self.dataVersions[key] = (self.dataVersions[key] or 0) + 1
+    return self.dataVersions[key]
+end
+
+function auction:GetLastVersion(bossName, itemID)
+    local key = self:GetVersionKey(bossName, itemID)
+    return (key and self.lastVersions[key]) or 0
+end
+
+function auction:SetLastVersion(bossName, itemID, version)
+    local key = self:GetVersionKey(bossName, itemID)
+    if key and version and version > 0 then
+        self.lastVersions[key] = version
+    end
+end
+
+function auction:ResetVersionsForNewLM()
+    self.lastVersions = {}
+    self.receivedItems = {}
+    self.receivedSync = false
+    self.receivedAck = false
+    self:Debug("Сброшены версии ставок для нового Loot Master")
+end
+
+function auction:ResetVersionsOnGroupExit()
+    self.dataVersions = {}
+    self.lastVersions = {}
+    self.lastLM = nil
+    self.receivedItems = {}
+    self.receivedSync = false
+    self.receivedAck = false
+    self:Debug("Сброшены версии ставок после выхода из группы/рейда")
+    if self.fullyLoaded then
+        self:SaveData()
+    end
+end
+
+function auction:RebuildBidData()
+    wipe(self.sortedBids)
+    wipe(self.maxBidCache)
+    wipe(self.myBidCache)
+    for bossName, bossBids in pairs(self.bids or {}) do
+        for itemID, _ in pairs(bossBids) do
+            self:UpdateSortedBids(bossName, itemID)
+            self:UpdateBidCaches(bossName, itemID)
+        end
+    end
+end
+
+function auction:GetPlayerEP(playerName, forceRefresh)
+    if not playerName or playerName == "" then
+        return 0
+    end
+
+    if playerName == UnitName("player") then
+        return tonumber(self.myEP) or 0
+    end
+
+    if not forceRefresh then
+        local cached = self:GetCachedPlayerEP(playerName)
+        if cached ~= nil then
+            return cached
+        end
+    end
+
+    local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
+    if not epgpTable then
+        return self:GetCachedPlayerEP(playerName) or 0
+    end
+
+    local resolvedEP = nil
+
+    if epgpTable.GetEPGP then
+        local ep, gp, main = epgpTable:GetEPGP(playerName)
+        if ep then
+            if main and main ~= "" then
+                local mainEP = epgpTable:GetEPGP(main)
+                resolvedEP = tonumber(mainEP) or tonumber(ep) or 0
+            else
+                resolvedEP = tonumber(ep) or 0
+            end
+        end
+    end
+
+    if resolvedEP == nil and epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
         local playerData = epgpTable.db.profile.players[playerName]
         if playerData then
             if playerData.main then
                 local mainData = epgpTable.db.profile.players[playerData.main]
-                if mainData and mainData.EP then
-                    ep = tonumber(mainData.EP) or 0
-                else
-                    ep = tonumber(playerData.EP) or 0
-                end
+                resolvedEP = tonumber(mainData and mainData.EP or playerData.EP) or 0
             else
-                ep = tonumber(playerData.EP) or 0
+                resolvedEP = tonumber(playerData.EP) or 0
             end
         end
     end
-    
-    return ep
-end
 
-function auction:ClearPlayerEPCache()
-    self.playerEPCache = {}
+    if resolvedEP == nil and epgpTable.GetEP then
+        resolvedEP = tonumber(epgpTable:GetEP(playerName)) or 0
+    end
+
+    if resolvedEP == nil then
+        resolvedEP = self:GetCachedPlayerEP(playerName) or 0
+    end
+
+    self:SetCachedPlayerEP(playerName, resolvedEP)
+    return resolvedEP
 end
 
 function auction:RefreshPlayerEPCache()
-    if not self.rowFrames or not self.selectedBoss then return end
-    
-    local players = {}
-    for idx, rowTable in ipairs(self.rowFrames) do
-        local itemID = self.bosses[self.selectedBoss][idx]
-        if itemID then
-            local bidsForItem = self.bids[self.selectedBoss] and self.bids[self.selectedBoss][itemID] or {}
-            for _, bid in ipairs(bidsForItem) do
-                if bid and bid.player then
-                    players[bid.player] = true
-                end
+    self:ClearPlayerEPCache()
+
+    local playerName = UnitName("player")
+    if playerName then
+        self:SetCachedPlayerEP(playerName, tonumber(self.myEP) or 0)
+    end
+
+    if IsInRaid() then
+        for i = 1, GetNumRaidMembers() do
+            local name = GetRaidRosterInfo(i)
+            if name then
+                self:GetPlayerEP(name, true)
+            end
+        end
+    elseif IsInGroup() then
+        for i = 1, GetNumPartyMembers() do
+            local name = UnitName("party"..i)
+            if name then
+                self:GetPlayerEP(name, true)
             end
         end
     end
-    
-    for playerName, _ in pairs(players) do
-        self.playerEPCache[playerName] = self:FetchPlayerEP(playerName)
+end
+
+function auction:GetRaidKey()
+    if not IsInRaid() then return "solo" end
+    local names = {}
+    for i = 1, GetNumRaidMembers() do
+        local name = GetRaidRosterInfo(i)
+        if name then table.insert(names, name) end
+    end
+    table.sort(names)
+    return table.concat(names, ",")
+end
+
+function auction:IsLootMaster()
+    local method, partyIndex, raidIndex = GetLootMethod()
+    if method ~= "master" then return false end
+    if raidIndex then
+        local name = GetRaidRosterInfo(raidIndex)
+        return name == UnitName("player")
+    elseif partyIndex then
+        return UnitIsGroupLeader("player")
+    end
+    return false
+end
+
+function auction:PrecacheItems()
+    for boss, itemList in pairs(self.bosses) do
+        for _, itemID in ipairs(itemList) do
+            GetItemInfo(itemID)
+        end
     end
 end
 
--- ======================
--- Функции для работы с логом ставок
--- ======================
-function auction:SaveBidLog()
-    EPBossAuctionBidLog = self.bidLog
-end
-
-function auction:LoadBidLog()
-    if EPBossAuctionBidLog then
-        self.bidLog = EPBossAuctionBidLog
-    else
-        self.bidLog = {}
-    end
-end
-
-function auction:ClearBidLog()
-    self.bidLog = {}
-    self:SaveBidLog()
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
-end
-
--- ======================
--- Очистка устаревших уведомлений о перебитии
--- ======================
-function auction:CleanOutbidNotified()
-    for k, _ in pairs(self.outbidNotified) do
-        self.outbidNotified[k] = nil
-    end
-end
-
--- ======================
--- Загрузка/сохранение настроек
--- ======================
 function auction:LoadSettings()
     if EPBossAuctionSettings then
         self.db = EPBossAuctionSettings
     else
-        self.db = self.defaults
+        self.db = self:DeepCopy(self.defaults)
     end
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
     self:LoadBidLog()
-    
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
-    
-    -- Загрузка старой очереди (если нужна)
-    if self.db.tokenQueue then
-        self.tokenQueueText = self.db.tokenQueue.text or ""
-    else
-        self.tokenQueueText = ""
-    end
-
-    -- Загрузка новой очереди
+    self.tokenQueueText = self.db.tokenQueue and self.db.tokenQueue.text or ""
     self:LoadTokenQueues()
-    
-    self:Debug("Настройки загружены, офф-спек коэффициент: " .. (self.offspecMultiplier * 100) .. "%")
 end
 
 function auction:SaveSettings()
@@ -417,25 +553,16 @@ function auction:SaveSettings()
     if not self.db.tokenQueue then self.db.tokenQueue = {} end
     self.db.tokenQueue.text = self.tokenQueueText
     self:SaveBidLog()
-    self:Debug("Настройки сохранены")
-end
-
-function auction:SaveTokenQueue()
-    if not self.db.tokenQueue then self.db.tokenQueue = {} end
-    self.db.tokenQueue.text = self.tokenQueueText
-    self:SaveSettings()
 end
 
 function auction:ApplySettings()
     self.debug = self.db.general.debug
+    self.windowScale = self.db.window.scale
+    self.minimapButtonPosition = self.db.minimap.position
     if self.frame then
         self.frame:SetScale(self.db.window.scale)
         self.frame:SetSize(self.db.window.width, self.db.window.height)
         self.frame:SetAlpha(self.db.window.alpha)
-        self:UpdateScrollFrameSize()
-        if self.selectedBoss then
-            self:RefreshTable()
-        end
         if self.db.window.locked then
             self.frame:SetMovable(false)
             self.frame:RegisterForDrag()
@@ -457,35 +584,15 @@ function auction:ApplySettings()
             self.minimapButton:Hide()
         end
     end
-    if self.lockCheckbox then
-        self.lockCheckbox:SetChecked(self.bidsLocked)
-        if not self:IsLootMaster() then
-            self.lockCheckbox:Disable()
-            self.lockCheckbox:SetAlpha(0.5)
-        else
-            self.lockCheckbox:Enable()
-            self.lockCheckbox:SetAlpha(1.0)
-        end
-    end
-    if self.bidBox then
-        if self.bidsLocked then
-            self.bidBox:Disable()
-            self.bidBox:SetAlpha(0.5)
-        else
-            self.bidBox:Enable()
-            self.bidBox:SetAlpha(1.0)
-        end
-    end
     if self.selectedBoss then
-        self:RefreshTable()
+        self:RequestRefresh()
     end
-    self:Debug("Настройки применены")
 end
 
--- ======================
--- Сохранение данных (ставки, версии и т.д.)
--- ======================
 function auction:SaveData()
+    self.db.window.scale = self.windowScale
+    self.db.general.offspecMultiplier = self.offspecMultiplier
+    self.db.minimap.position = self.minimapButtonPosition
     EPBossAuctionSavedBids = self.bids
     EPBossAuctionSavedVersions = self.dataVersions
     EPBossAuctionSavedTime = GetTime()
@@ -498,47 +605,34 @@ function auction:SaveData()
     EPBossAuctionSavedOffspecMultiplier = self.offspecMultiplier
     self:SaveSettings()
     self.lastSaveTime = GetTime()
-    local bidCount = 0
-    for bossName, bossBids in pairs(self.bids) do
-        for itemID, bidsForItem in pairs(bossBids) do
-            bidCount = bidCount + #bidsForItem
-        end
-    end
-    self:Debug("=== СОХРАНЕНИЕ ===")
-    self:Debug("Всего ставок: "..bidCount)
-    self:Debug("Версии боссов: "..self:TableToString(self.dataVersions))
-    self:Debug("Масштаб окна: "..self.windowScale)
-    self:Debug("Позиция кнопки: угол "..(self.minimapButtonPosition.angle or 0))
-    self:Debug("Блокировка ставок: "..tostring(self.bidsLocked))
-    self:Debug("Офф-спек коэффициент: "..(self.offspecMultiplier * 100).."%")
-    self:Debug("==================")
 end
 
--- ======================
--- Автосохранение
--- ======================
 function auction:InitAutoSave()
-    if self.saveTimer then
-        self:CancelTimer(self.saveTimer)
-    end
+    if self.saveTimer then self:CancelTimer(self.saveTimer) end
     local function saveFunc()
         auction:SaveData()
         auction.saveTimer = auction:ScheduleTimer(saveFunc, 10)
     end
     self.saveTimer = self:ScheduleTimer(saveFunc, 10)
-    self:Debug("Автосохранение запущено (интервал 10 сек)")
 end
 
--- ======================
--- Масштабирование
--- ======================
 function auction:SetWindowScale(scale)
     scale = math.max(self.minScale, math.min(self.maxScale, scale))
     if self.frame then
         self.windowScale = scale
+        self.db.window.scale = scale
         self.frame:SetScale(scale)
-        self:SaveScale()
-        self:Debug("Масштаб окна изменен на: "..scale)
+    end
+end
+
+function auction:CleanOutbidNotified()
+    self.outbidNotified = {}
+    self.outbidThrottle = {}
+    self:Debug("Очищены уведомления о перебитых ставках")
+    if self.fullyLoaded then
+        self:ScheduleTimer(function()
+            auction:CleanOutbidNotified()
+        end, 300)
     end
 end
 
@@ -554,78 +648,57 @@ function auction:ResetZoom()
     self:SetWindowScale(1.0)
 end
 
-function auction:SaveScale()
-    EPBossAuctionSavedScale = self.windowScale
-end
-
-function auction:LoadScale()
-    if EPBossAuctionSavedScale then
-        self.windowScale = EPBossAuctionSavedScale
-        if self.frame then
-            self.frame:SetScale(self.windowScale)
-        end
-    end
-end
-
--- ======================
--- Loot Master
--- ======================
-function auction:IsLootMaster()
-    local method, partyIndex, raidIndex = GetLootMethod()
-    if method ~= "master" then return false end
-    if raidIndex then
-        local name = GetRaidRosterInfo(raidIndex)
-        return name == UnitName("player")
-    elseif partyIndex then
-        return true
-    end
-    return false
-end
-
-function auction:ResetVersionsForNewLM()
-    self:Debug("Сброс версий для нового лутера")
-    self.lastVersions = {}
-    if IsInRaid() or IsInGroup() then
-        self:RequestDataFromLM()
-    end
-end
-
--- ======================
--- Принудительное сохранение
--- ======================
 function auction:ForceSave()
-    self:Debug("Принудительное сохранение")
     self:SaveData()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные сохранены")
 end
 
--- ======================
--- Обновление размеров скролл-фрейма
--- ======================
 function auction:UpdateScrollFrameSize()
     if not self.frame or not self.scrollFrame then return end
-    
-    local leftOffset = 16
-    local topOffset = 102
-    local rightOffset = 30
-    local bottomOffset = 80
-    
-    self.scrollFrame:ClearAllPoints()
-    self.scrollFrame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
-    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
-    
+    self.scrollFrame:SetPoint("TOPLEFT", self.leftPanel, "TOPRIGHT", 10, 0)
+    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -16, 16)
     if self.scrollBG then
-        self.scrollBG:ClearAllPoints()
-        self.scrollBG:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -topOffset)
-        self.scrollBG:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -rightOffset, bottomOffset)
+        self.scrollBG:SetPoint("TOPLEFT", self.scrollFrame, "TOPLEFT", -2, 2)
+        self.scrollBG:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, -2)
     end
-    
-    if self.header then
-        self.header:ClearAllPoints()
-        self.header:SetPoint("TOPLEFT", self.frame, "TOPLEFT", leftOffset, -80)
-        self.header:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -rightOffset, -80)
+end
+
+function auction:RequestRefresh()
+    if self.refreshPending then return end
+    self.refreshPending = true
+    self:ScheduleTimer(function()
+        self.refreshPending = false
+        if self.frame and self.frame:IsShown() and self.selectedBoss then
+            self:RefreshTable()
+        end
+    end, 0.1)
+end
+
+function auction:LoadBidLog()
+    if EPBossAuctionBidLog then
+        self.bidLog = EPBossAuctionBidLog
+    else
+        self.bidLog = {}
     end
-    
-    self.db.window.width = self.frame:GetWidth()
-    self.db.window.height = self.frame:GetHeight()
+end
+
+function auction:SaveBidLog()
+    EPBossAuctionBidLog = self.bidLog
+end
+
+function auction:ClearBidLog()
+    self.bidLog = {}
+    self:SaveBidLog()
+    if self.journalFrame and self.journalFrame:IsShown() then
+        self:RefreshJournal()
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
+end
+
+function auction:LoadTokenQueues()
+    if self.db and self.db.tokenQueues then
+        self.tokenQueues = self.db.tokenQueues
+    else
+        self.tokenQueues = {}
+    end
 end

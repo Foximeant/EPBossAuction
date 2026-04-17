@@ -26,8 +26,9 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end
             auction:Debug("В сохранении: "..savedCount.." ставок")
             auction.bids = EPBossAuctionSavedBids
-            auction.dataVersions = EPBossAuctionSavedVersions or {}
+            auction.dataVersions = auction:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
             auction.lastVersions = {}
+            auction:RebuildBidData()
 
             if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then
                 auction.selectedBoss = EPBossAuctionSavedSelectedBoss
@@ -57,14 +58,21 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
 
             if EPBossAuctionSavedScale then
                 auction.windowScale = EPBossAuctionSavedScale
+                auction.db.window.scale = EPBossAuctionSavedScale
             end
 
             if EPBossAuctionSavedMinimapPos then
                 auction.minimapButtonPosition = EPBossAuctionSavedMinimapPos
+                auction.db.minimap.position = EPBossAuctionSavedMinimapPos
             end
 
             if EPBossAuctionBidsLocked ~= nil then
                 auction.bidsLocked = EPBossAuctionBidsLocked
+            end
+
+            if EPBossAuctionSavedOffspecMultiplier then
+                auction.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
+                auction.db.general.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
             end
         else
             auction:Debug("Нет сохраненных данных")
@@ -73,6 +81,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.lastVersions = {}
             auction.windowScale = 1.0
             auction.bidsLocked = false
+            auction:RebuildBidData()
         end
         auction:ApplySettings()
         auction:InitAutoSave()
@@ -118,6 +127,14 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CacheRaidClasses()
         auction:ScheduleTimer(function()
             local playerName = UnitName("player")
+            if not IsInRaid() and not IsInGroup() then
+                if auction.lastLM or next(auction.lastVersions) or next(auction.dataVersions) then
+                    auction:ResetVersionsOnGroupExit()
+                end
+                auction:UpdateLockCheckbox()
+                auction:UpdateLMButtonsState()
+                return
+            end
             if auction:IsLootMaster() then
                 if auction.lastLM ~= playerName then
                     auction.lastLM = playerName
@@ -141,13 +158,13 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                     auction:ResetVersionsForNewLM()
                     auction.lastLM = currentLM
                 elseif IsInRaid() or IsInGroup() then
-                    SendAddonMessage(auction.prefix, "CHECK_VERSION", "RAID")
+                    auction:SendToLootMaster("CHECK_VERSION")
                     auction:ScheduleTimer(function()
                         local bossParam = ""
                         if auction.selectedBoss then
                             bossParam = ";"..auction.selectedBoss
                         end
-                        SendAddonMessage(auction.prefix, "HELLO"..bossParam, "RAID")
+                        auction:SendToLootMaster("HELLO"..bossParam)
                         auction:Debug("Отправлен HELLO после GROUP_ROSTER_UPDATE")
                     end, 1)
                 end
