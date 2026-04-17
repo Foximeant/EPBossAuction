@@ -62,7 +62,7 @@ auction.receivedAck = false
 
 auction.updateTimer = nil
 auction.lastEPUpdate = 0
-auction.epUpdateInterval = 60
+auction.epUpdateInterval = 300
 auction.epUpdatePending = false
 auction.isUpdatingEP = false
 
