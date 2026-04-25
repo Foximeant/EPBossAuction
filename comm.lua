@@ -275,7 +275,11 @@ function auction:Handle_BID(rest, sender)
         self:UpdateSortedBids(bossName, itemID)
         self:UpdateBidCaches(bossName, itemID)
         self:QueueSync(bossName, itemID)
-        self:RequestRefresh()
+        if bossName == self.selectedBoss then
+            if not self:RefreshRowForItem(itemID) then
+                self:RequestRefresh()
+            end
+        end
         self:CheckIfOutbid(bossName, itemID)
         self:AddBidLogEntry(playerName, 0, itemID, bossName, isOffspecBool)
         self:Debug("Отказ от ставки обработан")
@@ -304,7 +308,11 @@ function auction:Handle_BID(rest, sender)
     self:UpdateSortedBids(bossName, itemID)
     self:UpdateBidCaches(bossName, itemID)
     self:QueueSync(bossName, itemID)
-    self:RequestRefresh()
+    if bossName == self.selectedBoss then
+        if not self:RefreshRowForItem(itemID) then
+            self:RequestRefresh()
+        end
+    end
     self:CheckIfOutbid(bossName, itemID)
     self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspecBool)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender)
@@ -358,7 +366,9 @@ function auction:Handle_SYNC(rest, sender)
         self:UpdateSortedBids(bossName, itemID)
         self:UpdateBidCaches(bossName, itemID)
         if self.selectedBoss == bossName then
-            self:RequestRefresh()
+            if not self:RefreshRowForItem(itemID) then
+                self:RequestRefresh()
+            end
         end
         self:CheckIfOutbid(bossName, itemID)
         self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#(self.bids[bossName][itemID] or {}))
@@ -502,8 +512,8 @@ function auction:Handle_END(rest, sender)
     if self.selectedBoss == bossName then
         self:RequestRefresh()
     end
-    self:SaveData()
-end
+    self:RequestSaveData()
+  end
 
 function auction:Handle_LOCK(rest, sender)
     self:Debug("LOCK получен, rest='"..tostring(rest).."'")

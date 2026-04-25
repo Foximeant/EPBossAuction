@@ -125,7 +125,12 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
     elseif event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE" then
         if not auction.fullyLoaded then return end
         auction:CacheRaidClasses()
-        auction:ScheduleTimer(function()
+        if auction.groupRosterTimer then
+            auction:CancelTimer(auction.groupRosterTimer)
+            auction.groupRosterTimer = nil
+        end
+        auction.groupRosterTimer = auction:ScheduleTimer(function()
+            auction.groupRosterTimer = nil
             local playerName = UnitName("player")
             if not IsInRaid() and not IsInGroup() then
                 if auction.lastLM or next(auction.lastVersions) or next(auction.dataVersions) then
@@ -144,7 +149,11 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                         auction:RefreshTable()
                     end
                     SendAddonMessage(auction.prefix, "LM", "RAID")
-                    auction:ScheduleTimer(function()
+                    if auction.syncAllTimer then
+                        auction:CancelTimer(auction.syncAllTimer)
+                    end
+                    auction.syncAllTimer = auction:ScheduleTimer(function()
+                        auction.syncAllTimer = nil
                         auction:SyncAllToRaid()
                     end, 2)
                 end
@@ -159,7 +168,12 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                     auction.lastLM = currentLM
                 elseif IsInRaid() or IsInGroup() then
                     auction:SendToLootMaster("CHECK_VERSION")
-                    auction:ScheduleTimer(function()
+                    if auction.groupHelloTimer then
+                        auction:CancelTimer(auction.groupHelloTimer)
+                        auction.groupHelloTimer = nil
+                    end
+                    auction.groupHelloTimer = auction:ScheduleTimer(function()
+                        auction.groupHelloTimer = nil
                         local bossParam = ""
                         if auction.selectedBoss then
                             bossParam = ";"..auction.selectedBoss

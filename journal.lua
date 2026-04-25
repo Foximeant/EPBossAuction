@@ -1,6 +1,7 @@
 local auction = EPBossAuction
 
 auction.bidLogLimit = 500
+auction.journalDirty = true
 
 local function shouldLogRaidActivity()
     return IsInRaid()
@@ -50,12 +51,22 @@ function auction:CreateJournalFrame()
             self.resizeTimer = nil
         end, 0.1)
     end)
+    frame:SetScript("OnHide", function()
+        if auction.journalRefreshTimer then
+            auction:CancelTimer(auction.journalRefreshTimer)
+            auction.journalRefreshTimer = nil
+        end
+        if auction.journalLayoutTimer then
+            auction:CancelTimer(auction.journalLayoutTimer)
+            auction.journalLayoutTimer = nil
+        end
+    end)
     frame:Hide()
     tinsert(UISpecialFrames, "EPBossAuctionJournalFrame")
 
     local title = frame:CreateFontString("EPBossAuctionJournalTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("Журнал ставок")
+    title:SetText("Р–СѓСЂРЅР°Р» СЃС‚Р°РІРѕРє")
 
     local close = CreateFrame("Button", "EPBossAuctionJournalCloseButton", frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
@@ -67,12 +78,12 @@ function auction:CreateJournalFrame()
     local clearButton = CreateFrame("Button", "EPBossAuctionJournalClearButton", frame, "UIPanelButtonTemplate")
     clearButton:SetSize(80, 25)
     clearButton:SetPoint("BOTTOMLEFT", 16, 16)
-    clearButton:SetText("Очистить")
+    clearButton:SetText("РћС‡РёСЃС‚РёС‚СЊ")
     clearButton:SetScript("OnClick", function()
         StaticPopupDialogs["EPBA_CLEAR_LOG"] = {
-            text = "Вы уверены?",
-            button1 = "Да",
-            button2 = "Нет",
+            text = "Р’С‹ СѓРІРµСЂРµРЅС‹?",
+            button1 = "Р”Р°",
+            button2 = "РќРµС‚",
             OnAccept = function()
                 auction:ClearBidLog()
             end,
@@ -150,16 +161,18 @@ function auction:CreateJournalFrame()
 
     self.journalFrame = frame
 
-    self:BuildJournalText()
+    self:BuildJournalText(true)
     self:ApplyJournalSkin()
 end
 
-function auction:BuildJournalText()
+function auction:BuildJournalText(force)
     if not self.journalTextWidget then return end
+    if not force and not self.journalDirty then return end
 
     local entries = self.bidLog or {}
     if #entries == 0 then
-        self.journalTextWidget:SetText("Журнал пуст >_<")
+        self.journalTextWidget:SetText("Р–СѓСЂРЅР°Р» РїСѓСЃС‚ >_<")
+        self.journalDirty = false
         self:UpdateJournalScroll()
         return
     end
@@ -168,25 +181,26 @@ function auction:BuildJournalText()
     for i = #entries, 1, -1 do
         local entry = entries[i]
         if entry then
-            local playerName = entry.player or "Игрок не найден"
+            local playerName = entry.player or "РРіСЂРѕРє РЅРµ РЅР°Р№РґРµРЅ"
             local amount = entry.amount or 0
-            local itemName = entry.itemID and self:GetCachedItemName(entry.itemID) or "предмет не найден"
-            local bossName = entry.boss or "босс не найден"
+            local itemName = entry.itemID and self:GetCachedItemName(entry.itemID) or "РїСЂРµРґРјРµС‚ РЅРµ РЅР°Р№РґРµРЅ"
+            local bossName = entry.boss or "Р±РѕСЃСЃ РЅРµ РЅР°Р№РґРµРЅ"
             local timeStr = entry.time or date("%Y-%m-%d %H:%M:%S")
 
             local amountStr
             if amount == 0 then
-                amountStr = "отменил ставку "
+                amountStr = "РѕС‚РјРµРЅРёР» СЃС‚Р°РІРєСѓ "
             else
                 local offspecMark = entry.isOffspec and " (O)" or ""
-                amountStr = "поставил " .. self:FormatNumber(amount) .. " EP" .. offspecMark
+                amountStr = "РїРѕСЃС‚Р°РІРёР» " .. self:FormatNumber(amount) .. " EP" .. offspecMark
             end
 
-            textLines[#textLines + 1] = string.format("%s %s %s на %s (%s)", timeStr, playerName, amountStr, itemName, bossName)
+            textLines[#textLines + 1] = string.format("%s %s %s РЅР° %s (%s)", timeStr, playerName, amountStr, itemName, bossName)
         end
     end
 
     self.journalTextWidget:SetText(table.concat(textLines, "\n"))
+    self.journalDirty = false
     self:UpdateJournalScroll()
 end
 
@@ -220,9 +234,13 @@ function auction:ToggleJournal()
     if self.journalFrame and self.journalFrame:IsShown() then
         self.journalFrame:Hide()
     elseif self.journalFrame then
-        self:BuildJournalText()
+        self:BuildJournalText(true)
         self.journalFrame:Show()
-        self:ScheduleTimer(function()
+        if self.journalLayoutTimer then
+            self:CancelTimer(self.journalLayoutTimer)
+        end
+        self.journalLayoutTimer = self:ScheduleTimer(function()
+            self.journalLayoutTimer = nil
             if self.journalFrame and self.journalFrame:IsShown() then
                 self:UpdateJournalScroll()
             end
@@ -231,10 +249,18 @@ function auction:ToggleJournal()
 end
 
 function auction:RefreshJournal()
+    self.journalDirty = true
     if not self.journalTextWidget then return end
-    self:BuildJournalText()
     if self.journalFrame and self.journalFrame:IsShown() then
-        self:UpdateJournalScroll()
+        if self.journalRefreshTimer then
+            return
+        end
+        self.journalRefreshTimer = self:ScheduleTimer(function()
+            self.journalRefreshTimer = nil
+            if self.journalFrame and self.journalFrame:IsShown() then
+                self:BuildJournalText(true)
+            end
+        end, 0.2)
     end
 end
 
@@ -308,10 +334,7 @@ function auction:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspec)
 
     self:TrimBidLog()
     self:SaveBidLog()
-
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
+    self:RefreshJournal()
 end
 
 function auction:SaveBidLog()
@@ -326,16 +349,15 @@ function auction:LoadBidLog()
         self.bidLog = {}
     end
     self:TrimBidLog()
+    self.journalDirty = true
 end
 
 function auction:ClearBidLog()
     self.bidLog = {}
     self:SaveBidLog()
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
+    self:RefreshJournal()
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Р–СѓСЂРЅР°Р» СЃС‚Р°РІРѕРє РѕС‡РёС‰РµРЅ.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Р вЂ“РЎС“РЎР‚Р Р…Р В°Р В» РЎРѓРЎвЂљР В°Р Р†Р С•Р С” Р С•РЎвЂЎР С‘РЎвЂ°Р ВµР Р….")
     end
 end
 

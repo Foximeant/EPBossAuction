@@ -33,7 +33,19 @@ function auction:CreateUI()
     end)
 	frame:SetScript("OnHide", function()
 		auction:ReturnRowsToPool()
-		collectgarbage("collect")
+        if auction.refreshTimer then
+            auction:CancelTimer(auction.refreshTimer)
+            auction.refreshTimer = nil
+            auction.refreshPending = false
+        end
+        if auction.resizeTimer then
+            auction:CancelTimer(auction.resizeTimer)
+            auction.resizeTimer = nil
+        end
+        if auction.itemInfoRefreshTimer then
+            auction:CancelTimer(auction.itemInfoRefreshTimer)
+            auction.itemInfoRefreshTimer = nil
+        end
 	end)
     frame:Hide()
     frame:SetFrameStrata("DIALOG")
@@ -699,6 +711,155 @@ function auction:RestoreRowBackground(row)
     row.bg:SetTexture(color[1], color[2], color[3], color[4])
 end
 
+function auction:GetTableLayoutMetrics()
+    local dbTable = self.db.table
+    local scrollWidth = self.scrollFrame and self.scrollFrame:GetWidth() or 0
+    if scrollWidth < 100 then scrollWidth = 580 end
+
+    local availableWidth = scrollWidth - 16
+
+    return {
+        dbTable = dbTable,
+        rowHeight = dbTable.rowHeight or 20,
+        showIcons = dbTable.showIcons ~= false,
+        showTopBids = dbTable.showTopBids or 2,
+        evenColor = dbTable.evenRowColor or {1, 1, 1, 0.03},
+        oddColor = dbTable.oddRowColor or {0, 0, 0, 0},
+        selectedColor = dbTable.selectedRowColor or {0.3, 0.6, 1, 0.3},
+        itemFontSize = dbTable.itemFontSize or 12,
+        bidFontSize = dbTable.bidFontSize or 12,
+        colorMode = dbTable.itemColorMode or "gold",
+        availableWidth = availableWidth,
+        itemWidth = math.floor(availableWidth / 2),
+    }
+end
+
+function auction:RenderItemRow(row, itemID, index, metrics)
+    if not row or not itemID or not metrics then return false end
+
+    local yOffset = -metrics.rowHeight * (index - 1)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, yOffset)
+    row:SetSize(metrics.availableWidth, metrics.rowHeight)
+
+    row.itemID = itemID
+    row.index = index
+
+    if itemID == self.selectedItem then
+        row.bg:SetTexture(metrics.selectedColor[1], metrics.selectedColor[2], metrics.selectedColor[3], metrics.selectedColor[4])
+    else
+        local color = (index % 2 == 0) and metrics.evenColor or metrics.oddColor
+        row.bg:SetTexture(color[1], color[2], color[3], color[4])
+    end
+
+    local itemName, itemIcon = self:GetCachedItemInfo(itemID)
+    local hasPendingItemInfo = not itemName
+    if not itemName then
+        itemName = "Р—Р°РіСЂСѓР·РєР°..."
+    end
+
+    row.itemName:SetText(itemName)
+    row.itemName:SetFont(GameFontNormal:GetFont(), metrics.itemFontSize)
+    row.itemName:SetWidth(metrics.itemWidth - (metrics.showIcons and 30 or 10))
+    row.itemName:ClearAllPoints()
+
+    if metrics.colorMode == "gold" then
+        row.itemName:SetTextColor(1, 0.8, 0)
+    else
+        local _, _, quality = GetItemInfo(itemID)
+        if quality and ITEM_QUALITY_COLORS[quality] then
+            local c = ITEM_QUALITY_COLORS[quality]
+            row.itemName:SetTextColor(c.r, c.g, c.b)
+        else
+            row.itemName:SetTextColor(1, 1, 1)
+        end
+    end
+
+    if metrics.showIcons and itemIcon then
+        row.icon:SetTexture(itemIcon)
+        row.icon:Show()
+        row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+    else
+        row.icon:Hide()
+        row.itemName:SetPoint("LEFT", row, "LEFT", 5, 0)
+    end
+
+    local bidsForItem = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
+    local topText = ""
+    for j = 1, metrics.showTopBids do
+        if bidsForItem[j] then
+            local coloredName = self:FormatColoredName(bidsForItem[j].player)
+            local offspecMark = bidsForItem[j].isOffspec and " (O)" or ""
+            local formatted = self:FormatNumber(bidsForItem[j].amount)
+            if j == 1 then
+                topText = coloredName .. " - " .. formatted .. offspecMark
+            else
+                topText = topText .. " | " .. coloredName .. " - " .. formatted .. offspecMark
+            end
+        end
+    end
+
+    row.bidsStr:SetText(topText)
+    row.bidsStr:SetFont(GameFontNormal:GetFont(), metrics.bidFontSize)
+    row.bidsStr:ClearAllPoints()
+    row.bidsStr:SetPoint("LEFT", row, "LEFT", metrics.itemWidth + 10, 0)
+    row.bidsStr:SetWidth(math.max(10, metrics.availableWidth - metrics.itemWidth - 16))
+
+    row.leftClick:ClearAllPoints()
+    row.leftClick:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.leftClick:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", metrics.itemWidth, 0)
+
+    row.rightClick:ClearAllPoints()
+    row.rightClick:SetPoint("TOPLEFT", row, "TOPLEFT", metrics.itemWidth, 0)
+    row.rightClick:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+
+    row:Show()
+    return hasPendingItemInfo
+end
+
+function auction:FindActiveRowByItemID(itemID)
+    if not self.activeRows or not itemID then return nil end
+    for _, row in ipairs(self.activeRows) do
+        if row.itemID == itemID then
+            return row
+        end
+    end
+    return nil
+end
+
+function auction:RefreshRowForItem(itemID)
+    if not self.frame or not self.frame:IsShown() then return false end
+    if not self.selectedBoss or not itemID then return false end
+
+    local items = self.bosses[self.selectedBoss]
+    if not items then return false end
+
+    local row = self:FindActiveRowByItemID(itemID)
+    if not row then return false end
+
+    local index
+    for i, currentItemID in ipairs(items) do
+        if currentItemID == itemID then
+            index = i
+            break
+        end
+    end
+
+    if not index then return false end
+
+    local needsDelayedRefresh = self:RenderItemRow(row, itemID, index, self:GetTableLayoutMetrics())
+    if needsDelayedRefresh and not self.itemInfoRefreshTimer then
+        self.itemInfoRefreshTimer = self:ScheduleTimer(function()
+            self.itemInfoRefreshTimer = nil
+            if self.frame and self.frame:IsShown() and self.selectedBoss then
+                self:RefreshTable()
+            end
+        end, 0.5)
+    end
+
+    return true
+end
+
 function auction:ShowBidsTooltip(itemID)
     local bids = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
     if #bids == 0 then
@@ -709,7 +870,7 @@ function auction:ShowBidsTooltip(itemID)
     GameTooltip:AddLine(" ")
     for _, bid in ipairs(bids) do
         local coloredName = self:FormatColoredName(bid.player)
-        local ep = self:GetPlayerEP(bid.player, true)
+        local ep = self:GetPlayerEP(bid.player, false)
         local epColor = (ep >= bid.amount) and "|cff00ff00" or "|cffff0000"
         local offspecMark = bid.isOffspec and " (O)" or ""
         GameTooltip:AddLine(string.format("%s|r - %s EP%s", coloredName, self:FormatNumber(bid.amount), offspecMark))
@@ -732,18 +893,7 @@ function auction:RefreshTable()
     end
 
     -- === ВАЖНО: возвращаем текущие активные строки в пул ===
-    if self.activeRows then
-        for _, row in ipairs(self.activeRows) do
-            row:Hide()
-            row.itemID = nil
-            row.itemName:SetText("")
-            row.bidsStr:SetText("")
-            row.icon:Hide()
-            row.bg:SetTexture(0,0,0,0)
-            table.insert(self.rowPool, row)
-        end
-        wipe(self.activeRows)
-    end
+    self:ReturnRowsToPool()
 
     local dbTable = self.db.table
     local rowHeight = dbTable.rowHeight or 20
@@ -856,9 +1006,10 @@ function auction:RefreshTable()
 
     self:UpdateScrollFrameSize()
 
-    if needDelayedRefresh then
+    if needDelayedRefresh and not self.itemInfoRefreshTimer then
         -- Если какие-то предметы не загружены, запланируем повторное обновление через 0.5 сек
-        self:ScheduleTimer(function()
+        self.itemInfoRefreshTimer = self:ScheduleTimer(function()
+            self.itemInfoRefreshTimer = nil
             if self.frame and self.frame:IsShown() and self.selectedBoss then
                 self:RefreshTable()
             end
@@ -956,7 +1107,7 @@ function auction:EndAuctionLocal()
     end
     self.bids[self.selectedBoss] = {}
     self:RequestRefresh()
-    self:SaveData()
+    self:RequestSaveData()
 end
 
 -- ======================
@@ -1044,8 +1195,12 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     self:UpdateSortedBids(bossName, itemID)
     self:UpdateBidCaches(bossName, itemID)
     self:CheckIfOutbid(bossName, itemID)
-    self:RequestRefresh()
-    self:SaveData()
+    if bossName == self.selectedBoss then
+        if not self:RefreshRowForItem(itemID) then
+            self:RequestRefresh()
+        end
+    end
+    self:RequestSaveData()
 
     if self:IsLootMaster() then
         self:QueueSync(bossName, itemID)

@@ -54,6 +54,8 @@ auction.maxBidCache = {}
 auction.myBidCache = {}
 
 auction.saveTimer = nil
+auction.pendingSaveTimer = nil
+auction.dataDirty = false
 auction.lastSaveTime = 0
 auction.isLMMode = false
 auction.receivedItems = {}
@@ -555,6 +557,22 @@ function auction:SaveSettings()
     self:SaveBidLog()
 end
 
+function auction:RequestSaveData(delay)
+    self.dataDirty = true
+
+    if self.pendingSaveTimer then
+        self:CancelTimer(self.pendingSaveTimer)
+        self.pendingSaveTimer = nil
+    end
+
+    self.pendingSaveTimer = self:ScheduleTimer(function()
+        self.pendingSaveTimer = nil
+        if self.dataDirty then
+            self:SaveData(true)
+        end
+    end, delay or 1)
+end
+
 function auction:ApplySettings()
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
@@ -589,7 +607,12 @@ function auction:ApplySettings()
     end
 end
 
-function auction:SaveData()
+function auction:SaveData(force)
+    if self.pendingSaveTimer then
+        self:CancelTimer(self.pendingSaveTimer)
+        self.pendingSaveTimer = nil
+    end
+
     self.db.window.scale = self.windowScale
     self.db.general.offspecMultiplier = self.offspecMultiplier
     self.db.minimap.position = self.minimapButtonPosition
@@ -604,13 +627,16 @@ function auction:SaveData()
     EPBossAuctionBidsLocked = self.bidsLocked
     EPBossAuctionSavedOffspecMultiplier = self.offspecMultiplier
     self:SaveSettings()
+    self.dataDirty = false
     self.lastSaveTime = GetTime()
 end
 
 function auction:InitAutoSave()
     if self.saveTimer then self:CancelTimer(self.saveTimer) end
     local function saveFunc()
-        auction:SaveData()
+        if auction.dataDirty then
+            auction:SaveData(true)
+        end
         auction.saveTimer = auction:ScheduleTimer(saveFunc, 10)
     end
     self.saveTimer = self:ScheduleTimer(saveFunc, 10)
@@ -664,9 +690,14 @@ function auction:UpdateScrollFrameSize()
 end
 
 function auction:RequestRefresh()
-    if self.refreshPending then return end
+    if self.refreshTimer then
+        self:CancelTimer(self.refreshTimer)
+        self.refreshTimer = nil
+    end
+
     self.refreshPending = true
-    self:ScheduleTimer(function()
+    self.refreshTimer = self:ScheduleTimer(function()
+        self.refreshTimer = nil
         self.refreshPending = false
         if self.frame and self.frame:IsShown() and self.selectedBoss then
             self:RefreshTable()
