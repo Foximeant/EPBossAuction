@@ -1,6 +1,6 @@
 # EP Boss Auction
 
-[![EPBA version](https://img.shields.io/badge/version-1.6.4-green.svg)](https://github.com/Foximeant/EPBossAuction)
+[![EPBA version](https://img.shields.io/badge/version-2.0.19-green.svg)](https://github.com/Foximeant/EPBossAuction)
 [![WoW 3.3.5](https://img.shields.io/badge/WoW-3.3.5-blue.svg)]()
 
 **EP Boss Auction** — аддон для World of Warcraft (Sirus 3.3.5+), предназначенный для проведения аукционов на основе EPGP прямо в рейде. Игроки делают ставки EP на предметы с боссов, а лутер управляет процессом, просматривает текущие ставки и синхронизирует данные с рейдом.
