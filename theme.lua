@@ -63,6 +63,25 @@ function auction:SkinButton(button)
     button._epbaSkinned = true
 end
 
+function auction:SkinIconButton(button)
+    if not button or button._epbaSkinned then return end
+    local c = self.theme.colors
+    button:SetNormalTexture("")
+    button:SetHighlightTexture("")
+    button:SetPushedTexture("")
+    button:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    button:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+    button:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+    button:HookScript("OnEnter", function(btn) btn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4]) end)
+    button:HookScript("OnLeave", function(btn) btn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4]) end)
+    button._epbaSkinned = true
+end
+
 function auction:SkinInput(editBox)
     if not editBox then return end
     local c = self.theme.colors
@@ -106,18 +125,20 @@ function auction:SkinDropdown(dropdown)
 
     if button then
         button:ClearAllPoints()
-        button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
-        button:SetSize(20, 20)
+        button:SetPoint("TOPRIGHT", dropdown, "TOPRIGHT", -16, -3)
+        button:SetPoint("BOTTOMRIGHT", dropdown, "BOTTOMRIGHT", -16, 7)
+        button:SetWidth(24)
         local normal = button:GetNormalTexture()
         if normal then
-            normal:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
-            normal:SetTexCoord(0.25, 0.75, 0.25, 0.75)
+            normal:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+            normal:SetTexCoord(0, 1, 0, 1)
         end
         local pushed = button:GetPushedTexture()
-        if pushed then pushed:SetTexCoord(0.25, 0.75, 0.25, 0.75) end
+        if pushed then pushed:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down") end
         local disabled = button:GetDisabledTexture()
-        if disabled then disabled:SetTexCoord(0.25, 0.75, 0.25, 0.75) end
-        button:SetHighlightTexture("")
+        if disabled then disabled:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Disabled") end
+        local highlight = button:GetHighlightTexture()
+        if highlight then highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square") end
     end
 
     dropdown._epbaSkinned = true
@@ -167,4 +188,30 @@ function auction:SkinCheckbox(checkBox)
     end)
 
     checkBox._epbaSkinned = true
+end
+
+function auction:SkinScrollBar(scrollBar)
+    if not scrollBar or scrollBar._epbaSkinned then return end
+    local c = self.theme.colors
+    local up = _G[scrollBar:GetName() .. "ScrollUpButton"]
+    local down = _G[scrollBar:GetName() .. "ScrollDownButton"]
+    local thumb = _G[scrollBar:GetName() .. "ThumbTexture"]
+
+    scrollBar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    scrollBar:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], 0.7)
+    scrollBar:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+    if thumb then
+        thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
+        thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.85)
+        thumb:SetWidth(8)
+    end
+    if up then self:SkinIconButton(up) end
+    if down then self:SkinIconButton(down) end
+    scrollBar._epbaSkinned = true
 end
