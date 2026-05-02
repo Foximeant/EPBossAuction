@@ -500,6 +500,8 @@ function auction:Handle_END(rest, sender)
     self.bids[bossName] = {}
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
+            self:UpdateSortedBids(bossName, itemID)
+            self:UpdateBidCaches(bossName, itemID)
             local key = self:GetVersionKey(bossName, itemID)
             if key then
                 self.lastVersions[key] = nil
