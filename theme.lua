@@ -14,6 +14,8 @@ auction.theme = {
         font = "Interface\\AddOns\\EPBossAuction\\fonts\\DejaVuSans.ttf",
         check = "✓",
         arrowDown = "▼",
+        checkFallback = "x",
+        arrowFallback = "v",
     },
 }
 
@@ -145,13 +147,12 @@ function auction:SkinCheckbox(checkbox)
     local mark = checkbox:CreateFontString(nil, "OVERLAY")
     mark:SetPoint("CENTER", 0, -1)
     local ok = self:TrySetSymbolFont(mark, 14)
+    local symbols = self.theme.symbols or {}
     if ok then
-        mark:SetText((self.theme.symbols and self.theme.symbols.check) or "✓")
+        mark:SetText(symbols.check or "✓")
     else
-        mark = checkbox:CreateTexture(nil, "OVERLAY")
-        mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-        mark:SetPoint("CENTER", 0, 0)
-        mark:SetSize(14, 14)
+        mark:SetFontObject(GameFontNormal)
+        mark:SetText(symbols.checkFallback or "x")
     end
     mark:Hide()
     checkbox._epbaMark = mark
@@ -204,13 +205,12 @@ function auction:SkinDropdown(dropdown)
             local arrow = button:CreateFontString(nil, "OVERLAY")
             arrow:SetPoint("CENTER", 0, -1)
             local ok = self:TrySetSymbolFont(arrow, 14)
+            local symbols = self.theme.symbols or {}
             if ok then
-                arrow:SetText((self.theme.symbols and self.theme.symbols.arrowDown) or "▼")
+                arrow:SetText(symbols.arrowDown or "▼")
             else
-                arrow = button:CreateTexture(nil, "OVERLAY")
-                arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
-                arrow:SetPoint("CENTER", 0, 0)
-                arrow:SetSize(14, 14)
+                arrow:SetFontObject(GameFontNormal)
+                arrow:SetText(symbols.arrowFallback or "v")
             end
         end
     end
