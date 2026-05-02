@@ -8,6 +8,7 @@ function auction:CreateUI()
     self.rowPool = {}
     self.activeRows = {}
     self.itemInfoCache = {}
+    self.hiddenItems = {}
 
     local frame = CreateFrame("Frame", "EPBossAuctionFrame", UIParent)
     frame:SetSize(self.db.window.width, self.db.window.height)
@@ -52,7 +53,7 @@ function auction:CreateUI()
     frame:SetFrameLevel(100)
     tinsert(UISpecialFrames, "EPBossAuctionFrame")
     self.frame = frame
-    if self.SkinPanel then self:SkinPanel(frame) end
+    self:SkinPanel(frame)
 
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
@@ -64,18 +65,18 @@ function auction:CreateUI()
     self.closeButton = close
     close:SetSize(20, 20)
     close:SetPoint("TOPRIGHT", -10, -10)
-    close:SetText("X")
+    close:SetText("×")
     close:SetNormalFontObject(GameFontNormalLarge)
     close:SetScript("OnClick", function() frame:Hide() end)
-    if self.SkinButton then self:SkinButton(close) end
+    self:SkinButton(close)
 
     -- Кнопка настроек
     local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
     optionsBtn:SetSize(20, 20)
     optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
-    optionsBtn:SetText("S")
+    optionsBtn:SetText("O")
     optionsBtn:SetNormalFontObject(GameFontNormal)
-    if self.SkinButton then self:SkinButton(optionsBtn) end
+    self:SkinButton(optionsBtn)
     optionsBtn:SetScript("OnClick", function()
         InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
     end)
@@ -105,7 +106,7 @@ function auction:CreateUI()
     leftPanel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
     leftPanel:SetBackdropBorderColor(0,0,0,1)
     self.leftPanel = leftPanel
-    if self.SkinPanel then self:SkinPanel(leftPanel) end
+    self:SkinPanel(leftPanel)
 
     -- 1. Выбор босса
     local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -135,7 +136,7 @@ function auction:CreateUI()
         end
     end)
     self.bossDropdown = dropdown
-    if self.SkinDropdown then self:SkinDropdown(dropdown) end
+    self:SkinDropdown(dropdown)
 
     -- 2. Выбор предмета
     local itemLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -165,7 +166,7 @@ function auction:CreateUI()
         end
     end)
     self.itemDropdown = itemDrop
-    if self.SkinDropdown then self:SkinDropdown(itemDrop) end
+    self:SkinDropdown(itemDrop)
 
     -- 3. Поле ввода ставки
     local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -204,7 +205,7 @@ function auction:CreateUI()
         auction:SendBidLocal()
     end)
     self.bidBox = editBox
-    if self.SkinInput then self:SkinInput(editBox) end
+    self:SkinInput(editBox)
 
     -- 4. Кнопка "Сделать ставку"
     local button = CreateFrame("Button", "EPBossAuctionBidButton", leftPanel, "UIPanelButtonTemplate")
@@ -215,7 +216,7 @@ function auction:CreateUI()
     button:SetScript("OnClick", function()
         auction:SendBidLocal()
     end)
-    if self.SkinButton then self:SkinButton(button) end
+    self:SkinButton(button)
 
     -- 5. Чекбоксы
     local lockCheckbox = CreateFrame("CheckButton", "EPBossAuctionLockCheckbox", leftPanel, "UICheckButtonTemplate")
@@ -238,7 +239,7 @@ function auction:CreateUI()
         end)
     end
     self.lockCheckbox = lockCheckbox
-    if self.SkinCheckbox then self:SkinCheckbox(lockCheckbox) end
+    self:SkinCheckbox(lockCheckbox)
 
     local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", leftPanel, "UICheckButtonTemplate")
     offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 35, 0)
@@ -261,7 +262,7 @@ function auction:CreateUI()
         end
     end)
     self.offspecCheckbox = offspecCheckbox
-    if self.SkinCheckbox then self:SkinCheckbox(offspecCheckbox) end
+    self:SkinCheckbox(offspecCheckbox)
 
     -- 6. Кнопка "Запросить"
     local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", leftPanel, "UIPanelButtonTemplate")
@@ -272,7 +273,7 @@ function auction:CreateUI()
     requestButton:SetScript("OnClick", function()
         auction:RequestDataFromLM()
     end)
-    if self.SkinButton then self:SkinButton(requestButton) end
+    self:SkinButton(requestButton)
 
     -- 7. Кнопка "Очистить таблицу"
     local endButton = CreateFrame("Button", "EPBossAuctionEndButton", leftPanel, "UIPanelButtonTemplate")
@@ -287,7 +288,7 @@ function auction:CreateUI()
         end
     end)
     self.endButton = endButton
-    if self.SkinButton then self:SkinButton(endButton) end
+    self:SkinButton(endButton)
 
     -- 8. Кнопка "Журнал"
     local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", leftPanel, "UIPanelButtonTemplate")
@@ -298,7 +299,7 @@ function auction:CreateUI()
         auction:ToggleJournal()
     end)
     self.journalButton = journalButton
-    if self.SkinButton then self:SkinButton(journalButton) end
+    self:SkinButton(journalButton)
 
     -- 9. Кнопка "Очередь"
     local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
@@ -309,7 +310,7 @@ function auction:CreateUI()
         auction:ToggleQueue()
     end)
     self.queueButton = queueButton
-    if self.SkinButton then self:SkinButton(queueButton) end
+    self:SkinButton(queueButton)
 
     -- 10. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -336,7 +337,7 @@ function auction:CreateUI()
     scrollBG:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
     scrollBG:SetBackdropBorderColor(0,0,0,1)
     self.scrollBG = scrollBG
-    if self.SkinPanel then self:SkinPanel(scrollBG) end
+    self:SkinPanel(scrollBG)
 
     local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionScrollFrame", frame, "UIPanelScrollFrameTemplate")
     self.scrollFrame = scrollFrame
@@ -638,8 +639,18 @@ function auction:CreateRowTemplate()
     local leftClick = CreateFrame("Button", nil, row)
     leftClick:SetPoint("TOPLEFT")
     leftClick:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", 250, 0)
-    leftClick:SetScript("OnClick", function()
+    leftClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    leftClick:SetScript("OnClick", function(_, button)
         if not row.itemID then return end
+        if button == "RightButton" and auction.selectedBoss then
+            auction:HideItemForSession(auction.selectedBoss, row.itemID)
+            if auction.selectedItem == row.itemID then
+                auction.selectedItem = nil
+                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+            end
+            auction:RefreshTable()
+            return
+        end
         auction.selectedItem = row.itemID
         UIDropDownMenu_SetText(auction.itemDropdown, auction:GetCachedItemName(row.itemID))
         auction:HighlightSelectedRow(row.itemID)
@@ -664,8 +675,18 @@ function auction:CreateRowTemplate()
     local rightClick = CreateFrame("Button", nil, row)
     rightClick:SetPoint("TOPLEFT", row, "TOPLEFT", 250, 0)
     rightClick:SetPoint("BOTTOMRIGHT")
-    rightClick:SetScript("OnClick", function()
+    rightClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    rightClick:SetScript("OnClick", function(_, button)
         if not row.itemID then return end
+        if button == "RightButton" and auction.selectedBoss then
+            auction:HideItemForSession(auction.selectedBoss, row.itemID)
+            if auction.selectedItem == row.itemID then
+                auction.selectedItem = nil
+                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+            end
+            auction:RefreshTable()
+            return
+        end
         auction.selectedItem = row.itemID
         UIDropDownMenu_SetText(auction.itemDropdown, auction:GetCachedItemName(row.itemID))
         auction:HighlightSelectedRow(row.itemID)
@@ -709,6 +730,16 @@ function auction:ReturnRowsToPool()
     end
     wipe(self.activeRows)
     self.lastHighlightedRow = nil
+end
+
+function auction:IsItemHiddenForSession(bossName, itemID)
+    return self.hiddenItems and self.hiddenItems[bossName] and self.hiddenItems[bossName][itemID] == true
+end
+
+function auction:HideItemForSession(bossName, itemID)
+    if not bossName or not itemID then return end
+    self.hiddenItems[bossName] = self.hiddenItems[bossName] or {}
+    self.hiddenItems[bossName][itemID] = true
 end
 
 function auction:RestoreRowBackground(row)
@@ -928,7 +959,14 @@ function auction:RefreshTable()
     local availableWidth = scrollWidth - 16
     local itemWidth = math.floor(availableWidth / 2)
 
-    self.content:SetHeight(rowHeight * #items)
+    local visibleItems = {}
+    for _, itemID in ipairs(items) do
+        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) then
+            table.insert(visibleItems, itemID)
+        end
+    end
+
+    self.content:SetHeight(rowHeight * #visibleItems)
     self.content:SetWidth(availableWidth)
 
     -- Обновляем выпадающий список предметов
@@ -938,7 +976,7 @@ function auction:RefreshTable()
 
     local needDelayedRefresh = false
 
-    for i, itemID in ipairs(items) do
+    for i, itemID in ipairs(visibleItems) do
         local row = self:GetRowFromPool()
         local yOffset = -rowHeight * (i-1)
         row:ClearAllPoints()
