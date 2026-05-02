@@ -17,6 +17,25 @@ auction.theme = {
     },
 }
 
+function auction:TrySetSymbolFont(fontString, size)
+    if not fontString then return false end
+    local candidates = {
+        self.db and self.db.general and self.db.general.symbolFont,
+        self.theme and self.theme.symbols and self.theme.symbols.font,
+        STANDARD_TEXT_FONT,
+        "Fonts\\ARIALN.TTF",
+    }
+    for _, fontPath in ipairs(candidates) do
+        if fontPath and fontPath ~= "" then
+            local ok = fontString:SetFont(fontPath, size or 14, "")
+            if ok then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function auction:HideDefaultTextures(frame)
     if not frame then return end
     for _, region in ipairs({ frame:GetRegions() }) do
@@ -125,8 +144,7 @@ function auction:SkinCheckbox(checkbox)
 
     local mark = checkbox:CreateFontString(nil, "OVERLAY")
     mark:SetPoint("CENTER", 0, -1)
-    local symbolFont = (self.theme.symbols and self.theme.symbols.font) or ""
-    local ok = symbolFont ~= "" and mark:SetFont(symbolFont, 14, "OUTLINE")
+    local ok = self:TrySetSymbolFont(mark, 14)
     if ok then
         mark:SetText((self.theme.symbols and self.theme.symbols.check) or "✓")
     else
@@ -185,8 +203,7 @@ function auction:SkinDropdown(dropdown)
             button:SetSize(20, 20)
             local arrow = button:CreateFontString(nil, "OVERLAY")
             arrow:SetPoint("CENTER", 0, -1)
-            local symbolFont = (self.theme.symbols and self.theme.symbols.font) or ""
-            local ok = symbolFont ~= "" and arrow:SetFont(symbolFont, 14, "OUTLINE")
+            local ok = self:TrySetSymbolFont(arrow, 14)
             if ok then
                 arrow:SetText((self.theme.symbols and self.theme.symbols.arrowDown) or "▼")
             else
