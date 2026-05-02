@@ -97,6 +97,57 @@ function auction:SkinInput(editBox)
     editBox._epbaSkinned = true
 end
 
+
+function auction:SkinCheckbox(checkbox)
+    if not checkbox or checkbox._epbaSkinned then return end
+    local c = self.theme.colors
+    self:HideDefaultTextures(checkbox)
+
+    checkbox:SetNormalTexture("")
+    checkbox:SetPushedTexture("")
+    checkbox:SetHighlightTexture("")
+    checkbox:SetCheckedTexture("")
+    checkbox:SetDisabledCheckedTexture("")
+
+    checkbox:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    checkbox:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
+    checkbox:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+    local mark = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    mark:SetPoint("CENTER", 0, -1)
+    mark:SetText("✓")
+    mark:Hide()
+    checkbox._epbaMark = mark
+
+    local function RefreshState(box)
+        if box:GetChecked() then
+            box._epbaMark:Show()
+            box:SetBackdropBorderColor(c.accent[1], c.accent[2], c.accent[3], c.accent[4])
+        else
+            box._epbaMark:Hide()
+            box:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+        end
+    end
+
+    checkbox:HookScript("OnClick", RefreshState)
+    checkbox:HookScript("OnShow", RefreshState)
+    checkbox:HookScript("OnDisable", function(box)
+        box:SetBackdropColor(c.buttonDisabled[1], c.buttonDisabled[2], c.buttonDisabled[3], c.buttonDisabled[4])
+    end)
+    checkbox:HookScript("OnEnable", function(box)
+        box:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
+        RefreshState(box)
+    end)
+
+    RefreshState(checkbox)
+    checkbox._epbaSkinned = true
+end
+
 function auction:SkinDropdown(dropdown)
     if not dropdown or dropdown._epbaSkinned then return end
     local c = self.theme.colors
