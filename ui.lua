@@ -113,8 +113,8 @@ function auction:CreateUI()
     bossLabel:SetPoint("TOPLEFT", 10, -10)
     bossLabel:SetText("Босс:")
     local dropdown = CreateFrame("Frame", "EPBossDropdown", leftPanel, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("TOPLEFT", bossLabel, "BOTTOMLEFT", -26, -5)
-    UIDropDownMenu_SetWidth(dropdown, 140)
+    dropdown:SetPoint("TOPLEFT", bossLabel, "BOTTOMLEFT", -15, -5)
+    UIDropDownMenu_SetWidth(dropdown, 128)
     UIDropDownMenu_SetText(dropdown, "Выбрать босса")
     UIDropDownMenu_Initialize(dropdown, function(selfDD, level)
         for _, bossName in ipairs(auction.bossOrder) do
@@ -143,8 +143,8 @@ function auction:CreateUI()
     itemLabel:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 26, -15)
     itemLabel:SetText("Предмет:")
     local itemDrop = CreateFrame("Frame", "EPItemDropdown", leftPanel, "UIDropDownMenuTemplate")
-    itemDrop:SetPoint("TOPLEFT", itemLabel, "BOTTOMLEFT", -26, -5)
-    UIDropDownMenu_SetWidth(itemDrop, 140)
+    itemDrop:SetPoint("TOPLEFT", itemLabel, "BOTTOMLEFT", -15, -5)
+    UIDropDownMenu_SetWidth(itemDrop, 128)
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
     UIDropDownMenu_Initialize(itemDrop, function(selfDD, level)
         if not auction.selectedBoss then return end
@@ -173,8 +173,8 @@ function auction:CreateUI()
     bidLabel:SetPoint("TOPLEFT", itemDrop, "BOTTOMLEFT", 26, -15)
     bidLabel:SetText("Сумма ставки:")
     local editBox = CreateFrame("EditBox", "EPBidEditBox", leftPanel, "InputBoxTemplate")
-    editBox:SetSize(135, 25)
-    editBox:SetPoint("TOPLEFT", bidLabel, "BOTTOMLEFT", 5, -5)
+    editBox:SetSize(140, 25)
+    editBox:SetPoint("TOPLEFT", bidLabel, "BOTTOMLEFT", 0, -5)
     editBox:SetAutoFocus(false)
     editBox:SetNumeric(true)
     editBox:SetMaxLetters(6)
@@ -239,6 +239,7 @@ function auction:CreateUI()
         end)
     end
     self.lockCheckbox = lockCheckbox
+    self:SkinCheckbox(lockCheckbox)
 
     local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", leftPanel, "UICheckButtonTemplate")
     offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 35, 0)
@@ -261,6 +262,7 @@ function auction:CreateUI()
         end
     end)
     self.offspecCheckbox = offspecCheckbox
+    self:SkinCheckbox(offspecCheckbox)
 
     -- 6. Кнопка "Запросить"
     local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", leftPanel, "UIPanelButtonTemplate")
