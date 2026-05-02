@@ -52,6 +52,7 @@ function auction:CreateUI()
     frame:SetFrameLevel(100)
     tinsert(UISpecialFrames, "EPBossAuctionFrame")
     self.frame = frame
+    self:SkinPanel(frame)
 
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
@@ -100,6 +101,7 @@ function auction:CreateUI()
     leftPanel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
     leftPanel:SetBackdropBorderColor(0,0,0,1)
     self.leftPanel = leftPanel
+    self:SkinPanel(leftPanel)
 
     -- 1. Выбор босса
     local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -196,6 +198,7 @@ function auction:CreateUI()
         auction:SendBidLocal()
     end)
     self.bidBox = editBox
+    self:SkinInput(editBox)
 
     -- 4. Кнопка "Сделать ставку"
     local button = CreateFrame("Button", "EPBossAuctionBidButton", leftPanel, "UIPanelButtonTemplate")
@@ -206,6 +209,7 @@ function auction:CreateUI()
     button:SetScript("OnClick", function()
         auction:SendBidLocal()
     end)
+    self:SkinButton(button)
 
     -- 5. Чекбоксы
     local lockCheckbox = CreateFrame("CheckButton", "EPBossAuctionLockCheckbox", leftPanel, "UICheckButtonTemplate")
@@ -260,6 +264,7 @@ function auction:CreateUI()
     requestButton:SetScript("OnClick", function()
         auction:RequestDataFromLM()
     end)
+    self:SkinButton(requestButton)
 
     -- 7. Кнопка "Очистить таблицу"
     local endButton = CreateFrame("Button", "EPBossAuctionEndButton", leftPanel, "UIPanelButtonTemplate")
@@ -274,6 +279,7 @@ function auction:CreateUI()
         end
     end)
     self.endButton = endButton
+    self:SkinButton(endButton)
 
     -- 8. Кнопка "Журнал"
     local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", leftPanel, "UIPanelButtonTemplate")
@@ -284,6 +290,7 @@ function auction:CreateUI()
         auction:ToggleJournal()
     end)
     self.journalButton = journalButton
+    self:SkinButton(journalButton)
 
     -- 9. Кнопка "Очередь"
     local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
@@ -294,6 +301,7 @@ function auction:CreateUI()
         auction:ToggleQueue()
     end)
     self.queueButton = queueButton
+    self:SkinButton(queueButton)
 
     -- 10. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -320,6 +328,7 @@ function auction:CreateUI()
     scrollBG:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
     scrollBG:SetBackdropBorderColor(0,0,0,1)
     self.scrollBG = scrollBG
+    self:SkinPanel(scrollBG)
 
     local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionScrollFrame", frame, "UIPanelScrollFrameTemplate")
     self.scrollFrame = scrollFrame
@@ -1100,12 +1109,15 @@ end
 
 function auction:EndAuctionLocal()
     if not self.selectedBoss then return end
-    if self.bosses[self.selectedBoss] then
-        for _, itemID in ipairs(self.bosses[self.selectedBoss]) do
+    local bossName = self.selectedBoss
+    self.bids[bossName] = {}
+    if self.bosses[bossName] then
+        for _, itemID in ipairs(self.bosses[bossName]) do
             self:IncrementDataVersion(self.selectedBoss, itemID)
+            self:UpdateSortedBids(bossName, itemID)
+            self:UpdateBidCaches(bossName, itemID)
         end
     end
-    self.bids[self.selectedBoss] = {}
     self:RequestRefresh()
     self:RequestSaveData()
 end
