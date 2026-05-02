@@ -81,3 +81,90 @@ function auction:SkinInput(editBox)
         box:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
     end)
 end
+
+function auction:SkinDropdown(dropdown)
+    if not dropdown or dropdown._epbaSkinned then return end
+
+    local c = self.theme.colors
+    local left = _G[dropdown:GetName() .. "Left"]
+    local middle = _G[dropdown:GetName() .. "Middle"]
+    local right = _G[dropdown:GetName() .. "Right"]
+    local button = _G[dropdown:GetName() .. "Button"]
+
+    if left then left:Hide() end
+    if middle then middle:Hide() end
+    if right then right:Hide() end
+
+    dropdown:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 }
+    })
+    dropdown:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
+    dropdown:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+    if button then
+        button:ClearAllPoints()
+        button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
+        button:SetSize(20, 20)
+        local normal = button:GetNormalTexture()
+        if normal then
+            normal:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
+            normal:SetTexCoord(0.25, 0.75, 0.25, 0.75)
+        end
+        local pushed = button:GetPushedTexture()
+        if pushed then pushed:SetTexCoord(0.25, 0.75, 0.25, 0.75) end
+        local disabled = button:GetDisabledTexture()
+        if disabled then disabled:SetTexCoord(0.25, 0.75, 0.25, 0.75) end
+        button:SetHighlightTexture("")
+    end
+
+    dropdown._epbaSkinned = true
+end
+
+function auction:SkinCheckbox(checkBox)
+    if not checkBox or checkBox._epbaSkinned then return end
+
+    local c = self.theme.colors
+    local name = checkBox:GetName()
+    local normal = name and _G[name .. "NormalTexture"]
+    local pushed = name and _G[name .. "PushedTexture"]
+    local highlight = name and _G[name .. "HighlightTexture"]
+    local checked = name and _G[name .. "CheckedTexture"]
+    local disabledChecked = name and _G[name .. "DisabledCheckedTexture"]
+
+    if normal then normal:SetTexture("") end
+    if pushed then pushed:SetTexture("") end
+    if highlight then highlight:SetTexture("") end
+
+    checkBox:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    checkBox:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
+    checkBox:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+    if checked then
+        checked:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        checked:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        checked:ClearAllPoints()
+        checked:SetPoint("CENTER", checkBox, "CENTER", 0, 0)
+        checked:SetSize(14, 14)
+    end
+    if disabledChecked then
+        disabledChecked:SetTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
+        disabledChecked:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+
+    checkBox:HookScript("OnEnter", function(box)
+        box:SetBackdropBorderColor(c.accent[1], c.accent[2], c.accent[3], c.accent[4])
+    end)
+    checkBox:HookScript("OnLeave", function(box)
+        box:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+    end)
+
+    checkBox._epbaSkinned = true
+end
