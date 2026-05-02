@@ -312,9 +312,20 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
 
+    -- Скрывать предметы без ставок
+    local hideNoBidsCheck = CreateFrame("CheckButton", "EPBAHideNoBidsCheck", tableTab, "UICheckButtonTemplate")
+    hideNoBidsCheck:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -18)
+    hideNoBidsCheck.text = _G[hideNoBidsCheck:GetName() .. "Text"]
+    hideNoBidsCheck.text:SetText("Скрывать предметы без ставок")
+    hideNoBidsCheck:SetChecked(self.db.table.hideNoBids == true)
+    hideNoBidsCheck:SetScript("OnClick", function(self)
+        auction.db.table.hideNoBids = self:GetChecked()
+        auction:ApplySettings()
+    end)
+
     -- Высота строки
     local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -30)
+    rowHeightTitle:SetPoint("TOPLEFT", hideNoBidsCheck, "BOTTOMLEFT", 0, -16)
     rowHeightTitle:SetText("Высота строки:")
     rowHeightTitle:SetFontObject(GameFontNormalLarge)
 

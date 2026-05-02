@@ -976,8 +976,11 @@ function auction:RefreshTable()
     local itemWidth = math.floor(availableWidth / 2)
 
     local visibleItems = {}
+    local hideNoBids = dbTable.hideNoBids == true
     for _, itemID in ipairs(items) do
-        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) then
+        local bidsForItem = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
+        local hasBids = bidsForItem and #bidsForItem > 0
+        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) and (not hideNoBids or hasBids) then
             table.insert(visibleItems, itemID)
         end
     end

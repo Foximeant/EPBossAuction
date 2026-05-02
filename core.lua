@@ -108,6 +108,7 @@ auction.defaults = {
         rowHeight = 20,
         showIcons = true,
         showTopBids = 2,
+        hideNoBids = false,
         alternatingRows = true,
         evenRowColor = {1, 1, 1, 0.03},
         oddRowColor = {0, 0, 0, 0},
