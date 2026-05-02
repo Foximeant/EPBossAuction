@@ -118,9 +118,10 @@ function auction:SkinCheckbox(checkbox)
     checkbox:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
     checkbox:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
 
-    local mark = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    mark:SetPoint("CENTER", 0, -1)
-    mark:SetText("✓")
+    local mark = checkbox:CreateTexture(nil, "OVERLAY")
+    mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    mark:SetPoint("CENTER", 0, 0)
+    mark:SetSize(14, 14)
     mark:Hide()
     checkbox._epbaMark = mark
 
@@ -169,9 +170,10 @@ function auction:SkinDropdown(dropdown)
             button:ClearAllPoints()
             button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
             button:SetSize(20, 20)
-            local arrow = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            arrow:SetPoint("CENTER", 0, -1)
-            arrow:SetText("▼")
+            local arrow = button:CreateTexture(nil, "OVERLAY")
+            arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+            arrow:SetPoint("CENTER", 0, 0)
+            arrow:SetSize(14, 14)
         end
     end
 
