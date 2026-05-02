@@ -113,6 +113,15 @@ function auction:SkinDropdown(dropdown)
     if left then left:Hide() end
     if middle then middle:Hide() end
     if right then right:Hide() end
+    if left then left.Show = function() end end
+    if middle then middle.Show = function() end end
+    if right then right.Show = function() end end
+    for _, region in ipairs({ dropdown:GetRegions() }) do
+        if region and region:GetObjectType() == "Texture" then
+            region:SetAlpha(0)
+            region.Show = function() end
+        end
+    end
 
     dropdown:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -158,6 +167,9 @@ function auction:SkinCheckbox(checkBox)
     if normal then normal:SetTexture("") end
     if pushed then pushed:SetTexture("") end
     if highlight then highlight:SetTexture("") end
+    if normal then normal.Show = function() end end
+    if pushed then pushed.Show = function() end end
+    if highlight then highlight.Show = function() end end
 
     checkBox:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -196,6 +208,13 @@ function auction:SkinScrollBar(scrollBar)
     local up = _G[scrollBar:GetName() .. "ScrollUpButton"]
     local down = _G[scrollBar:GetName() .. "ScrollDownButton"]
     local thumb = _G[scrollBar:GetName() .. "ThumbTexture"]
+    local bg = _G[scrollBar:GetName() .. "BG"]
+
+    if bg then
+        bg:SetTexture("")
+        bg:Hide()
+        bg.Show = function() end
+    end
 
     scrollBar:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -211,7 +230,19 @@ function auction:SkinScrollBar(scrollBar)
         thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.85)
         thumb:SetWidth(8)
     end
-    if up then self:SkinIconButton(up) end
-    if down then self:SkinIconButton(down) end
+    if up then
+        self:SkinIconButton(up)
+        local upNormal = up:GetNormalTexture()
+        if upNormal then upNormal:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up") end
+        local upPushed = up:GetPushedTexture()
+        if upPushed then upPushed:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Down") end
+    end
+    if down then
+        self:SkinIconButton(down)
+        local downNormal = down:GetNormalTexture()
+        if downNormal then downNormal:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up") end
+        local downPushed = down:GetPushedTexture()
+        if downPushed then downPushed:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down") end
+    end
     scrollBar._epbaSkinned = true
 end

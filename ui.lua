@@ -61,16 +61,21 @@ function auction:CreateUI()
     title:SetText("RS EPBossAuction "..self.version)
 
     -- Кнопка закрытия
-    local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame, "UIPanelCloseButton")
+    local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame)
     self.closeButton = close
-    close:SetSize(28, 28)
-    close:SetPoint("TOPRIGHT", -6, -6)
+    close:SetSize(22, 22)
+    close:SetPoint("TOPRIGHT", -10, -10)
+    close.icon = close:CreateTexture(nil, "ARTWORK")
+    close.icon:SetAllPoints()
+    close.icon:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
+    close.icon:SetTexCoord(0.2, 0.8, 0.2, 0.8)
+    self:SkinIconButton(close)
     close:SetScript("OnClick", function() frame:Hide() end)
 
     -- Кнопка настроек
     local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
-    optionsBtn:SetSize(24, 24)
-    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, -2)
+    optionsBtn:SetSize(22, 22)
+    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
     optionsBtn.icon = optionsBtn:CreateTexture(nil, "ARTWORK")
     optionsBtn.icon:SetAllPoints()
     optionsBtn.icon:SetTexture("Interface\\Buttons\\UI-OptionsButton")
