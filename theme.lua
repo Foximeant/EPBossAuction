@@ -31,18 +31,6 @@ function auction:SkinButton(button)
     button:SetNormalTexture("")
     button:SetHighlightTexture("")
     button:SetPushedTexture("")
-    button:SetDisabledTexture("")
-
-    if button.Left then button.Left:SetAlpha(0) end
-    if button.Middle then button.Middle:SetAlpha(0) end
-    if button.Right then button.Right:SetAlpha(0) end
-    for i = 1, button:GetNumRegions() do
-        local region = select(i, button:GetRegions())
-        if region and region:GetObjectType() == "Texture" then
-            region:SetTexture(nil)
-            region:SetAlpha(0)
-        end
-    end
 
     button:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -78,13 +66,6 @@ end
 function auction:SkinInput(editBox)
     if not editBox then return end
     local c = self.theme.colors
-    for i = 1, editBox:GetNumRegions() do
-        local region = select(i, editBox:GetRegions())
-        if region and region:GetObjectType() == "Texture" then
-            region:SetTexture(nil)
-            region:SetAlpha(0)
-        end
-    end
     editBox:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -99,38 +80,4 @@ function auction:SkinInput(editBox)
     editBox:HookScript("OnEditFocusLost", function(box)
         box:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
     end)
-end
-
-function auction:SkinDropdown(dropdown)
-    if not dropdown then return end
-    local c = self.theme.colors
-    dropdown:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-        insets = { left = 1, right = 1, top = 1, bottom = 1 }
-    })
-    dropdown:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], 0.95)
-    dropdown:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
-
-    local left = _G[dropdown:GetName().."Left"]
-    local mid = _G[dropdown:GetName().."Middle"]
-    local right = _G[dropdown:GetName().."Right"]
-    if left then left:SetAlpha(0) end
-    if mid then mid:SetAlpha(0) end
-    if right then right:SetAlpha(0) end
-
-    local button = _G[dropdown:GetName().."Button"]
-    if button then
-        button:SetNormalTexture("")
-        button:SetHighlightTexture("")
-        button:SetPushedTexture("")
-        if not button._epbaArrow then
-            local arrow = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            arrow:SetPoint("CENTER", 0, -1)
-            arrow:SetText("▼")
-            arrow:SetTextColor(c.accent[1], c.accent[2], c.accent[3], 1)
-            button._epbaArrow = arrow
-        end
-    end
 end
