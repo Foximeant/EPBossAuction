@@ -9,7 +9,12 @@ auction.theme = {
         buttonDisabled = {0.10, 0.12, 0.16, 0.8},
         accent = {0.35, 0.65, 1.0, 1},
         inputBg = {0.05, 0.06, 0.09, 1},
-    }
+    },
+    symbols = {
+        font = "Interface\\AddOns\\EPBossAuction\\fonts\\DejaVuSans.ttf",
+        check = "✓",
+        arrowDown = "▼",
+    },
 }
 
 function auction:HideDefaultTextures(frame)
@@ -118,10 +123,18 @@ function auction:SkinCheckbox(checkbox)
     checkbox:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
     checkbox:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
 
-    local mark = checkbox:CreateTexture(nil, "OVERLAY")
-    mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    mark:SetPoint("CENTER", 0, 0)
-    mark:SetSize(14, 14)
+    local mark = checkbox:CreateFontString(nil, "OVERLAY")
+    mark:SetPoint("CENTER", 0, -1)
+    local symbolFont = (self.theme.symbols and self.theme.symbols.font) or ""
+    local ok = symbolFont ~= "" and mark:SetFont(symbolFont, 14, "OUTLINE")
+    if ok then
+        mark:SetText((self.theme.symbols and self.theme.symbols.check) or "✓")
+    else
+        mark = checkbox:CreateTexture(nil, "OVERLAY")
+        mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        mark:SetPoint("CENTER", 0, 0)
+        mark:SetSize(14, 14)
+    end
     mark:Hide()
     checkbox._epbaMark = mark
 
@@ -170,10 +183,18 @@ function auction:SkinDropdown(dropdown)
             button:ClearAllPoints()
             button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
             button:SetSize(20, 20)
-            local arrow = button:CreateTexture(nil, "OVERLAY")
-            arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
-            arrow:SetPoint("CENTER", 0, 0)
-            arrow:SetSize(14, 14)
+            local arrow = button:CreateFontString(nil, "OVERLAY")
+            arrow:SetPoint("CENTER", 0, -1)
+            local symbolFont = (self.theme.symbols and self.theme.symbols.font) or ""
+            local ok = symbolFont ~= "" and arrow:SetFont(symbolFont, 14, "OUTLINE")
+            if ok then
+                arrow:SetText((self.theme.symbols and self.theme.symbols.arrowDown) or "▼")
+            else
+                arrow = button:CreateTexture(nil, "OVERLAY")
+                arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+                arrow:SetPoint("CENTER", 0, 0)
+                arrow:SetSize(14, 14)
+            end
         end
     end
 
