@@ -68,20 +68,9 @@ function auction:CreateOptionsPanel()
     minBidEdit:Disable()
     minBidEdit:SetTextColor(0.5, 0.5, 0.5)
     
-    -- Автозапрос данных
-    local autoRequestCheck = CreateFrame("CheckButton", "EPBAAutoRequestCheck", generalTab, "UICheckButtonTemplate")
-    autoRequestCheck:SetPoint("TOPLEFT", minBidText, "BOTTOMLEFT", 0, -15)
-    autoRequestCheck.text = _G[autoRequestCheck:GetName() .. "Text"]
-    autoRequestCheck.text:SetText("Автоматически запрашивать данные при входе в рейд")
-    autoRequestCheck:SetChecked(self.db.general.autoRequest)
-    autoRequestCheck:SetScript("OnClick", function(self)
-        auction.db.general.autoRequest = self:GetChecked()
-        auction:ApplySettings()
-    end)
-    
     -- Подтверждение ставок
     local confirmBidCheck = CreateFrame("CheckButton", "EPBAConfirmBidCheck", generalTab, "UICheckButtonTemplate")
-    confirmBidCheck:SetPoint("TOPLEFT", autoRequestCheck, "BOTTOMLEFT", 0, -5)
+    confirmBidCheck:SetPoint("TOPLEFT", minBidText, "BOTTOMLEFT", 0, -15)
     confirmBidCheck.text = _G[confirmBidCheck:GetName() .. "Text"]
     confirmBidCheck.text:SetText("Подтверждать ставки")
     confirmBidCheck:SetChecked(self.db.general.confirmBid)

@@ -91,7 +91,6 @@ auction.defaults = {
     general = {
         debug = false,
         minBid = 1000,
-        autoRequest = true,
         confirmBid = false,
         soundEnabled = true,
         soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
