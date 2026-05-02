@@ -435,7 +435,6 @@ function auction:CreateUI()
     end
 
     self:UpdateLMButtonsState()
-    self:ApplyElvUISkin()
 
     -- Slash команды
     SLASH_EPBA1 = "/epba"
@@ -497,7 +496,6 @@ function auction:CreateUI()
         auction:ForceEPUpdate()
     end)
 
-    self:ApplyElvUISkin()
 end
 
 -- ======================
@@ -1187,29 +1185,6 @@ function auction:EndAuctionLocal()
     end
     self:RequestRefresh()
     self:RequestSaveData()
-end
-
--- ======================
--- ElvUI Skin
--- ======================
-function auction:ApplyElvUISkin()
-    if not IsAddOnLoaded("ElvUI") then return end
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-    if self.frame then self.frame:SetTemplate("Transparent") end
-    if self.bidButton then S:HandleButton(self.bidButton) end
-    if self.endButton then S:HandleButton(self.endButton) end
-    if self.journalButton then S:HandleButton(self.journalButton) end
-    if self.queueButton then S:HandleButton(self.queueButton) end
-    if self.requestButton then S:HandleButton(self.requestButton) end
-    if self.optionsBtn then S:HandleButton(self.optionsBtn) end
-    if self.sizer then self.sizer:SetTemplate("Default"); self.sizer:SetBackdropBorderColor(0,0,0,0); self.sizer:SetBackdropColor(0,0,0,0) end
-    if self.bidBox then self.bidBox:StripTextures(); S:HandleEditBox(self.bidBox); self.bidBox:HookScript("OnEditFocusGained", function(box) box.backdrop:SetBackdropBorderColor(1,0.8,0) end); self.bidBox:HookScript("OnEditFocusLost", function(box) box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor)) end) end
-    if self.closeButton then S:HandleCloseButton(self.closeButton) end
-    if self.scrollFrame then local sb = _G[self.scrollFrame:GetName().."ScrollBar"]; if sb then S:HandleScrollBar(sb) end end
-    if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
-    if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
 end
 
 function auction:UpdateBidRowColors()

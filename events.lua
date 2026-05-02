@@ -89,10 +89,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
         
-        if auction and auction.ApplyElvUISkin then
-            auction:ApplyElvUISkin()
-        end
-
         if auction and auction.ApplyJournalSkin then
             auction:ApplyJournalSkin()
         end

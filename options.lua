@@ -732,41 +732,4 @@ function auction:CreateOptionsPanel()
     InterfaceOptions_AddCategory(panel)
     self.optionsPanel = panel
     self:Debug("Панель настроек создана")
-    
-    -- Применить ElvUI-скин к панели
-    self:ApplyElvUISkinToOptions()
-end
-
--- ======================
--- Скин ElvUI для окна настроек
--- ======================
-function auction:ApplyElvUISkinToOptions()
-    if not IsAddOnLoaded("ElvUI") then return end
-    if not self.optionsPanel then return end
-
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-
-    self.optionsPanel:SetTemplate("Transparent")
-
-    if self.contentContainer then
-        local name = self.contentContainer:GetName()
-        if name then
-            local scrollBar = _G[name.."ScrollBar"]
-            if scrollBar and S.HandleScrollBar then
-                S:HandleScrollBar(scrollBar)
-            end
-        end
-    end
-
-    if self.optionsTabButtons then
-        for _, btn in ipairs(self.optionsTabButtons) do
-            if S.HandleButton then S:HandleButton(btn) end
-        end
-    end
-
-    if self.optionsDefaultsBtn and S.HandleButton then S:HandleButton(self.optionsDefaultsBtn) end
-    if self.optionsApplyBtn and S.HandleButton then S:HandleButton(self.optionsApplyBtn) end
-    if self.optionsCancelBtn and S.HandleButton then S:HandleButton(self.optionsCancelBtn) end
 end
