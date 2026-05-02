@@ -12,6 +12,17 @@ auction.theme = {
     }
 }
 
+function auction:HideDefaultTextures(frame)
+    if not frame then return end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+            region:SetTexture(nil)
+            region:SetAlpha(0)
+            region:Hide()
+        end
+    end
+end
+
 function auction:SkinPanel(frame)
     if not frame then return end
     frame:SetBackdrop({
@@ -31,6 +42,8 @@ function auction:SkinButton(button)
     button:SetNormalTexture("")
     button:SetHighlightTexture("")
     button:SetPushedTexture("")
+    button:SetDisabledTexture("")
+    self:HideDefaultTextures(button)
 
     button:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -64,8 +77,9 @@ function auction:SkinButton(button)
 end
 
 function auction:SkinInput(editBox)
-    if not editBox then return end
+    if not editBox or editBox._epbaSkinned then return end
     local c = self.theme.colors
+    self:HideDefaultTextures(editBox)
     editBox:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -80,4 +94,52 @@ function auction:SkinInput(editBox)
     editBox:HookScript("OnEditFocusLost", function(box)
         box:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
     end)
+    editBox._epbaSkinned = true
+end
+
+function auction:SkinDropdown(dropdown)
+    if not dropdown or dropdown._epbaSkinned then return end
+    local c = self.theme.colors
+    self:HideDefaultTextures(dropdown)
+
+    local name = dropdown.GetName and dropdown:GetName()
+    if name then
+        local left = _G[name .. "Left"]
+        local middle = _G[name .. "Middle"]
+        local right = _G[name .. "Right"]
+        if left then left:Hide() end
+        if middle then middle:Hide() end
+        if right then right:Hide() end
+
+        local button = _G[name .. "Button"]
+        if button then
+            self:HideDefaultTextures(button)
+            self:SkinButton(button)
+            button:ClearAllPoints()
+            button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
+            button:SetSize(20, 20)
+            local arrow = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            arrow:SetPoint("CENTER", 0, -1)
+            arrow:SetText("▼")
+        end
+    end
+
+    dropdown:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 }
+    })
+    dropdown:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
+    dropdown:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+    local text = name and _G[name .. "Text"]
+    if text then
+        text:ClearAllPoints()
+        text:SetPoint("LEFT", dropdown, "LEFT", 8, 1)
+        text:SetPoint("RIGHT", dropdown, "RIGHT", -24, 1)
+        text:SetJustifyH("LEFT")
+    end
+
+    dropdown._epbaSkinned = true
 end
