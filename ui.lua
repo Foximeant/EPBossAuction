@@ -81,12 +81,20 @@ function auction:CreateUI()
         InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
     end)
     optionsBtn:SetScript("OnEnter", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            optionsBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+        end
         GameTooltip:SetOwner(optionsBtn, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Настройки")
         GameTooltip:AddLine("Открыть окно настроек аддона", 0.5, 1, 0.5)
         GameTooltip:Show()
     end)
     optionsBtn:SetScript("OnLeave", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            optionsBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+        end
         GameTooltip:Hide()
     end)
     self.optionsBtn = optionsBtn
@@ -395,7 +403,7 @@ function auction:CreateUI()
     self.sizer = sizer
 
     frame:SetResizable(true)
-    frame:SetMinResize(650, 450)
+    frame:SetMinResize(650, 515)
     frame:SetMaxResize(1200, 900)
 
     frame:SetScript("OnSizeChanged", function()
@@ -831,6 +839,8 @@ function auction:RenderItemRow(row, itemID, index, metrics)
 
     if metrics.showIcons and itemIcon then
         row.icon:SetTexture(itemIcon)
+        local iconSize = math.max(12, metrics.rowHeight - 4)
+        row.icon:SetSize(iconSize, iconSize)
         row.icon:Show()
         row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
     else
@@ -1024,6 +1034,8 @@ function auction:RefreshTable()
 
         if showIcons and itemIcon then
             row.icon:SetTexture(itemIcon)
+            local iconSize = math.max(12, rowHeight - 4)
+            row.icon:SetSize(iconSize, iconSize)
             row.icon:Show()
             row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
         else

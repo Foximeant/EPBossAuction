@@ -31,6 +31,8 @@ function auction:CreateJournalFrame()
         insets = { left = 8, right = 8, top = 8, bottom = 8 }
     })
     frame:SetBackdropColor(0, 0, 0, 1)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(110)
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetMinResize(400, 300)
@@ -68,8 +70,11 @@ function auction:CreateJournalFrame()
     title:SetPoint("TOP", 0, -12)
     title:SetText("Журнал ставок")
 
-    local close = CreateFrame("Button", "EPBossAuctionJournalCloseButton", frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -5, -5)
+    local close = CreateFrame("Button", "EPBossAuctionJournalCloseButton", frame)
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", -8, -8)
+    close:SetText("X")
+    close:SetNormalFontObject(GameFontNormalLarge)
     close:SetScript("OnClick", function()
         frame:Hide()
     end)
@@ -181,18 +186,18 @@ function auction:BuildJournalText(force)
     for i = #entries, 1, -1 do
         local entry = entries[i]
         if entry then
-            local playerName = entry.player or "РРіСЂРѕРє РЅРµ РЅР°Р№РґРµРЅ"
+            local playerName = entry.player or "Игрок не найден"
             local amount = entry.amount or 0
-            local itemName = entry.itemID and self:GetCachedItemName(entry.itemID) or "РїСЂРµРґРјРµС‚ РЅРµ РЅР°Р№РґРµРЅ"
-            local bossName = entry.boss or "Р±РѕСЃСЃ РЅРµ РЅР°Р№РґРµРЅ"
+            local itemName = entry.itemID and self:GetCachedItemName(entry.itemID) or "предмет не найден"
+            local bossName = entry.boss or "босс не найден"
             local timeStr = entry.time or date("%Y-%m-%d %H:%M:%S")
 
             local amountStr
             if amount == 0 then
-                amountStr = "РѕС‚РјРµРЅРёР» СЃС‚Р°РІРєСѓ "
+                amountStr = "отменил ставку "
             else
                 local offspecMark = entry.isOffspec and " (O)" or ""
-                amountStr = "РїРѕСЃС‚Р°РІРёР» " .. self:FormatNumber(amount) .. " EP" .. offspecMark
+                amountStr = "поставил " .. self:FormatNumber(amount) .. " EP" .. offspecMark
             end
 
             textLines[#textLines + 1] = string.format("%s %s %s на %s (%s)", timeStr, playerName, amountStr, itemName, bossName)

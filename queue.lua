@@ -26,6 +26,8 @@ function auction:CreateQueueFrame()
         insets = { left = 8, right = 8, top = 8, bottom = 8 }
     })
     frame:SetBackdropColor(0, 0, 0, 1)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(110)
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetMinResize(350, 300)
@@ -43,8 +45,11 @@ function auction:CreateQueueFrame()
     title:SetText("Очередь на токены")
     
     -- Кнопка закрытия
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -5, -5)
+    local close = CreateFrame("Button", nil, frame)
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", -8, -8)
+    close:SetText("X")
+    close:SetNormalFontObject(GameFontNormalLarge)
     close:SetScript("OnClick", function() frame:Hide() end)
     self.queueCloseButton = close
 
