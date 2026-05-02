@@ -65,28 +65,36 @@ function auction:CreateUI()
     self.closeButton = close
     close:SetSize(20, 20)
     close:SetPoint("TOPRIGHT", -10, -10)
-    close:SetText("×")
+    close:SetText("X")
     close:SetNormalFontObject(GameFontNormalLarge)
     close:SetScript("OnClick", function() frame:Hide() end)
     self:SkinButton(close)
 
     -- Кнопка настроек
     local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
-    optionsBtn:SetSize(20, 20)
-    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
-    optionsBtn:SetText("O")
+    optionsBtn:SetSize(90, 22)
+    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -8, 0)
+    optionsBtn:SetText("Настройки")
     optionsBtn:SetNormalFontObject(GameFontNormal)
     self:SkinButton(optionsBtn)
     optionsBtn:SetScript("OnClick", function()
         InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
     end)
     optionsBtn:SetScript("OnEnter", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            optionsBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+        end
         GameTooltip:SetOwner(optionsBtn, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Настройки")
         GameTooltip:AddLine("Открыть окно настроек аддона", 0.5, 1, 0.5)
         GameTooltip:Show()
     end)
     optionsBtn:SetScript("OnLeave", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            optionsBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+        end
         GameTooltip:Hide()
     end)
     self.optionsBtn = optionsBtn
@@ -95,7 +103,7 @@ function auction:CreateUI()
     -- ЛЕВАЯ ПАНЕЛЬ УПРАВЛЕНИЯ
     -- ======================
     local leftPanel = CreateFrame("Frame", "EPBossAuctionLeftPanel", frame)
-    leftPanel:SetWidth(160)
+    leftPanel:SetWidth(170)
     leftPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -45)
     leftPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
     leftPanel:SetBackdrop({
@@ -110,11 +118,12 @@ function auction:CreateUI()
 
     -- 1. Выбор босса
     local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bossLabel:SetPoint("TOPLEFT", 10, -10)
+    bossLabel:SetPoint("TOP", leftPanel, "TOP", 0, -10)
+    bossLabel:SetJustifyH("CENTER")
     bossLabel:SetText("Босс:")
     local dropdown = CreateFrame("Frame", "EPBossDropdown", leftPanel, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("TOPLEFT", bossLabel, "BOTTOMLEFT", -15, -5)
-    UIDropDownMenu_SetWidth(dropdown, 128)
+    dropdown:SetPoint("TOP", bossLabel, "BOTTOM", 0, -6)
+    UIDropDownMenu_SetWidth(dropdown, 116)
     UIDropDownMenu_SetText(dropdown, "Выбрать босса")
     UIDropDownMenu_Initialize(dropdown, function(selfDD, level)
         for _, bossName in ipairs(auction.bossOrder) do
@@ -140,11 +149,12 @@ function auction:CreateUI()
 
     -- 2. Выбор предмета
     local itemLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    itemLabel:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 26, -15)
+    itemLabel:SetPoint("TOP", dropdown, "BOTTOM", 0, -15)
+    itemLabel:SetJustifyH("CENTER")
     itemLabel:SetText("Предмет:")
     local itemDrop = CreateFrame("Frame", "EPItemDropdown", leftPanel, "UIDropDownMenuTemplate")
-    itemDrop:SetPoint("TOPLEFT", itemLabel, "BOTTOMLEFT", -15, -5)
-    UIDropDownMenu_SetWidth(itemDrop, 128)
+    itemDrop:SetPoint("TOP", itemLabel, "BOTTOM", 0, -6)
+    UIDropDownMenu_SetWidth(itemDrop, 116)
     UIDropDownMenu_SetText(itemDrop, "Выбрать предмет")
     UIDropDownMenu_Initialize(itemDrop, function(selfDD, level)
         if not auction.selectedBoss then return end
@@ -170,11 +180,12 @@ function auction:CreateUI()
 
     -- 3. Поле ввода ставки
     local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bidLabel:SetPoint("TOPLEFT", itemDrop, "BOTTOMLEFT", 26, -15)
+    bidLabel:SetPoint("TOP", itemDrop, "BOTTOM", 0, -15)
+    bidLabel:SetJustifyH("CENTER")
     bidLabel:SetText("Сумма ставки:")
     local editBox = CreateFrame("EditBox", "EPBidEditBox", leftPanel, "InputBoxTemplate")
     editBox:SetSize(140, 25)
-    editBox:SetPoint("TOPLEFT", bidLabel, "BOTTOMLEFT", 0, -5)
+    editBox:SetPoint("TOP", bidLabel, "BOTTOM", 0, -6)
     editBox:SetAutoFocus(false)
     editBox:SetNumeric(true)
     editBox:SetMaxLetters(6)
@@ -211,7 +222,7 @@ function auction:CreateUI()
     local button = CreateFrame("Button", "EPBossAuctionBidButton", leftPanel, "UIPanelButtonTemplate")
     self.bidButton = button
     button:SetSize(140, 25)
-    button:SetPoint("TOPLEFT", editBox, "BOTTOMLEFT", -5, -8)
+    button:SetPoint("TOP", editBox, "BOTTOM", 0, -8)
     button:SetText("Сделать ставку")
     button:SetScript("OnClick", function()
         auction:SendBidLocal()
@@ -242,7 +253,7 @@ function auction:CreateUI()
     self:SkinCheckbox(lockCheckbox)
 
     local offspecCheckbox = CreateFrame("CheckButton", "EPBossAuctionOffspecCheckbox", leftPanel, "UICheckButtonTemplate")
-    offspecCheckbox:SetPoint("LEFT", lockCheckbox, "RIGHT", 35, 0)
+    offspecCheckbox:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -6)
     offspecCheckbox:SetSize(20, 20)
     local offspecText = offspecCheckbox:CreateFontString("EPBossAuctionOffspecCheckboxText", "OVERLAY", "GameFontNormal")
     offspecText:SetPoint("LEFT", offspecCheckbox, "RIGHT", 2, 0)
@@ -268,7 +279,7 @@ function auction:CreateUI()
     local requestButton = CreateFrame("Button", "EPBossAuctionRequestButton", leftPanel, "UIPanelButtonTemplate")
     self.requestButton = requestButton
     requestButton:SetSize(140, 25)
-    requestButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -12)
+    requestButton:SetPoint("TOP", button, "BOTTOM", 0, -62)
     requestButton:SetText("Запросить данные")
     requestButton:SetScript("OnClick", function()
         auction:RequestDataFromLM()
@@ -278,7 +289,7 @@ function auction:CreateUI()
     -- 7. Кнопка "Очистить таблицу"
     local endButton = CreateFrame("Button", "EPBossAuctionEndButton", leftPanel, "UIPanelButtonTemplate")
     endButton:SetSize(140, 25)
-    endButton:SetPoint("TOPLEFT", requestButton, "BOTTOMLEFT", 0, -8)
+    endButton:SetPoint("TOP", requestButton, "BOTTOM", 0, -8)
     endButton:SetText("Очистить таблицу")
     endButton:SetScript("OnClick", function()
         if not auction:IsLootMaster() then return end
@@ -293,7 +304,7 @@ function auction:CreateUI()
     -- 8. Кнопка "Журнал"
     local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", leftPanel, "UIPanelButtonTemplate")
     journalButton:SetSize(140, 25)
-    journalButton:SetPoint("TOPLEFT", endButton, "BOTTOMLEFT", 0, -8)
+    journalButton:SetPoint("TOP", endButton, "BOTTOM", 0, -8)
     journalButton:SetText("Журнал ставок")
     journalButton:SetScript("OnClick", function()
         auction:ToggleJournal()
@@ -304,7 +315,7 @@ function auction:CreateUI()
     -- 9. Кнопка "Очередь"
     local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
     queueButton:SetSize(140, 25)
-    queueButton:SetPoint("TOPLEFT", journalButton, "BOTTOMLEFT", 0, -8)
+    queueButton:SetPoint("TOP", journalButton, "BOTTOM", 0, -8)
     queueButton:SetText("Очередь")
     queueButton:SetScript("OnClick", function()
         auction:ToggleQueue()
@@ -314,13 +325,15 @@ function auction:CreateUI()
 
     -- 10. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epText:SetPoint("TOPLEFT", queueButton, "BOTTOMLEFT", 0, -15)
+    epText:SetPoint("TOP", queueButton, "BOTTOM", 0, -15)
+    epText:SetJustifyH("CENTER")
     epText:SetText("Ваш ЕП: ...")
     auction.myEPText = epText
 
     -- 11. Текст максимальной ставки
     local maxBidText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    maxBidText:SetPoint("TOPLEFT", epText, "BOTTOMLEFT", 0, -2)
+    maxBidText:SetPoint("TOP", epText, "BOTTOM", 0, -2)
+    maxBidText:SetJustifyH("CENTER")
     maxBidText:SetText("Макс. ставка: ...")
     maxBidText:SetTextColor(0.7, 0.7, 0.7)
     auction.maxBidText = maxBidText
@@ -390,7 +403,7 @@ function auction:CreateUI()
     self.sizer = sizer
 
     frame:SetResizable(true)
-    frame:SetMinResize(650, 450)
+    frame:SetMinResize(650, 515)
     frame:SetMaxResize(1200, 900)
 
     frame:SetScript("OnSizeChanged", function()
@@ -418,10 +431,10 @@ function auction:CreateUI()
         scrollBar:ClearAllPoints()
         scrollBar:SetPoint("TOPRIGHT", self.scrollFrame, "TOPRIGHT", 2, -17)
         scrollBar:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, 17)
+        self:SkinScrollBar(scrollBar)
     end
 
     self:UpdateLMButtonsState()
-    self:ApplyElvUISkin()
 
     -- Slash команды
     SLASH_EPBA1 = "/epba"
@@ -483,7 +496,6 @@ function auction:CreateUI()
         auction:ForceEPUpdate()
     end)
 
-    self:ApplyElvUISkin()
 end
 
 -- ======================
@@ -825,6 +837,8 @@ function auction:RenderItemRow(row, itemID, index, metrics)
 
     if metrics.showIcons and itemIcon then
         row.icon:SetTexture(itemIcon)
+        local iconSize = math.max(12, metrics.rowHeight - 4)
+        row.icon:SetSize(iconSize, iconSize)
         row.icon:Show()
         row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
     else
@@ -960,8 +974,11 @@ function auction:RefreshTable()
     local itemWidth = math.floor(availableWidth / 2)
 
     local visibleItems = {}
+    local hideNoBids = dbTable.hideNoBids == true
     for _, itemID in ipairs(items) do
-        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) then
+        local bidsForItem = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
+        local hasBids = bidsForItem and #bidsForItem > 0
+        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) and (not hideNoBids or hasBids) then
             table.insert(visibleItems, itemID)
         end
     end
@@ -1018,6 +1035,8 @@ function auction:RefreshTable()
 
         if showIcons and itemIcon then
             row.icon:SetTexture(itemIcon)
+            local iconSize = math.max(12, rowHeight - 4)
+            row.icon:SetSize(iconSize, iconSize)
             row.icon:Show()
             row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
         else
@@ -1166,29 +1185,6 @@ function auction:EndAuctionLocal()
     end
     self:RequestRefresh()
     self:RequestSaveData()
-end
-
--- ======================
--- ElvUI Skin
--- ======================
-function auction:ApplyElvUISkin()
-    if not IsAddOnLoaded("ElvUI") then return end
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-    if self.frame then self.frame:SetTemplate("Transparent") end
-    if self.bidButton then S:HandleButton(self.bidButton) end
-    if self.endButton then S:HandleButton(self.endButton) end
-    if self.journalButton then S:HandleButton(self.journalButton) end
-    if self.queueButton then S:HandleButton(self.queueButton) end
-    if self.requestButton then S:HandleButton(self.requestButton) end
-    if self.optionsBtn then S:HandleButton(self.optionsBtn) end
-    if self.sizer then self.sizer:SetTemplate("Default"); self.sizer:SetBackdropBorderColor(0,0,0,0); self.sizer:SetBackdropColor(0,0,0,0) end
-    if self.bidBox then self.bidBox:StripTextures(); S:HandleEditBox(self.bidBox); self.bidBox:HookScript("OnEditFocusGained", function(box) box.backdrop:SetBackdropBorderColor(1,0.8,0) end); self.bidBox:HookScript("OnEditFocusLost", function(box) box.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor)) end) end
-    if self.closeButton then S:HandleCloseButton(self.closeButton) end
-    if self.scrollFrame then local sb = _G[self.scrollFrame:GetName().."ScrollBar"]; if sb then S:HandleScrollBar(sb) end end
-    if self.bossDropdown then S:HandleDropDownBox(self.bossDropdown) end
-    if self.itemDropdown then S:HandleDropDownBox(self.itemDropdown) end
 end
 
 function auction:UpdateBidRowColors()

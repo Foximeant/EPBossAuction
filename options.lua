@@ -68,20 +68,9 @@ function auction:CreateOptionsPanel()
     minBidEdit:Disable()
     minBidEdit:SetTextColor(0.5, 0.5, 0.5)
     
-    -- Автозапрос данных
-    local autoRequestCheck = CreateFrame("CheckButton", "EPBAAutoRequestCheck", generalTab, "UICheckButtonTemplate")
-    autoRequestCheck:SetPoint("TOPLEFT", minBidText, "BOTTOMLEFT", 0, -15)
-    autoRequestCheck.text = _G[autoRequestCheck:GetName() .. "Text"]
-    autoRequestCheck.text:SetText("Автоматически запрашивать данные при входе в рейд")
-    autoRequestCheck:SetChecked(self.db.general.autoRequest)
-    autoRequestCheck:SetScript("OnClick", function(self)
-        auction.db.general.autoRequest = self:GetChecked()
-        auction:ApplySettings()
-    end)
-    
     -- Подтверждение ставок
     local confirmBidCheck = CreateFrame("CheckButton", "EPBAConfirmBidCheck", generalTab, "UICheckButtonTemplate")
-    confirmBidCheck:SetPoint("TOPLEFT", autoRequestCheck, "BOTTOMLEFT", 0, -5)
+    confirmBidCheck:SetPoint("TOPLEFT", minBidText, "BOTTOMLEFT", 0, -15)
     confirmBidCheck.text = _G[confirmBidCheck:GetName() .. "Text"]
     confirmBidCheck.text:SetText("Подтверждать ставки")
     confirmBidCheck:SetChecked(self.db.general.confirmBid)
@@ -323,9 +312,20 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
 
+    -- Скрывать предметы без ставок
+    local hideNoBidsCheck = CreateFrame("CheckButton", "EPBAHideNoBidsCheck", tableTab, "UICheckButtonTemplate")
+    hideNoBidsCheck:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -18)
+    hideNoBidsCheck.text = _G[hideNoBidsCheck:GetName() .. "Text"]
+    hideNoBidsCheck.text:SetText("Скрывать предметы без ставок")
+    hideNoBidsCheck:SetChecked(self.db.table.hideNoBids == true)
+    hideNoBidsCheck:SetScript("OnClick", function(self)
+        auction.db.table.hideNoBids = self:GetChecked()
+        auction:ApplySettings()
+    end)
+
     -- Высота строки
     local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightTitle:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -30)
+    rowHeightTitle:SetPoint("TOPLEFT", hideNoBidsCheck, "BOTTOMLEFT", 0, -16)
     rowHeightTitle:SetText("Высота строки:")
     rowHeightTitle:SetFontObject(GameFontNormalLarge)
 
@@ -732,41 +732,4 @@ function auction:CreateOptionsPanel()
     InterfaceOptions_AddCategory(panel)
     self.optionsPanel = panel
     self:Debug("Панель настроек создана")
-    
-    -- Применить ElvUI-скин к панели
-    self:ApplyElvUISkinToOptions()
-end
-
--- ======================
--- Скин ElvUI для окна настроек
--- ======================
-function auction:ApplyElvUISkinToOptions()
-    if not IsAddOnLoaded("ElvUI") then return end
-    if not self.optionsPanel then return end
-
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-
-    self.optionsPanel:SetTemplate("Transparent")
-
-    if self.contentContainer then
-        local name = self.contentContainer:GetName()
-        if name then
-            local scrollBar = _G[name.."ScrollBar"]
-            if scrollBar and S.HandleScrollBar then
-                S:HandleScrollBar(scrollBar)
-            end
-        end
-    end
-
-    if self.optionsTabButtons then
-        for _, btn in ipairs(self.optionsTabButtons) do
-            if S.HandleButton then S:HandleButton(btn) end
-        end
-    end
-
-    if self.optionsDefaultsBtn and S.HandleButton then S:HandleButton(self.optionsDefaultsBtn) end
-    if self.optionsApplyBtn and S.HandleButton then S:HandleButton(self.optionsApplyBtn) end
-    if self.optionsCancelBtn and S.HandleButton then S:HandleButton(self.optionsCancelBtn) end
 end
