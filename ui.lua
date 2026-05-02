@@ -61,18 +61,22 @@ function auction:CreateUI()
     title:SetText("RS EPBossAuction "..self.version)
 
     -- Кнопка закрытия
-    local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame, "UIPanelCloseButton")
+    local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame)
     self.closeButton = close
-    close:SetPoint("TOPRIGHT", -5, -5)
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", -10, -10)
+    close:SetText("×")
+    close:SetNormalFontObject(GameFontNormalLarge)
+    close:SetScript("OnClick", function() frame:Hide() end)
+    self:SkinButton(close)
 
     -- Кнопка настроек
-    local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame, "UIPanelButtonTemplate")
-    optionsBtn:SetSize(18, 18)
-    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -5, -7)
-    local tex = optionsBtn:CreateTexture(nil, "OVERLAY")
-    tex:SetTexture("Interface\\Buttons\\UI-OptionsButton")
-    tex:SetSize(20, 20)
-    tex:SetPoint("CENTER")
+    local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
+    optionsBtn:SetSize(20, 20)
+    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
+    optionsBtn:SetText("O")
+    optionsBtn:SetNormalFontObject(GameFontNormal)
+    self:SkinButton(optionsBtn)
     optionsBtn:SetScript("OnClick", function()
         InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
     end)
@@ -132,6 +136,7 @@ function auction:CreateUI()
         end
     end)
     self.bossDropdown = dropdown
+    self:SkinDropdown(dropdown)
 
     -- 2. Выбор предмета
     local itemLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -161,6 +166,7 @@ function auction:CreateUI()
         end
     end)
     self.itemDropdown = itemDrop
+    self:SkinDropdown(itemDrop)
 
     -- 3. Поле ввода ставки
     local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
