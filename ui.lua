@@ -1100,12 +1100,15 @@ end
 
 function auction:EndAuctionLocal()
     if not self.selectedBoss then return end
-    if self.bosses[self.selectedBoss] then
-        for _, itemID in ipairs(self.bosses[self.selectedBoss]) do
+    local bossName = self.selectedBoss
+    self.bids[bossName] = {}
+    if self.bosses[bossName] then
+        for _, itemID in ipairs(self.bosses[bossName]) do
             self:IncrementDataVersion(self.selectedBoss, itemID)
+            self:UpdateSortedBids(bossName, itemID)
+            self:UpdateBidCaches(bossName, itemID)
         end
     end
-    self.bids[self.selectedBoss] = {}
     self:RequestRefresh()
     self:RequestSaveData()
 end
