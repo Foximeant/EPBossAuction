@@ -404,22 +404,18 @@ function auction:Handle_QUEUE_SYNC(rest, sender)
 end
 
 function auction:ApplyQueueSkin()
-    if not IsAddOnLoaded("ElvUI") then return end
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
     if not self.queueFrame then return end
-    
-    self.queueFrame:SetTemplate("Transparent")
-    if self.queueCloseButton then S:HandleCloseButton(self.queueCloseButton) end
-    if self.queueAddBtn then S:HandleButton(self.queueAddBtn) end
-    if self.queueRemoveBtn then S:HandleButton(self.queueRemoveBtn) end
-    if self.queueUpBtn then S:HandleButton(self.queueUpBtn) end
-    if self.queueDownBtn then S:HandleButton(self.queueDownBtn) end
-    if self.queueRefreshBtn then S:HandleButton(self.queueRefreshBtn) end
-    if self.queueItemDropdown then S:HandleDropDownBox(self.queueItemDropdown) end
+    self:SkinPanel(self.queueFrame)
+    if self.queueCloseButton then self:SkinButton(self.queueCloseButton) end
+    if self.queueAddBtn then self:SkinButton(self.queueAddBtn) end
+    if self.queueRemoveBtn then self:SkinButton(self.queueRemoveBtn) end
+    if self.queueUpBtn then self:SkinButton(self.queueUpBtn) end
+    if self.queueDownBtn then self:SkinButton(self.queueDownBtn) end
+    if self.queueRefreshBtn then self:SkinButton(self.queueRefreshBtn) end
+    if self.queueItemDropdown then self:SkinDropdown(self.queueItemDropdown) end
+    if self.queueListContainer then self:SkinPanel(self.queueListContainer) end
     if self.queueScrollFrame then
         local sb = _G[self.queueScrollFrame:GetName().."ScrollBar"]
-        if sb then S:HandleScrollBar(sb) end
+        if sb then self:SkinScrollBar(sb) end
     end
 end

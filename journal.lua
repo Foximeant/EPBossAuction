@@ -66,7 +66,7 @@ function auction:CreateJournalFrame()
 
     local title = frame:CreateFontString("EPBossAuctionJournalTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("Р–СѓСЂРЅР°Р» СЃС‚Р°РІРѕРє")
+    title:SetText("Журнал ставок")
 
     local close = CreateFrame("Button", "EPBossAuctionJournalCloseButton", frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
@@ -78,12 +78,12 @@ function auction:CreateJournalFrame()
     local clearButton = CreateFrame("Button", "EPBossAuctionJournalClearButton", frame, "UIPanelButtonTemplate")
     clearButton:SetSize(80, 25)
     clearButton:SetPoint("BOTTOMLEFT", 16, 16)
-    clearButton:SetText("РћС‡РёСЃС‚РёС‚СЊ")
+    clearButton:SetText("Очистить")
     clearButton:SetScript("OnClick", function()
         StaticPopupDialogs["EPBA_CLEAR_LOG"] = {
-            text = "Р’С‹ СѓРІРµСЂРµРЅС‹?",
-            button1 = "Р”Р°",
-            button2 = "РќРµС‚",
+            text = "Вы уверены?",
+            button1 = "Да",
+            button2 = "Нет",
             OnAccept = function()
                 auction:ClearBidLog()
             end,
@@ -171,7 +171,7 @@ function auction:BuildJournalText(force)
 
     local entries = self.bidLog or {}
     if #entries == 0 then
-        self.journalTextWidget:SetText("Р–СѓСЂРЅР°Р» РїСѓСЃС‚ >_<")
+        self.journalTextWidget:SetText("Журнал пуст >_<")
         self.journalDirty = false
         self:UpdateJournalScroll()
         return
@@ -195,7 +195,7 @@ function auction:BuildJournalText(force)
                 amountStr = "РїРѕСЃС‚Р°РІРёР» " .. self:FormatNumber(amount) .. " EP" .. offspecMark
             end
 
-            textLines[#textLines + 1] = string.format("%s %s %s РЅР° %s (%s)", timeStr, playerName, amountStr, itemName, bossName)
+            textLines[#textLines + 1] = string.format("%s %s %s на %s (%s)", timeStr, playerName, amountStr, itemName, bossName)
         end
     end
 
@@ -357,37 +357,20 @@ function auction:ClearBidLog()
     self:SaveBidLog()
     self:RefreshJournal()
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Р вЂ“РЎС“РЎР‚Р Р…Р В°Р В» РЎРѓРЎвЂљР В°Р Р†Р С•Р С” Р С•РЎвЂЎР С‘РЎвЂ°Р ВµР Р….")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
     end
 end
 
 function auction:ApplyJournalSkin()
-    if not IsAddOnLoaded("ElvUI") then return end
-    local E, L, V, P, G = unpack(ElvUI)
-    local S = E:GetModule("Skins")
-    if not S then return end
-
-    if self.journalFrame then
-        self.journalFrame:SetTemplate("Transparent")
-    end
-    if self.journalCloseButton then
-        S:HandleCloseButton(self.journalCloseButton)
-    end
-    if self.journalClearButton then
-        S:HandleButton(self.journalClearButton)
-    end
+    if self.journalFrame then self:SkinPanel(self.journalFrame) end
+    if self.journalCloseButton then self:SkinButton(self.journalCloseButton) end
+    if self.journalClearButton then self:SkinButton(self.journalClearButton) end
     if self.journalSizer then
-        self.journalSizer:SetTemplate("Default")
-        self.journalSizer:SetBackdropBorderColor(0, 0, 0, 0)
-        self.journalSizer:SetBackdropColor(0, 0, 0, 0)
+        self:SkinButton(self.journalSizer)
     end
     if self.journalScrollFrame then
         local scrollBar = _G[self.journalScrollFrame:GetName() .. "ScrollBar"]
-        if scrollBar then
-            S:HandleScrollBar(scrollBar)
-        end
+        if scrollBar then self:SkinScrollBar(scrollBar) end
     end
-    if self.journalScrollContainer then
-        self.journalScrollContainer:SetTemplate("Transparent")
-    end
+    if self.journalScrollContainer then self:SkinPanel(self.journalScrollContainer) end
 end

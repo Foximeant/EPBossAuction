@@ -144,9 +144,10 @@ function auction:SkinCheckbox(checkbox)
     checkbox:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
     checkbox:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
 
+    local markSize = math.max(10, math.floor((checkbox:GetHeight() > 0 and checkbox:GetHeight() or 20) * 0.7))
     local mark = checkbox:CreateFontString(nil, "OVERLAY")
     mark:SetPoint("CENTER", 0, -1)
-    local ok = self:TrySetSymbolFont(mark, 14)
+    local ok = self:TrySetSymbolFont(mark, markSize)
     local symbols = self.theme.symbols or {}
     if ok then
         mark:SetText(symbols.check or "✓")
@@ -201,10 +202,11 @@ function auction:SkinDropdown(dropdown)
             self:SkinButton(button)
             button:ClearAllPoints()
             button:SetPoint("RIGHT", dropdown, "RIGHT", -2, 0)
-            button:SetSize(20, 20)
+            local h = math.max(18, math.floor((dropdown:GetHeight() > 0 and dropdown:GetHeight() or 24) - 4))
+            button:SetSize(h, h)
             local arrow = button:CreateFontString(nil, "OVERLAY")
             arrow:SetPoint("CENTER", 0, -1)
-            local ok = self:TrySetSymbolFont(arrow, 14)
+            local ok = self:TrySetSymbolFont(arrow, math.max(10, math.floor(h * 0.7)))
             local symbols = self.theme.symbols or {}
             if ok then
                 arrow:SetText(symbols.arrowDown or "▼")
@@ -233,4 +235,28 @@ function auction:SkinDropdown(dropdown)
     end
 
     dropdown._epbaSkinned = true
+end
+
+function auction:SkinScrollBar(scrollBar)
+    if not scrollBar or scrollBar._epbaSkinned then return end
+    local c = self.theme.colors
+    self:HideDefaultTextures(scrollBar)
+    local up = scrollBar.ScrollUpButton or _G[scrollBar:GetName() .. "ScrollUpButton"]
+    local down = scrollBar.ScrollDownButton or _G[scrollBar:GetName() .. "ScrollDownButton"]
+    local thumb = scrollBar.ThumbTexture or _G[scrollBar:GetName() .. "ThumbTexture"]
+    if up then self:SkinButton(up); up:SetText("˄") end
+    if down then self:SkinButton(down); down:SetText("˅") end
+    if thumb then
+        thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
+        thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
+    end
+    scrollBar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    scrollBar:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], 0.9)
+    scrollBar:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+    scrollBar._epbaSkinned = true
 end
