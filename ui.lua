@@ -8,6 +8,7 @@ function auction:CreateUI()
     self.rowPool = {}
     self.activeRows = {}
     self.itemInfoCache = {}
+    self.hiddenItems = {}
 
     local frame = CreateFrame("Frame", "EPBossAuctionFrame", UIParent)
     frame:SetSize(self.db.window.width, self.db.window.height)
@@ -64,7 +65,7 @@ function auction:CreateUI()
     self.closeButton = close
     close:SetSize(20, 20)
     close:SetPoint("TOPRIGHT", -10, -10)
-    close:SetText("X")
+    close:SetText("×")
     close:SetNormalFontObject(GameFontNormalLarge)
     close:SetScript("OnClick", function() frame:Hide() end)
     self:SkinButton(close)
@@ -73,7 +74,7 @@ function auction:CreateUI()
     local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
     optionsBtn:SetSize(20, 20)
     optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
-    optionsBtn:SetText("S")
+    optionsBtn:SetText("O")
     optionsBtn:SetNormalFontObject(GameFontNormal)
     self:SkinButton(optionsBtn)
     optionsBtn:SetScript("OnClick", function()
@@ -638,8 +639,18 @@ function auction:CreateRowTemplate()
     local leftClick = CreateFrame("Button", nil, row)
     leftClick:SetPoint("TOPLEFT")
     leftClick:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", 250, 0)
-    leftClick:SetScript("OnClick", function()
+    leftClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    leftClick:SetScript("OnClick", function(_, button)
         if not row.itemID then return end
+        if button == "RightButton" and auction.selectedBoss then
+            auction:HideItemForSession(auction.selectedBoss, row.itemID)
+            if auction.selectedItem == row.itemID then
+                auction.selectedItem = nil
+                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+            end
+            auction:RefreshTable()
+            return
+        end
         auction.selectedItem = row.itemID
         UIDropDownMenu_SetText(auction.itemDropdown, auction:GetCachedItemName(row.itemID))
         auction:HighlightSelectedRow(row.itemID)
@@ -664,8 +675,18 @@ function auction:CreateRowTemplate()
     local rightClick = CreateFrame("Button", nil, row)
     rightClick:SetPoint("TOPLEFT", row, "TOPLEFT", 250, 0)
     rightClick:SetPoint("BOTTOMRIGHT")
-    rightClick:SetScript("OnClick", function()
+    rightClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    rightClick:SetScript("OnClick", function(_, button)
         if not row.itemID then return end
+        if button == "RightButton" and auction.selectedBoss then
+            auction:HideItemForSession(auction.selectedBoss, row.itemID)
+            if auction.selectedItem == row.itemID then
+                auction.selectedItem = nil
+                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+            end
+            auction:RefreshTable()
+            return
+        end
         auction.selectedItem = row.itemID
         UIDropDownMenu_SetText(auction.itemDropdown, auction:GetCachedItemName(row.itemID))
         auction:HighlightSelectedRow(row.itemID)
@@ -709,6 +730,16 @@ function auction:ReturnRowsToPool()
     end
     wipe(self.activeRows)
     self.lastHighlightedRow = nil
+end
+
+function auction:IsItemHiddenForSession(bossName, itemID)
+    return self.hiddenItems and self.hiddenItems[bossName] and self.hiddenItems[bossName][itemID] == true
+end
+
+function auction:HideItemForSession(bossName, itemID)
+    if not bossName or not itemID then return end
+    self.hiddenItems[bossName] = self.hiddenItems[bossName] or {}
+    self.hiddenItems[bossName][itemID] = true
 end
 
 function auction:RestoreRowBackground(row)
@@ -928,7 +959,14 @@ function auction:RefreshTable()
     local availableWidth = scrollWidth - 16
     local itemWidth = math.floor(availableWidth / 2)
 
-    self.content:SetHeight(rowHeight * #items)
+    local visibleItems = {}
+    for _, itemID in ipairs(items) do
+        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) then
+            table.insert(visibleItems, itemID)
+        end
+    end
+
+    self.content:SetHeight(rowHeight * #visibleItems)
     self.content:SetWidth(availableWidth)
 
     -- Обновляем выпадающий список предметов
@@ -938,7 +976,7 @@ function auction:RefreshTable()
 
     local needDelayedRefresh = false
 
-    for i, itemID in ipairs(items) do
+    for i, itemID in ipairs(visibleItems) do
         local row = self:GetRowFromPool()
         local yOffset = -rowHeight * (i-1)
         row:ClearAllPoints()
