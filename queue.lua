@@ -384,7 +384,9 @@ function auction:Handle_QUEUE_UPDATE(rest, sender)
     if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
         self:RefreshQueueList()
     end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
+    if not self:IsLootMaster() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
+    end
 end
 
 function auction:Handle_QUEUE_REQUEST(rest, sender)

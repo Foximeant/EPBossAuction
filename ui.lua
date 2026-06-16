@@ -12,7 +12,7 @@ function auction:CreateUI()
 
     local frame = CreateFrame("Frame", "EPBossAuctionFrame", UIParent)
     frame:SetSize(self.db.window.width, self.db.window.height)
-    frame:SetPoint("CENTER")
+    frame:SetPoint(self.db.window.point or "CENTER", UIParent, self.db.window.relativePoint or "CENTER", self.db.window.x or 0, self.db.window.y or 0)
     frame:SetBackdrop({
         bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile="Interface/Tooltips/UI-Tooltip-Border",
@@ -25,7 +25,11 @@ function auction:CreateUI()
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        auction:SaveWindowPosition()
+        auction:SaveSettings()
+    end)
     frame:EnableMouseWheel(true)
     frame:SetScript("OnMouseWheel", function(self, delta)
         if IsControlKeyDown() then
@@ -670,7 +674,7 @@ function auction:CreateRowTemplate()
     end)
     leftClick:SetScript("OnEnter", function()
         if not row.itemID then return end
-        GameTooltip:SetOwner(leftClick, "ANCHOR_CURSOR")
+        GameTooltip:SetOwner(leftClick, auction:GetTooltipAnchor())
         GameTooltip:SetHyperlink("item:"..row.itemID)
         GameTooltip:Show()
         if row.itemID ~= auction.selectedItem then
@@ -706,7 +710,7 @@ function auction:CreateRowTemplate()
     end)
     rightClick:SetScript("OnEnter", function()
         if not row.itemID then return end
-        GameTooltip:SetOwner(rightClick, "ANCHOR_CURSOR")
+        GameTooltip:SetOwner(rightClick, auction:GetTooltipAnchor())
         auction:ShowBidsTooltip(row.itemID)
         if row.itemID ~= auction.selectedItem then
             row.bg:SetTexture(auction.db.table.hoverRowColor[1], auction.db.table.hoverRowColor[2], auction.db.table.hoverRowColor[3], auction.db.table.hoverRowColor[4])
@@ -778,6 +782,9 @@ function auction:GetTableLayoutMetrics()
 
     local availableWidth = scrollWidth - 16
 
+    local itemWidth = dbTable.itemWidth or math.floor(availableWidth / 2)
+    itemWidth = math.max(150, math.min(itemWidth, availableWidth - 100))
+
     return {
         dbTable = dbTable,
         rowHeight = dbTable.rowHeight or 20,
@@ -790,7 +797,7 @@ function auction:GetTableLayoutMetrics()
         bidFontSize = dbTable.bidFontSize or 12,
         colorMode = dbTable.itemColorMode or "gold",
         availableWidth = availableWidth,
-        itemWidth = math.floor(availableWidth / 2),
+        itemWidth = itemWidth,
     }
 end
 
@@ -971,7 +978,8 @@ function auction:RefreshTable()
     local scrollWidth = self.scrollFrame:GetWidth()
     if scrollWidth < 100 then scrollWidth = 580 end
     local availableWidth = scrollWidth - 16
-    local itemWidth = math.floor(availableWidth / 2)
+    local itemWidth = dbTable.itemWidth or math.floor(availableWidth / 2)
+    itemWidth = math.max(150, math.min(itemWidth, availableWidth - 100))
 
     local visibleItems = {}
     local hideNoBids = dbTable.hideNoBids == true

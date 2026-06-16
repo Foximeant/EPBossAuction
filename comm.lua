@@ -484,7 +484,9 @@ end
 function auction:Handle_BIDOK(rest, sender)
     local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
     if not amount then amount = rest end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
+    if not self:IsLootMaster() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
+    end
     if auction.bidBox then
         auction.bidBox:SetText("")
     end
@@ -543,7 +545,9 @@ function auction:Handle_OFFSPEC_MULT(rest, sender)
 end
 
 function auction:Handle_LOCKED(rest, sender)
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
+    if not self:IsLootMaster() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
+    end
 end
 
 -- ======================
@@ -562,7 +566,9 @@ function auction:Handle_QUEUE_UPDATE(rest, sender)
     if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
         self:RefreshQueueList()
     end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
+    if not self:IsLootMaster() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
+    end
 end
 
 function auction:Handle_QUEUE_REQUEST(rest, sender)
@@ -625,8 +631,5 @@ function auction:CheckIfOutbid(bossName, itemID)
         local message = string.format("Вашу ставку на %s перебил %s (%s EP)!", itemName, topPlayer, self:FormatNumber(maxBid))
         UIErrorsFrame:AddMessage(message, 1.0, 0.5, 0.0, 5)
         self:PlayOutbidSound()
-        if self:IsLootMaster() then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r " .. message)
-        end
     end
 end
