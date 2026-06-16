@@ -139,7 +139,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             if auction:IsLootMaster() then
                 if auction.lastLM ~= playerName then
                     auction.lastLM = playerName
-                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Вы теперь Loot Master")
                     auction:UpdateLockCheckbox()
                     if auction.selectedBoss then
                         auction:RefreshTable()

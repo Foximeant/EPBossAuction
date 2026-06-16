@@ -128,8 +128,12 @@ auction.defaults = {
     },
     window = {
         scale = 1.0,
-        width = 640,
-        height = 450,
+        width = 650,
+        height = 515,
+        point = "CENTER",
+        relativePoint = "CENTER",
+        x = 0,
+        y = 0,
         alpha = 1.0,
         locked = false,
     },
@@ -199,6 +203,19 @@ function auction:DeepCopy(orig)
         copy[k] = self:DeepCopy(v)
     end
     return copy
+end
+
+function auction:MergeDefaults(saved, defaults)
+    local merged = self:DeepCopy(defaults)
+    if type(saved) ~= "table" then return merged end
+    for k, v in pairs(saved) do
+        if type(v) == "table" and type(merged[k]) == "table" then
+            merged[k] = self:MergeDefaults(v, merged[k])
+        else
+            merged[k] = v
+        end
+    end
+    return merged
 end
 
 function auction:FormatNumber(n)
@@ -536,11 +553,9 @@ function auction:PrecacheItems()
 end
 
 function auction:LoadSettings()
-    if EPBossAuctionSettings then
-        self.db = EPBossAuctionSettings
-    else
-        self.db = self:DeepCopy(self.defaults)
-    end
+    self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
+    self.db.window.width = math.max(650, self.db.window.width or 650)
+    self.db.window.height = math.max(515, self.db.window.height or 515)
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
@@ -579,6 +594,8 @@ function auction:ApplySettings()
     self.minimapButtonPosition = self.db.minimap.position
     if self.frame then
         self.frame:SetScale(self.db.window.scale)
+        self.db.window.width = math.max(650, self.db.window.width or 650)
+        self.db.window.height = math.max(515, self.db.window.height or 515)
         self.frame:SetSize(self.db.window.width, self.db.window.height)
         self.frame:SetAlpha(self.db.window.alpha)
         if self.db.window.locked then
@@ -640,6 +657,21 @@ function auction:InitAutoSave()
         auction.saveTimer = auction:ScheduleTimer(saveFunc, 10)
     end
     self.saveTimer = self:ScheduleTimer(saveFunc, 10)
+end
+
+function auction:SaveWindowPosition()
+    if not self.frame then return end
+    local point, _, relativePoint, x, y = self.frame:GetPoint()
+    self.db.window.point = point or "CENTER"
+    self.db.window.relativePoint = relativePoint or self.db.window.point
+    self.db.window.x = x or 0
+    self.db.window.y = y or 0
+end
+
+function auction:GetTooltipAnchor()
+    local anchor = self.db and self.db.table and self.db.table.tooltipAnchor or "CURSOR"
+    if anchor == "CURSOR" then return "ANCHOR_CURSOR" end
+    return "ANCHOR_" .. anchor
 end
 
 function auction:SetWindowScale(scale)

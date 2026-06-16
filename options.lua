@@ -53,20 +53,30 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
     end)
     
-    -- Минимальная ставка (неактивная)
+    -- Минимальная ставка
     local minBidText = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     minBidText:SetPoint("TOPLEFT", debugCheck, "BOTTOMLEFT", 0, -15)
     minBidText:SetText("Минимальная ставка:")
     minBidText:SetWidth(120)
     
-    local minBidEdit = CreateFrame("EditBox", nil, generalTab, "InputBoxTemplate")
+    local minBidEdit = CreateFrame("EditBox", "EPBAMinBidEdit", generalTab, "InputBoxTemplate")
     minBidEdit:SetSize(100, 25)
     minBidEdit:SetPoint("LEFT", minBidText, "RIGHT", 10, 0)
     minBidEdit:SetAutoFocus(false)
     minBidEdit:SetNumeric(true)
     minBidEdit:SetText(self.db.general.minBid)
-    minBidEdit:Disable()
-    minBidEdit:SetTextColor(0.5, 0.5, 0.5)
+    minBidEdit:SetScript("OnEnterPressed", function(self)
+        local value = tonumber(self:GetText()) or auction.defaults.general.minBid
+        value = math.max(0, math.floor(value))
+        auction.db.general.minBid = value
+        self:SetText(value)
+        self:ClearFocus()
+        auction:ApplySettings()
+    end)
+    minBidEdit:SetScript("OnEscapePressed", function(self)
+        self:SetText(auction.db.general.minBid)
+        self:ClearFocus()
+    end)
     
     -- Подтверждение ставок
     local confirmBidCheck = CreateFrame("CheckButton", "EPBAConfirmBidCheck", generalTab, "UICheckButtonTemplate")
@@ -514,7 +524,9 @@ function auction:CreateOptionsPanel()
     resetPosButton:SetText("Сбросить позицию")
     resetPosButton:SetScript("OnClick", function()
         auction.db.minimap.position = { angle = 0 }
+        auction.minimapButtonPosition = auction.db.minimap.position
         auction:ApplySettings()
+        auction:SaveSettings()
     end)
     
     -- ----------------------------------------------
@@ -616,8 +628,13 @@ function auction:CreateOptionsPanel()
     resetWindowPosButton:SetText("Сбросить позицию окна")
     resetWindowPosButton:SetScript("OnClick", function()
         if auction.frame then
+            auction.db.window.point = "CENTER"
+            auction.db.window.relativePoint = "CENTER"
+            auction.db.window.x = 0
+            auction.db.window.y = 0
             auction.frame:ClearAllPoints()
             auction.frame:SetPoint("CENTER")
+            auction:SaveSettings()
         end
     end)
 
@@ -642,13 +659,13 @@ function auction:CreateOptionsPanel()
     resetSizeButton:SetText("Сбросить размер")
     resetSizeButton:SetScript("OnClick", function()
         if auction.frame then
-            auction.db.window.width = 640
-            auction.db.window.height = 450
-            auction.frame:SetSize(640, 450)
+            auction.db.window.width = auction.defaults.window.width
+            auction.db.window.height = auction.defaults.window.height
+            auction.frame:SetSize(auction.db.window.width, auction.db.window.height)
             auction:UpdateScrollFrameSize()
             auction:RefreshTable()
             auction:SaveSettings()
-            sizeText:SetText(string.format("Текущий размер: 640 x 450"))
+            sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", auction.db.window.width, auction.db.window.height))
         end
     end)
 
@@ -705,8 +722,9 @@ function auction:CreateOptionsPanel()
     defaultsButton:SetPoint("BOTTOMLEFT", 16, 16)
     defaultsButton:SetText("По умолчанию")
     defaultsButton:SetScript("OnClick", function()
-        auction.db = CopyTable(auction.defaults)
+        auction.db = auction:DeepCopy(auction.defaults)
         auction:ApplySettings()
+        auction:RefreshOptionsPanelControls()
     end)
     
     local applyButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -724,7 +742,7 @@ function auction:CreateOptionsPanel()
     self.optionsCancelBtn = cancelButton
     cancelButton:SetSize(120, 25)
     cancelButton:SetPoint("RIGHT", applyButton, "LEFT", -10, 0)
-    cancelButton:SetText("Отмена")
+    cancelButton:SetText("Закрыть")
     cancelButton:SetScript("OnClick", function()
         HideUIPanel(panel)
     end)
@@ -732,4 +750,54 @@ function auction:CreateOptionsPanel()
     InterfaceOptions_AddCategory(panel)
     self.optionsPanel = panel
     self:Debug("Панель настроек создана")
+end
+
+function auction:RefreshOptionsPanelControls()
+    if not self.optionsPanel then return end
+
+    local db = self.db
+    local function setSlider(name, value, textValue)
+        local slider = _G[name]
+        if slider then slider:SetValue(value) end
+        local text = _G[name .. "Text"]
+        if text then text:SetText(textValue or value) end
+    end
+
+    if _G["EPBADebugCheck"] then _G["EPBADebugCheck"]:SetChecked(db.general.debug) end
+    if _G["EPBAMinBidEdit"] then _G["EPBAMinBidEdit"]:SetText(db.general.minBid) end
+    if _G["EPBAConfirmBidCheck"] then _G["EPBAConfirmBidCheck"]:SetChecked(db.general.confirmBid) end
+    if _G["EPBASoundCheck"] then _G["EPBASoundCheck"]:SetChecked(db.general.soundEnabled) end
+    if _G["EPBASoundFileEdit"] then _G["EPBASoundFileEdit"]:SetText(db.general.soundFile) end
+    setSlider("EPBAOffspecMultiplierSlider", db.general.offspecMultiplier, math.floor(db.general.offspecMultiplier * 100) .. "%")
+
+    setSlider("EPBAItemFontSizeSlider", db.table.itemFontSize)
+    setSlider("EPBAItemWidthSlider", db.table.itemWidth)
+    setSlider("EPBABidFontSizeSlider", db.table.bidFontSize)
+    setSlider("EPBATopBidsSlider", db.table.showTopBids)
+    if _G["EPBAHideNoBidsCheck"] then _G["EPBAHideNoBidsCheck"]:SetChecked(db.table.hideNoBids == true) end
+    setSlider("EPBARowHeightSlider", db.table.rowHeight)
+    if _G["EPBAColorModeDropdown"] then
+        UIDropDownMenu_SetText(_G["EPBAColorModeDropdown"], db.table.itemColorMode == "quality" and "По редкости" or "Золотой")
+    end
+    if _G["EPBATooltipAnchorDropdown"] then
+        local anchorNames = {
+            CURSOR = "У курсора",
+            RIGHT = "Справа",
+            LEFT = "Слева",
+            TOP = "Сверху",
+            BOTTOM = "Снизу",
+            TOPRIGHT = "Сверху справа",
+            TOPLEFT = "Сверху слева",
+            BOTTOMRIGHT = "Снизу справа",
+            BOTTOMLEFT = "Снизу слева",
+        }
+        UIDropDownMenu_SetText(_G["EPBATooltipAnchorDropdown"], anchorNames[db.table.tooltipAnchor] or "У курсора")
+    end
+
+    if _G["EPBAShowMinimapCheck"] then _G["EPBAShowMinimapCheck"]:SetChecked(db.minimap.show) end
+    setSlider("EPBAButtonSizeSlider", db.minimap.size)
+    setSlider("EPBARadiusSlider", db.minimap.radius)
+
+    setSlider("EPBAAlphaSlider", db.window.alpha, math.floor(db.window.alpha * 100) .. "%")
+    if _G["EPBALockWindowCheck"] then _G["EPBALockWindowCheck"]:SetChecked(db.window.locked) end
 end
