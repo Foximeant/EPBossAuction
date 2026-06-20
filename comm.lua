@@ -485,7 +485,7 @@ function auction:Handle_BIDOK(rest, sender)
     local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
     if not amount then amount = rest end
     if not self:IsLootMaster() then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
+        --DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Ставка "..amount.." от "..playerName.." принята")
     end
     if auction.bidBox then
         auction.bidBox:SetText("")
