@@ -327,8 +327,9 @@ function auction:AddLootMasterRow(parent, index, lootItem, offsetY)
     chargeButton:SetPoint("LEFT", giveButton, "RIGHT", 8, 0)
     chargeButton:SetText("Списать")
     self:SkinButton(chargeButton)
-    chargeButton:SetEnabled(selectedBid ~= nil)
-    chargeButton:SetAlpha(selectedBid ~= nil and 1 or 0.45)
+    local canCharge = selectedBid ~= nil and not lootItem.testMode
+    chargeButton:SetEnabled(canCharge)
+    chargeButton:SetAlpha(canCharge and 1 or 0.45)
     chargeButton:SetScript("OnClick", function()
         auction:ConfirmChargeLootBid(lootItem.itemID, bossName, selectedBid)
     end)
@@ -385,6 +386,7 @@ end
 
 function auction:ShowLootMasterWindowFromLoot()
     if not self:IsLootMaster() then return end
+    self.lootMasterTestMode = false
     local lootItems = {}
     local numItems = GetNumLootItems and GetNumLootItems() or 0
 
@@ -477,6 +479,10 @@ function auction:AwardLootToBidder(lootItem, bossName, bid, chargeEP)
 end
 
 function auction:ChargePlayerEP(playerName, amount, itemID, bossName)
+    if self.lootMasterTestMode then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EPBA]|r Тестовый режим: списание EP не выполняется.")
+        return false
+    end
     if not self:IsLootMaster() then return false end
     local value = tonumber(amount) or 0
     if value <= 0 then return false end
@@ -527,6 +533,10 @@ function auction:ConfirmMassBossEP(amount, reason)
 end
 
 function auction:AwardMassBossEP(amount, reason)
+    if self.lootMasterTestMode then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EPBA]|r Тестовый режим: массовое начисление EP не выполняется.")
+        return false
+    end
     if not self:IsLootMaster() then return false end
     local epgpTable = GetEPGP()
     if not (epgpTable and epgpTable.IncMassEPBy) then
@@ -575,10 +585,11 @@ function auction:BuildLootMasterTestItems()
 end
 
 function auction:ShowLootMasterTestWindow()
+    self.lootMasterTestMode = true
     self:CreateLootMasterWindow()
     local lootItems, bossName = self:BuildLootMasterTestItems()
     self:RefreshLootMasterWindow(lootItems)
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Открыто тестовое окно Loot Master%s. Выдача предмета отключена без реального loot slot.", bossName and (" для: "..bossName) or ""))
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Открыто тестовое окно Loot Master%s. Выдача, списание и массовое начисление EP отключены.", bossName and (" для: "..bossName) or ""))
 end
 
 SLASH_EPBA_LOOTMASTER1 = "/epbaloot"
@@ -588,6 +599,7 @@ SlashCmdList["EPBA_LOOTMASTER"] = function(msg)
     if msg == "" or msg == "test" then
         auction:ShowLootMasterTestWindow()
     elseif msg == "hide" then
+        auction.lootMasterTestMode = false
         if auction.lootMasterFrame then
             auction.lootMasterFrame:Hide()
         end
