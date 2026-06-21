@@ -327,7 +327,7 @@ function auction:AddLootMasterRow(parent, index, lootItem, offsetY)
     chargeButton:SetPoint("LEFT", giveButton, "RIGHT", 8, 0)
     chargeButton:SetText("Списать")
     self:SkinButton(chargeButton)
-    local canCharge = selectedBid ~= nil and not lootItem.testMode
+    local canCharge = selectedBid ~= nil
     chargeButton:SetEnabled(canCharge)
     chargeButton:SetAlpha(canCharge and 1 or 0.45)
     chargeButton:SetScript("OnClick", function()
@@ -479,11 +479,7 @@ function auction:AwardLootToBidder(lootItem, bossName, bid, chargeEP)
 end
 
 function auction:ChargePlayerEP(playerName, amount, itemID, bossName)
-    if self.lootMasterTestMode then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EPBA]|r Тестовый режим: списание EP не выполняется.")
-        return false
-    end
-    if not self:IsLootMaster() then return false end
+    if not self:IsLootMaster() and not self.lootMasterTestMode then return false end
     local value = tonumber(amount) or 0
     if value <= 0 then return false end
 
@@ -533,11 +529,7 @@ function auction:ConfirmMassBossEP(amount, reason)
 end
 
 function auction:AwardMassBossEP(amount, reason)
-    if self.lootMasterTestMode then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EPBA]|r Тестовый режим: массовое начисление EP не выполняется.")
-        return false
-    end
-    if not self:IsLootMaster() then return false end
+    if not self:IsLootMaster() and not self.lootMasterTestMode then return false end
     local epgpTable = GetEPGP()
     if not (epgpTable and epgpTable.IncMassEPBy) then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Не удалось начислить EP: не найден EPGP:IncMassEPBy.")
@@ -589,7 +581,7 @@ function auction:ShowLootMasterTestWindow()
     self:CreateLootMasterWindow()
     local lootItems, bossName = self:BuildLootMasterTestItems()
     self:RefreshLootMasterWindow(lootItems)
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Открыто тестовое окно Loot Master%s. Выдача, списание и массовое начисление EP отключены.", bossName and (" для: "..bossName) or ""))
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Открыто тестовое окно Loot Master%s. Списание EP и массовое начисление работают, выдача предмета отключена без реального loot slot.", bossName and (" для: "..bossName) or ""))
 end
 
 SLASH_EPBA_LOOTMASTER1 = "/epbaloot"
