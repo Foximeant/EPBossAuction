@@ -13,5 +13,6 @@ minimap.lua
 ui.lua
 options.lua
 events.lua
+lootmaster.lua
 journal.lua
 queue.lua

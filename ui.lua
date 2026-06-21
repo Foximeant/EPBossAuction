@@ -1266,5 +1266,8 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
 
     if self:IsLootMaster() then
         self:QueueSync(bossName, itemID)
+        if self.RefreshLootMasterWindowIfShown then
+            self:RefreshLootMasterWindowIfShown()
+        end
     end
 end
