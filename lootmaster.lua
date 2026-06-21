@@ -162,16 +162,28 @@ function auction:CreateLootMasterWindow()
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hint:SetPoint("TOPLEFT", 18, -72)
     hint:SetPoint("RIGHT", -18, 0)
+    hint:SetHeight(34)
     hint:SetJustifyH("LEFT")
+    hint:SetJustifyV("TOP")
+    hint:SetWordWrap(true)
+    hint:SetNonSpaceWrap(false)
     hint:SetText("Выберите победителя ставки. Можно выдать предмет, списать ставку через EPGP:IncEPBy или сделать оба действия.")
 
     local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionLootMasterScrollFrame", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 18, -102)
+    scrollFrame:SetPoint("TOPLEFT", 18, -112)
     scrollFrame:SetPoint("BOTTOMRIGHT", -34, 18)
 
     local content = CreateFrame("Frame", nil, scrollFrame)
     content:SetSize(LOOT_ROW_WIDTH, 1)
     scrollFrame:SetScrollChild(content)
+
+    local scrollBar = _G[scrollFrame:GetName().."ScrollBar"]
+    if scrollBar then
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 2, -17)
+        scrollBar:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", 2, 17)
+        self:SkinScrollBar(scrollBar)
+    end
 
     frame.massAmount = massAmount
     frame.massReason = massReason
