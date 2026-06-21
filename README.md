@@ -159,5 +159,6 @@
 По всем вопросам обращайтесь в [Issues](https://github.com/Foximeant/EPBossAuction/issues) на GitHub.
 
 ---
+<img width="814" height="513" alt="image" src="https://github.com/user-attachments/assets/1e281e35-4937-45ef-9097-0a64fcfc1cf9" />
 
 *Приятных аукционов!*
