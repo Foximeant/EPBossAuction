@@ -4,6 +4,22 @@ local LOOT_ROW_WIDTH = 490
 local LOOT_ROW_PADDING = 8
 local BID_ROW_HEIGHT = 20
 
+local function GetThemeColors()
+    return auction.theme and auction.theme.colors or {
+        panel = {0.07, 0.09, 0.12, 0.95},
+        border = {0.18, 0.22, 0.30, 1},
+        buttonHover = {0.22, 0.30, 0.42, 1},
+        accent = {0.35, 0.65, 1.0, 1},
+    }
+end
+
+local function ApplyLootRowStyle(frame, alpha)
+    local c = GetThemeColors()
+    frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+    frame:SetBackdropColor(c.panel[1], c.panel[2], c.panel[3], alpha or c.panel[4])
+    frame:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+end
+
 local function GetItemIDFromLink(itemLink)
     if not itemLink then return nil end
     return tonumber(string.match(itemLink, "item:(%d+):"))
@@ -185,9 +201,10 @@ function auction:CreateLootBidButton(parent, row, itemID, bid, isSelected, y)
     local button = CreateFrame("Button", nil, row)
     button:SetSize(335, BID_ROW_HEIGHT)
     button:SetPoint("TOPLEFT", row, "TOPLEFT", LOOT_ROW_PADDING + 20, y)
+    local c = GetThemeColors()
     button:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
     if isSelected then
-        button:SetBackdropColor(0.2, 0.45, 0.9, 0.45)
+        button:SetBackdropColor(c.accent[1], c.accent[2], c.accent[3], 0.35)
     else
         button:SetBackdropColor(0, 0, 0, 0)
     end
@@ -210,11 +227,13 @@ function auction:CreateLootBidButton(parent, row, itemID, bid, isSelected, y)
         auction:SetLootMasterSelectedBid(itemID, bid.player)
     end)
     button:SetScript("OnEnter", function(selfButton)
-        selfButton:SetBackdropColor(0.2, 0.2, 0.2, 0.55)
+        local c = GetThemeColors()
+        selfButton:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], 0.55)
     end)
     button:SetScript("OnLeave", function(selfButton)
         if isSelected then
-            selfButton:SetBackdropColor(0.2, 0.45, 0.9, 0.45)
+            local c = GetThemeColors()
+            selfButton:SetBackdropColor(c.accent[1], c.accent[2], c.accent[3], 0.35)
         else
             selfButton:SetBackdropColor(0, 0, 0, 0)
         end
@@ -235,9 +254,7 @@ function auction:AddLootMasterRow(parent, index, lootItem, offsetY)
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(LOOT_ROW_WIDTH, rowHeight)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -offsetY)
-    row:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    row:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
-    row:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+    ApplyLootRowStyle(row, 0.88)
 
     local item = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     item:SetPoint("TOPLEFT", LOOT_ROW_PADDING, -8)
@@ -317,6 +334,7 @@ function auction:RefreshLootMasterWindow(lootItems)
         local holder = CreateFrame("Frame", nil, content)
         holder:SetSize(LOOT_ROW_WIDTH, 40)
         holder:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+        ApplyLootRowStyle(holder, 0.88)
         local empty = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         empty:SetPoint("TOPLEFT", 8, -8)
         empty:SetText("Нет предметов в окне добычи или предметы не распознаны.")
