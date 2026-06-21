@@ -512,3 +512,53 @@ function auction:AwardMassBossEP(amount, reason)
 
     return success
 end
+
+function auction:BuildLootMasterTestItems()
+    local bossName = self.selectedBoss or self.bossOrder and self.bossOrder[1]
+    local bossItems = bossName and self.bosses and self.bosses[bossName] or nil
+    local lootItems = {}
+
+    if bossName and self.lootMasterFrame and self.lootMasterFrame.massReason then
+        self.lootMasterFrame.massReason:SetText(bossName)
+    end
+
+    if bossItems then
+        for i = 1, math.min(#bossItems, 5) do
+            local itemID = bossItems[i]
+            local itemName, itemLink, itemQuality, _, _, _, _, _, _, itemIcon = GetItemInfo(itemID)
+            table.insert(lootItems, {
+                itemID = itemID,
+                link = itemLink,
+                name = itemName or ("Тестовый предмет #"..itemID),
+                quantity = 1,
+                quality = itemQuality,
+                icon = itemIcon,
+                testMode = true,
+            })
+        end
+    end
+
+    return lootItems, bossName
+end
+
+function auction:ShowLootMasterTestWindow()
+    self:CreateLootMasterWindow()
+    local lootItems, bossName = self:BuildLootMasterTestItems()
+    self:RefreshLootMasterWindow(lootItems)
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Открыто тестовое окно Loot Master%s. Выдача предмета отключена без реального loot slot.", bossName and (" для: "..bossName) or ""))
+end
+
+SLASH_EPBA_LOOTMASTER1 = "/epbaloot"
+SLASH_EPBA_LOOTMASTER2 = "/epbatestloot"
+SlashCmdList["EPBA_LOOTMASTER"] = function(msg)
+    msg = string.lower(msg or "")
+    if msg == "" or msg == "test" then
+        auction:ShowLootMasterTestWindow()
+    elseif msg == "hide" then
+        if auction.lootMasterFrame then
+            auction.lootMasterFrame:Hide()
+        end
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Команды: /epbaloot, /epbaloot test, /epbaloot hide")
+    end
+end
