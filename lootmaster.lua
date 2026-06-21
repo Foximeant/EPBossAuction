@@ -3,6 +3,7 @@ local auction = EPBossAuction
 local LOOT_ROW_WIDTH = 490
 local LOOT_ROW_PADDING = 8
 local BID_ROW_HEIGHT = 20
+local LOOT_ICON_SIZE = 32
 
 local function GetThemeColors()
     return auction.theme and auction.theme.colors or {
@@ -23,6 +24,15 @@ end
 local function GetItemIDFromLink(itemLink)
     if not itemLink then return nil end
     return tonumber(string.match(itemLink, "item:(%d+):"))
+end
+
+local function GetLootItemIcon(lootItem)
+    if lootItem and lootItem.icon then return lootItem.icon end
+    if lootItem and lootItem.itemID then
+        local _, _, _, _, _, _, _, _, _, itemIcon = GetItemInfo(lootItem.itemID)
+        return itemIcon
+    end
+    return nil
 end
 
 local function GetEPGP()
@@ -200,7 +210,7 @@ end
 function auction:CreateLootBidButton(parent, row, itemID, bid, isSelected, y)
     local button = CreateFrame("Button", nil, row)
     button:SetSize(335, BID_ROW_HEIGHT)
-    button:SetPoint("TOPLEFT", row, "TOPLEFT", LOOT_ROW_PADDING + 20, y)
+    button:SetPoint("TOPLEFT", row, "TOPLEFT", LOOT_ROW_PADDING + LOOT_ICON_SIZE + 8, y)
     local c = GetThemeColors()
     button:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
     if isSelected then
@@ -256,8 +266,19 @@ function auction:AddLootMasterRow(parent, index, lootItem, offsetY)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -offsetY)
     ApplyLootRowStyle(row, 0.88)
 
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(LOOT_ICON_SIZE, LOOT_ICON_SIZE)
+    icon:SetPoint("TOPLEFT", LOOT_ROW_PADDING, -8)
+    icon:SetTexture(GetLootItemIcon(lootItem) or "Interface\\Icons\\INV_Misc_QuestionMark")
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    local iconBorder = CreateFrame("Frame", nil, row)
+    iconBorder:SetSize(LOOT_ICON_SIZE + 2, LOOT_ICON_SIZE + 2)
+    iconBorder:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    ApplyLootRowStyle(iconBorder, 0)
+
     local item = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    item:SetPoint("TOPLEFT", LOOT_ROW_PADDING, -8)
+    item:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, 0)
     item:SetPoint("RIGHT", -8, 0)
     item:SetJustifyH("LEFT")
     item:SetText((lootItem.link or lootItem.name or ("Предмет #"..lootItem.itemID)) .. (lootItem.quantity and lootItem.quantity > 1 and (" x"..lootItem.quantity) or ""))
@@ -270,7 +291,7 @@ function auction:AddLootMasterRow(parent, index, lootItem, offsetY)
 
     if bidCount == 0 then
         local noBids = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        noBids:SetPoint("TOPLEFT", row, "TOPLEFT", LOOT_ROW_PADDING + 20, -42)
+        noBids:SetPoint("TOPLEFT", row, "TOPLEFT", LOOT_ROW_PADDING + LOOT_ICON_SIZE + 8, -42)
         noBids:SetText("Ставок нет")
     else
         for i, bid in ipairs(bidsForItem) do
