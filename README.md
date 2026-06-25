@@ -1,6 +1,6 @@
 # EP Boss Auction
 
-[![EPBA version](https://img.shields.io/badge/version-2.1.9-green.svg)](https://github.com/Foximeant/EPBossAuction)
+[![EPBA version](https://img.shields.io/badge/version-2.3.6-green.svg)](https://github.com/Foximeant/EPBossAuction)
 [![WoW 3.3.5](https://img.shields.io/badge/WoW-3.3.5-blue.svg)]()
 <img width="814" height="513" alt="image" src="https://github.com/user-attachments/assets/1e281e35-4937-45ef-9097-0a64fcfc1cf9" />
 
