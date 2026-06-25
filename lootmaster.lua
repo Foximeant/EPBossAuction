@@ -490,7 +490,7 @@ function auction:ChargePlayerEP(playerName, amount, itemID, bossName)
         return false
     end
 
-    local success = epgpTable:IncEPBy(playerName, -value, reason) ~= false
+    local success = epgpTable:IncEPBy(playerName, reason, -value) ~= false
     if success then
         DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Списано %s EP с %s за %s.", self:FormatNumber(value), playerName, reason))
         self.lootMasterAwarded = self.lootMasterAwarded or {}
@@ -536,7 +536,7 @@ function auction:AwardMassBossEP(amount, reason)
         return false
     end
 
-    local success = epgpTable:IncMassEPBy(amount, reason) ~= false
+    local success = epgpTable:IncMassEPBy(reason, amount) ~= false
     if success then
         DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Рейду начислено %s EP за: %s.", self:FormatNumber(amount), reason))
         self:CheckAndUpdateEP()
