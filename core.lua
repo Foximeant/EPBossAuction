@@ -554,6 +554,9 @@ end
 
 function auction:LoadSettings()
     self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
+    if self.db.general.minBid == 1000 then
+        self.db.general.minBid = 100
+    end
     self.db.window.width = math.max(650, self.db.window.width or 650)
     self.db.window.height = math.max(515, self.db.window.height or 515)
     self.debug = self.db.general.debug
