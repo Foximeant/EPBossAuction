@@ -6,8 +6,8 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "2.3.7"
-auction.debug = true
+auction.version = "2.3.9"
+auction.debug = false
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
 
@@ -186,6 +186,43 @@ function auction:CancelTimer(id)
 end
 
 -- ======================
+-- Очередь исходящих addon-сообщений
+-- ======================
+-- Все вызовы SendAddonMessage в аддоне идут через auction:QueueAddonMessage,
+-- чтобы не отправлять пачку сообщений в один игровой тик (например, при
+-- массовой отправке SYNC по всем предметам босса в ответ на HELLO) и не
+-- словить антиспам-мут на сервере. Порядок и содержимое сообщений не
+-- меняются, только темп отправки.
+auction.outQueue = {}
+auction.outQueueRunning = false
+auction.outQueueInterval = 0.15 -- ~6-7 сообщений/сек, с запасом от антиспам-фильтра
+
+function auction:QueueAddonMessage(message, channel, target)
+    if not message or message == "" or not channel then return end
+    table.insert(self.outQueue, { message = message, channel = channel, target = target })
+    if not self.outQueueRunning then
+        self.outQueueRunning = true
+        self:FlushOutQueueStep()
+    end
+end
+
+function auction:FlushOutQueueStep()
+    local item = table.remove(self.outQueue, 1)
+    if not item then
+        self.outQueueRunning = false
+        return
+    end
+    if item.target then
+        SendAddonMessage(self.prefix, item.message, item.channel, item.target)
+    else
+        SendAddonMessage(self.prefix, item.message, item.channel)
+    end
+    self:ScheduleTimer(function()
+        self:FlushOutQueueStep()
+    end, self.outQueueInterval)
+end
+
+-- ======================
 -- Утилиты
 -- ======================
 function auction:Debug(msg, ...)
@@ -278,16 +315,8 @@ function auction:FormatColoredName(playerName)
     return self:GetClassColor(playerName) .. playerName
 end
 
-function auction:GetCachedItemName(itemID)
-    if not self.itemNameCache then self.itemNameCache = {} end
-    if self.itemNameCache[itemID] then return self.itemNameCache[itemID] end
-    local name = GetItemInfo(itemID)
-    if name then
-        self.itemNameCache[itemID] = name
-        return name
-    end
-    return "item:" .. itemID
-end
+-- GetCachedItemName определена в ui.lua (использует общий itemInfoCache
+-- вместе с GetCachedItemInfo), здесь не дублируется.
 
 function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
@@ -714,15 +743,7 @@ function auction:ForceSave()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные сохранены")
 end
 
-function auction:UpdateScrollFrameSize()
-    if not self.frame or not self.scrollFrame then return end
-    self.scrollFrame:SetPoint("TOPLEFT", self.leftPanel, "TOPRIGHT", 10, 0)
-    self.scrollFrame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -16, 16)
-    if self.scrollBG then
-        self.scrollBG:SetPoint("TOPLEFT", self.scrollFrame, "TOPLEFT", -2, 2)
-        self.scrollBG:SetPoint("BOTTOMRIGHT", self.scrollFrame, "BOTTOMRIGHT", 2, -2)
-    end
-end
+-- UpdateScrollFrameSize определена в ui.lua, здесь не дублируется.
 
 function auction:RequestRefresh()
     if self.refreshTimer then
@@ -740,31 +761,7 @@ function auction:RequestRefresh()
     end, 0.1)
 end
 
-function auction:LoadBidLog()
-    if EPBossAuctionBidLog then
-        self.bidLog = EPBossAuctionBidLog
-    else
-        self.bidLog = {}
-    end
-end
-
-function auction:SaveBidLog()
-    EPBossAuctionBidLog = self.bidLog
-end
-
-function auction:ClearBidLog()
-    self.bidLog = {}
-    self:SaveBidLog()
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
-end
-
-function auction:LoadTokenQueues()
-    if self.db and self.db.tokenQueues then
-        self.tokenQueues = self.db.tokenQueues
-    else
-        self.tokenQueues = {}
-    end
-end
+-- LoadBidLog / SaveBidLog / ClearBidLog определены в journal.lua (там же
+-- применяется TrimBidLog и лимит bidLogLimit), здесь не дублируются.
+-- LoadTokenQueues определена в queue.lua (там же инициализация ITEM_ORDER),
+-- здесь не дублируется.

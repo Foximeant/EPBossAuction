@@ -171,7 +171,7 @@ function auction:CreateOptionsPanel()
         auction:SaveData()
         
         -- Рассылаем новый коэффициент рейду
-        SendAddonMessage(auction.prefix, "OFFSPEC_MULT;" .. value, "RAID")
+        auction:QueueAddonMessage("OFFSPEC_MULT;" .. value, "RAID")
         
         -- Обновляем отображение максимальной ставки
         if auction.myEP > 0 then

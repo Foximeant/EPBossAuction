@@ -327,7 +327,7 @@ function auction:SendQueueUpdate(itemKey)
     if not self:IsLootMaster() then return end
     local queue = self.tokenQueues[itemKey] or {}
     local msg = "QUEUE_UPDATE;"..itemKey..";"..table.concat(queue, ",")
-    SendAddonMessage(self.prefix, msg, "RAID")
+    self:QueueAddonMessage(msg, "RAID")
 end
 
 function auction:SaveTokenQueues()
@@ -354,7 +354,7 @@ function auction:RequestQueuesFromLM()
         return
     end
     self:Debug("Запрос очередей у лутера")
-    SendAddonMessage(self.prefix, "QUEUE_REQUEST", "RAID")
+    self:QueueAddonMessage("QUEUE_REQUEST", "RAID")
 end
 
 function auction:SyncAllQueuesToRaid(target)
@@ -363,9 +363,9 @@ function auction:SyncAllQueuesToRaid(target)
     for itemKey, queue in pairs(self.tokenQueues) do
         local msg = "QUEUE_SYNC;"..itemKey..";"..table.concat(queue, ",")
         if target then
-            SendAddonMessage(self.prefix, msg, "WHISPER", recipient)
+            self:QueueAddonMessage(msg, "WHISPER", recipient)
         else
-            SendAddonMessage(self.prefix, msg, "RAID")
+            self:QueueAddonMessage(msg, "RAID")
         end
     end
     self:Debug("Очереди отправлены "..(target and ("игроку "..target) or "в рейд"))

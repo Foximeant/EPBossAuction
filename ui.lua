@@ -250,7 +250,7 @@ function auction:CreateUI()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:QueueAddonMessage("LOCK;"..(state and "true" or "false"), "RAID")
         end)
     end
     self.lockCheckbox = lockCheckbox
@@ -299,7 +299,7 @@ function auction:CreateUI()
         if not auction:IsLootMaster() then return end
         auction:EndAuctionLocal()
         if auction.selectedBoss then
-            SendAddonMessage(auction.prefix, "END;"..auction.selectedBoss, "RAID")
+            auction:QueueAddonMessage("END;"..auction.selectedBoss, "RAID")
         end
     end)
     self.endButton = endButton
@@ -491,7 +491,7 @@ function auction:CreateUI()
         auction.db.general.offspecMultiplier = multiplier
         auction:SaveSettings()
         print("|cff00ff00[EPBA]|r Коэффициент офф-спек установлен на " .. (multiplier * 100) .. "%")
-        SendAddonMessage(auction.prefix, "OFFSPEC_MULT;" .. multiplier, "RAID")
+        auction:QueueAddonMessage("OFFSPEC_MULT;" .. multiplier, "RAID")
     end
 
     frame:SetScript("OnShow", function()
@@ -567,7 +567,7 @@ function auction:UpdateLockCheckbox()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:QueueAddonMessage("LOCK;"..(state and "true" or "false"), "RAID")
         end)
     else
         self.lockCheckbox:Disable()

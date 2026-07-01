@@ -157,7 +157,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                     if auction.selectedBoss then
                         auction:RefreshTable()
                     end
-                    SendAddonMessage(auction.prefix, "LM", "RAID")
+                    auction:QueueAddonMessage("LM", "RAID")
                     if auction.syncAllTimer then
                         auction:CancelTimer(auction.syncAllTimer)
                     end
