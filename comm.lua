@@ -332,12 +332,22 @@ function auction:Handle_SYNC(rest, sender)
     self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender)
     self.receivedSync = true
     local isLootMaster = self:IsLootMaster()
-    local senderIsLM = (sender == self.lastLM)
+    
+    -- Лутер сам себя игнорирует
     if isLootMaster then
         self:Debug("Я лутер, игнорирую SYNC от "..sender)
         return
-    elseif not senderIsLM then
-        self:Debug("Игнорируем SYNC от не-Loot Master: "..tostring(sender).." (ожидался "..tostring(self.lastLM)..")")
+    end
+    
+    -- FIX: если LM ещё не известен — принимаем первого отправителя как источник
+    if not self.lastLM then
+        self.lastLM = sender
+        self:Debug("LM не был известен, назначен автоматически: "..sender)
+    end
+    
+    -- если LM уже известен — фильтруем
+    if self.lastLM and sender ~= self.lastLM then
+        self:Debug("Игнорируем SYNC не от LM: "..tostring(sender))
         return
     end
     local lastVersion = self:GetLastVersion(bossName, itemID)
