@@ -1,224 +1,236 @@
 local auction = EPBossAuction
 
-local f = CreateFrame("Frame")
-f:RegisterEvent("ADDON_LOADED")
-f:RegisterEvent("CHAT_MSG_ADDON")
-f:RegisterEvent("GROUP_ROSTER_UPDATE")
-f:RegisterEvent("RAID_ROSTER_UPDATE")
-f:RegisterEvent("PLAYER_LOGOUT")
-f:RegisterEvent("PLAYER_ENTERING_WORLD")
-f:RegisterEvent("LOOT_OPENED")
-f:RegisterEvent("LOOT_CLOSED")
-f:RegisterEvent("EPGP_UPDATE")
-f:RegisterEvent("EPGP_DATA_CHANGED")
+-- ======================
+-- AceAddon lifecycle
+-- ======================
+-- OnInitialize срабатывает один раз при загрузке аддона — раньше это была
+-- ветка ADDON_LOADED с ручной проверкой имени аддона, теперь AceAddon сам
+-- гарантирует, что это вызовется ровно для EPBossAuction и ровно один раз.
+function auction:OnInitialize()
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r EPBossAuction "..self.version.." загружен")
+    self:LoadSettings()
+    self:CreateUI()
+    self:CreateOptionsPanel()
+    self:Debug("=== ПРОВЕРКА СОХРАНЕННЫХ ДАННЫХ ===")
+    if EPBossAuctionSavedBids then
+        local savedCount = 0
+        for bossName, bossBids in pairs(EPBossAuctionSavedBids) do
+            for itemID, bidsForItem in pairs(bossBids) do
+                savedCount = savedCount + #bidsForItem
+            end
+        end
+        self:Debug("В сохранении: "..savedCount.." ставок")
+        self.bids = EPBossAuctionSavedBids
+        self.dataVersions = self:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
+        self.lastVersions = {}
+        self:RebuildBidData()
 
-f:SetScript("OnEvent", function(selfF, event, arg1, ...)
-    if event == "ADDON_LOADED" and arg1 == "EPBossAuction" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r EPBossAuction "..auction.version.." загружен")
-        auction:LoadSettings()
-        auction:CreateUI()
-        auction:CreateOptionsPanel()
-        auction:Debug("=== ПРОВЕРКА СОХРАНЕННЫХ ДАННЫХ ===")
-        if EPBossAuctionSavedBids then
-            local savedCount = 0
-            for bossName, bossBids in pairs(EPBossAuctionSavedBids) do
-                for itemID, bidsForItem in pairs(bossBids) do
-                    savedCount = savedCount + #bidsForItem
+        if EPBossAuctionSavedSelectedBoss and self.bosses[EPBossAuctionSavedSelectedBoss] then
+            self.selectedBoss = EPBossAuctionSavedSelectedBoss
+            self:Debug("Восстановлен босс: "..self.selectedBoss)
+        else
+            self.selectedBoss = nil
+        end
+
+        if self.selectedBoss and EPBossAuctionSavedSelectedItem then
+            local items = self.bosses[self.selectedBoss]
+            local found = false
+            for _, itemID in ipairs(items) do
+                if itemID == EPBossAuctionSavedSelectedItem then
+                    found = true
+                    break
                 end
             end
-            auction:Debug("В сохранении: "..savedCount.." ставок")
-            auction.bids = EPBossAuctionSavedBids
-            auction.dataVersions = auction:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
-            auction.lastVersions = {}
-            auction:RebuildBidData()
-
-            if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then
-                auction.selectedBoss = EPBossAuctionSavedSelectedBoss
-                auction:Debug("Восстановлен босс: "..auction.selectedBoss)
+            if found then
+                self.selectedItem = EPBossAuctionSavedSelectedItem
+                self:Debug("Восстановлен предмет: "..self.selectedItem)
             else
-                auction.selectedBoss = nil
-            end
-
-            if auction.selectedBoss and EPBossAuctionSavedSelectedItem then
-                local items = auction.bosses[auction.selectedBoss]
-                local found = false
-                for _, itemID in ipairs(items) do
-                    if itemID == EPBossAuctionSavedSelectedItem then
-                        found = true
-                        break
-                    end
-                end
-                if found then
-                    auction.selectedItem = EPBossAuctionSavedSelectedItem
-                    auction:Debug("Восстановлен предмет: "..auction.selectedItem)
-                else
-                    auction.selectedItem = nil
-                end
-            else
-                auction.selectedItem = nil
-            end
-
-            if EPBossAuctionSavedScale then
-                auction.windowScale = EPBossAuctionSavedScale
-                auction.db.window.scale = EPBossAuctionSavedScale
-            end
-
-            if EPBossAuctionSavedMinimapPos then
-                auction.minimapButtonPosition = EPBossAuctionSavedMinimapPos
-                auction.db.minimap.position = EPBossAuctionSavedMinimapPos
-            end
-
-            if EPBossAuctionBidsLocked ~= nil then
-                auction.bidsLocked = EPBossAuctionBidsLocked
-            end
-
-            if EPBossAuctionSavedOffspecMultiplier then
-                auction.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
-                auction.db.general.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
+                self.selectedItem = nil
             end
         else
-            auction:Debug("Нет сохраненных данных")
-            auction.bids = {}
-            auction.dataVersions = {}
-            auction.lastVersions = {}
-            auction.windowScale = 1.0
-            auction.bidsLocked = false
-            auction:RebuildBidData()
+            self.selectedItem = nil
         end
-        auction:ApplySettings()
-        auction:InitAutoSave()
-        auction:StartEPUpdates()
-        auction:CreateMinimapButton()
-        auction.fullyLoaded = true
-        
-        if auction and auction.ApplyJournalSkin then
-            auction:ApplyJournalSkin()
-        end
-        
-        if auction.pendingWorldEnter then
-            auction:HandleWorldEnter()
-            auction.pendingWorldEnter = nil
-        end
-        auction:Debug("Аддон загружен")
-        
-        -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
-        auction:ScheduleTimer(function()
-            auction:CleanOutbidNotified()
-        end, 300)
 
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        auction:Debug("PLAYER_ENTERING_WORLD (pending)")
-        if not auction.fullyLoaded then
-            auction.pendingWorldEnter = true
+        if EPBossAuctionSavedScale then
+            self.windowScale = EPBossAuctionSavedScale
+            self.db.window.scale = EPBossAuctionSavedScale
+        end
+
+        if EPBossAuctionSavedMinimapPos then
+            self.minimapButtonPosition = EPBossAuctionSavedMinimapPos
+            self.db.minimap.position = EPBossAuctionSavedMinimapPos
+        end
+
+        if EPBossAuctionBidsLocked ~= nil then
+            self.bidsLocked = EPBossAuctionBidsLocked
+        end
+
+        if EPBossAuctionSavedOffspecMultiplier then
+            self.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
+            self.db.general.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
+        end
+    else
+        self:Debug("Нет сохраненных данных")
+        self.bids = {}
+        self.dataVersions = {}
+        self.lastVersions = {}
+        self.windowScale = 1.0
+        self.bidsLocked = false
+        self:RebuildBidData()
+    end
+    self:ApplySettings()
+    self:InitAutoSave()
+    self:StartEPUpdates()
+    self:CreateMinimapButton()
+    self.fullyLoaded = true
+
+    if self.ApplyJournalSkin then
+        self:ApplyJournalSkin()
+    end
+
+    if self.pendingWorldEnter then
+        self:HandleWorldEnter()
+        self.pendingWorldEnter = nil
+    end
+    self:Debug("Аддон загружен")
+
+    -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
+    self:ScheduleTimer(function()
+        self:CleanOutbidNotified()
+    end, 300)
+end
+
+-- OnEnable вызывается сразу после OnInitialize (и при повторном /reload)
+-- — здесь регистрируем все игровые события через AceEvent.
+function auction:OnEnable()
+    self:RegisterComm(self.prefix)
+    self:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self:RegisterEvent("LOOT_OPENED")
+    self:RegisterEvent("LOOT_CLOSED")
+    self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnRosterUpdate")
+    self:RegisterEvent("RAID_ROSTER_UPDATE", "OnRosterUpdate")
+    self:RegisterEvent("PLAYER_LOGOUT")
+    self:RegisterEvent("EPGP_UPDATE", "OnEPGPUpdate")
+    self:RegisterEvent("EPGP_DATA_CHANGED", "OnEPGPUpdate")
+    -- CHAT_MSG_ADDON больше не регистрируем вручную: приём сообщений по
+    -- каналу аддона теперь полностью на AceComm-3.0 (см. comm.lua, там же
+    -- self:RegisterComm(self.prefix)).
+end
+
+-- ======================
+-- Обработчики событий
+-- ======================
+function auction:PLAYER_ENTERING_WORLD()
+    self:Debug("PLAYER_ENTERING_WORLD (pending)")
+    if not self.fullyLoaded then
+        self.pendingWorldEnter = true
+        return
+    end
+    self:HandleWorldEnter()
+end
+
+function auction:LOOT_OPENED()
+    if self.fullyLoaded and self.IsLootMaster and self:IsLootMaster() then
+        self:ScheduleTimer(function()
+            self:ShowLootMasterWindowFromLoot()
+        end, 0.1)
+    end
+end
+
+function auction:LOOT_CLOSED()
+    if self.lootMasterFrame then
+        self.lootMasterFrame:Hide()
+    end
+end
+
+function auction:OnRosterUpdate()
+    if not self.fullyLoaded then return end
+    self:CacheRaidClasses()
+    if self.groupRosterTimer then
+        self:CancelTimer(self.groupRosterTimer)
+        self.groupRosterTimer = nil
+    end
+    self.groupRosterTimer = self:ScheduleTimer(function()
+        self.groupRosterTimer = nil
+        local playerName = UnitName("player")
+        if not IsInRaid() and not IsInGroup() then
+            if self.lastLM or next(self.lastVersions) or next(self.dataVersions) then
+                self:ResetVersionsOnGroupExit()
+            end
+            self:UpdateLockCheckbox()
+            self:UpdateLMButtonsState()
             return
         end
-        auction:HandleWorldEnter()
-
-    elseif event == "LOOT_OPENED" then
-        if auction.fullyLoaded and auction.IsLootMaster and auction:IsLootMaster() then
-            auction:ScheduleTimer(function()
-                auction:ShowLootMasterWindowFromLoot()
-            end, 0.1)
-        end
-
-    elseif event == "LOOT_CLOSED" then
-        if auction.lootMasterFrame then
-            auction.lootMasterFrame:Hide()
-        end
-
-    elseif event == "CHAT_MSG_ADDON" then
-        local prefix, msg, channel, sender = arg1, ...
-        if prefix == auction.prefix then
-            auction:HandleMessage(msg, sender)
-        end
-
-    elseif event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE" then
-        if not auction.fullyLoaded then return end
-        auction:CacheRaidClasses()
-        if auction.groupRosterTimer then
-            auction:CancelTimer(auction.groupRosterTimer)
-            auction.groupRosterTimer = nil
-        end
-        auction.groupRosterTimer = auction:ScheduleTimer(function()
-            auction.groupRosterTimer = nil
-            local playerName = UnitName("player")
-            if not IsInRaid() and not IsInGroup() then
-                if auction.lastLM or next(auction.lastVersions) or next(auction.dataVersions) then
-                    auction:ResetVersionsOnGroupExit()
+        if self:IsLootMaster() then
+            if self.lastLM ~= playerName then
+                self.lastLM = playerName
+                self:UpdateLockCheckbox()
+                if self.selectedBoss then
+                    self:RefreshTable()
                 end
-                auction:UpdateLockCheckbox()
-                auction:UpdateLMButtonsState()
-                return
+                self:QueueAddonMessage("LM", "RAID")
+                if self.syncAllTimer then
+                    self:CancelTimer(self.syncAllTimer)
+                end
+                self.syncAllTimer = self:ScheduleTimer(function()
+                    self.syncAllTimer = nil
+                    self:SyncAllToRaid()
+                end, 2)
             end
-            if auction:IsLootMaster() then
-                if auction.lastLM ~= playerName then
-                    auction.lastLM = playerName
-                    auction:UpdateLockCheckbox()
-                    if auction.selectedBoss then
-                        auction:RefreshTable()
-                    end
-                    auction:QueueAddonMessage("LM", "RAID")
-                    if auction.syncAllTimer then
-                        auction:CancelTimer(auction.syncAllTimer)
-                    end
-                    auction.syncAllTimer = auction:ScheduleTimer(function()
-                        auction.syncAllTimer = nil
-                        auction:SyncAllToRaid()
-                    end, 2)
-                end
-            else
-                local currentLM = nil
-                local method, partyIndex, raidIndex = GetLootMethod()
-                if method == "master" and raidIndex then
-                    currentLM = GetRaidRosterInfo(raidIndex)
-                end
-                if currentLM and currentLM ~= auction.lastLM then
-                    auction:ResetVersionsForNewLM()
-                    auction.lastLM = currentLM
-                elseif IsInRaid() or IsInGroup() then
-                    auction:SendToLootMaster("CHECK_VERSION")
-                    if auction.groupHelloTimer then
-                        auction:CancelTimer(auction.groupHelloTimer)
-                        auction.groupHelloTimer = nil
-                    end
-                    auction.groupHelloTimer = auction:ScheduleTimer(function()
-                        auction.groupHelloTimer = nil
-                        local bossParam = ""
-                        if auction.selectedBoss then
-                            bossParam = ";"..auction.selectedBoss
-                        end
-                        auction:SendToLootMaster("HELLO"..bossParam)
-                        auction:Debug("Отправлен HELLO после GROUP_ROSTER_UPDATE")
-                    end, 1)
-                end
-                auction:UpdateLockCheckbox()
+        else
+            local currentLM = nil
+            local method, partyIndex, raidIndex = GetLootMethod()
+            if method == "master" and raidIndex then
+                currentLM = GetRaidRosterInfo(raidIndex)
             end
-            auction:UpdateLMButtonsState()
-            
-            if auction.optionsPanel and auction.optionsPanel:IsShown() then
-                local slider = _G["EPBAOffspecMultiplierSlider"]
-                if slider then
-                    if auction:IsLootMaster() then
-                        slider:Enable()
-                        slider:SetAlpha(1.0)
-                    else
-                        slider:Disable()
-                        slider:SetAlpha(0.5)
+            if currentLM and currentLM ~= self.lastLM then
+                self:ResetVersionsForNewLM()
+                self.lastLM = currentLM
+            elseif IsInRaid() or IsInGroup() then
+                self:SendToLootMaster("CHECK_VERSION")
+                if self.groupHelloTimer then
+                    self:CancelTimer(self.groupHelloTimer)
+                    self.groupHelloTimer = nil
+                end
+                self.groupHelloTimer = self:ScheduleTimer(function()
+                    self.groupHelloTimer = nil
+                    local bossParam = ""
+                    if self.selectedBoss then
+                        bossParam = ";"..self.selectedBoss
                     end
+                    self:SendToLootMaster("HELLO"..bossParam)
+                    self:Debug("Отправлен HELLO после GROUP_ROSTER_UPDATE")
+                end, 1)
+            end
+            self:UpdateLockCheckbox()
+        end
+        self:UpdateLMButtonsState()
+
+        if self.optionsPanel and self.optionsPanel:IsShown() then
+            local slider = _G["EPBAOffspecMultiplierSlider"]
+            if slider then
+                if self:IsLootMaster() then
+                    slider:Enable()
+                    slider:SetAlpha(1.0)
+                else
+                    slider:Disable()
+                    slider:SetAlpha(0.5)
                 end
             end
-        end, 2)
-
-    elseif event == "PLAYER_LOGOUT" then
-        if auction.fullyLoaded then
-            auction:SaveData()
-            auction:Debug("Сохранение при выходе")
         end
+    end, 2)
+end
 
-    elseif event == "EPGP_UPDATE" or event == "EPGP_DATA_CHANGED" then
-        if auction.fullyLoaded then
-            auction:Debug("Получено обновление от EPGP")
-            auction:CheckAndUpdateEP()
-        end
+function auction:PLAYER_LOGOUT()
+    if self.fullyLoaded then
+        self:SaveData()
+        self:Debug("Сохранение при выходе")
     end
-end)
+end
+
+function auction:OnEPGPUpdate()
+    if self.fullyLoaded then
+        self:Debug("Получено обновление от EPGP")
+        self:CheckAndUpdateEP()
+    end
+end

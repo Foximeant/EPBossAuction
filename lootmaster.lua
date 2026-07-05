@@ -87,6 +87,7 @@ function auction:GetMasterLootCandidateIndex(slot, playerName)
 
     for i = 1, 40 do
         local name = GetMasterLootCandidate(slot, i)
+        if not name then break end
         if name == playerName then
             return i
         end
@@ -449,63 +450,32 @@ function auction:ConfirmAwardLoot(lootItem, bossName, bid, chargeEP)
     StaticPopup_Show("EPBA_CONFIRM_AWARD_LOOT")
 end
 
-function auction:AwardLootToBidder(lootItem, bossName, bid, chargeEP, attempt)
+function auction:AwardLootToBidder(lootItem, bossName, bid, chargeEP)
     if not self:IsLootMaster() then return false end
     if not (lootItem and lootItem.slot and bid and bid.player) then return false end
-    attempt = attempt or 1
 
     local candidateIndex = self:GetMasterLootCandidateIndex(lootItem.slot, bid.player)
     if not candidateIndex then
-        -- Список кандидатов иногда ещё не "построен" клиентом в момент первого
-        -- обращения (см. заметки к API GetMasterLootCandidate) — даём пару
-        -- повторных попыток с небольшой задержкой, прежде чем сдаться.
-        if attempt < 5 then
-            self:ScheduleTimer(function()
-                self:AwardLootToBidder(lootItem, bossName, bid, chargeEP, attempt + 1)
-            end, 0.3)
-            return
-        end
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Игрок "..bid.player.." не найден среди кандидатов на этот предмет (проверьте, что окно добычи ещё открыто и игрок рядом с телом).")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Игрок "..bid.player.." не найден среди кандидатов на этот предмет.")
         return false
     end
 
-    if not GiveMasterLoot then
+    if GiveMasterLoot then
+        GiveMasterLoot(lootItem.slot, candidateIndex)
+        DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Предмет %s выдан игроку %s.", lootItem.link or lootItem.name or lootItem.itemID, bid.player))
+    else
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r GiveMasterLoot недоступен в этом клиенте.")
         return false
     end
 
-    local slot = lootItem.slot
-    GiveMasterLoot(slot, candidateIndex)
-
-    -- GiveMasterLoot ничего не возвращает и может тихо не сработать (игрок
-    -- вышел из радиуса/группы между кликом и выдачей), поэтому проверяем
-    -- по факту: слот с предметом должен опустеть.
-    self:ScheduleTimer(function()
-        self:VerifyLootAwarded(slot, lootItem, bossName, bid, chargeEP)
-    end, 0.5)
-
-    return true
-end
-
-function auction:VerifyLootAwarded(slot, lootItem, bossName, bid, chargeEP)
-    local stillHasItem = GetLootSlotInfo and GetLootSlotInfo(slot)
-    if stillHasItem then
-        DEFAULT_CHAT_FRAME:AddMessage(string.format(
-            "|cffff0000[EPBA]|r Не удалось выдать %s игроку %s — предмет всё ещё в окне добычи. Возможно, игрок вне радиуса получения лута.",
-            lootItem.link or lootItem.name or lootItem.itemID, bid.player
-        ))
-        return
-    end
-
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Предмет %s выдан игроку %s.", lootItem.link or lootItem.name or lootItem.itemID, bid.player))
-
     if chargeEP then
-        self:ChargePlayerEP(bid.player, bid.amount, lootItem.itemID, bossName)
-    else
-        self.lootMasterAwarded = self.lootMasterAwarded or {}
-        self.lootMasterAwarded[GetBidKey(lootItem.itemID)] = { player = bid.player, amount = tonumber(bid.amount) or 0 }
-        self:RefreshLootMasterWindowIfShown()
+        return self:ChargePlayerEP(bid.player, bid.amount, lootItem.itemID, bossName)
     end
+
+    self.lootMasterAwarded = self.lootMasterAwarded or {}
+    self.lootMasterAwarded[GetBidKey(lootItem.itemID)] = { player = bid.player, amount = tonumber(bid.amount) or 0 }
+    self:RefreshLootMasterWindowIfShown()
+    return true
 end
 
 function auction:ChargePlayerEP(playerName, amount, itemID, bossName)
@@ -520,7 +490,7 @@ function auction:ChargePlayerEP(playerName, amount, itemID, bossName)
         return false
     end
 
-    local success = epgpTable:IncEPBy(playerName, reason, -value) ~= false
+    local success = epgpTable:IncEPBy(playerName, -value, reason) ~= false
     if success then
         DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00[EPBA]|r Списано %s EP с %s за %s.", self:FormatNumber(value), playerName, reason))
         self.lootMasterAwarded = self.lootMasterAwarded or {}

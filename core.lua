@@ -1,12 +1,19 @@
 local addonName = ...
-EPBossAuction = {}
+-- EPBossAuction теперь настоящий AceAddon-объект: даёт нам AceEvent (RegisterEvent),
+-- AceTimer (ScheduleTimer/CancelTimer — те же имена, что были и в самодельной
+-- реализации, так что остальные файлы не меняются), AceComm (передача сообщений
+-- по каналу аддона с автоматической нарезкой >255 байт и надёжным троттлингом)
+-- и AceSerializer (используется внутри comm.lua). Глобальное имя EPBossAuction
+-- и `local auction = EPBossAuction` во всех остальных файлах продолжают работать
+-- без изменений.
+EPBossAuction = LibStub("AceAddon-3.0"):NewAddon("EPBossAuction", "AceEvent-3.0", "AceTimer-3.0", "AceComm-3.0", "AceSerializer-3.0")
 local auction = EPBossAuction
 
 -- ======================
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "2.3.10"
+auction.version = "2.3.7"
 auction.debug = false
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -22,7 +29,7 @@ auction.bosses = {
     ["Терон Кровожад"] = {156245, 156246, 156247, 156248, 156249, 156250, 156251, 156252, 156253, 156254},
     ["Тень Акамы"] = {99898, 156213, 156214, 156215, 156216, 156217, 156218, 156220, 156221, 156222, 156223},
     ["Зорт"] = {97753, 97754, 97755, 97756, 97757, 97760, 97761, 97762, 97763, 97767, 97768, 97769},
-    ["Матушка Шахраз"] = {156257, 156267, 156265, 156258, 156260, 156261, 156259, 156266, 156262, 156263, 156264, 31101, 31102, 31103},
+    ["Матушка Шахраз"] = {156267, 156265, 156258, 156260, 156261, 156259, 156266, 156262, 156263, 156264, 31101, 31102, 31103},
     ["Совет Иллидари"] = {31098, 31099, 31100},
     ["Иллидан Ярость Бури"] = {31089, 31090, 31091, 32837, 32838},
 }
@@ -145,82 +152,12 @@ auction.defaults = {
 auction.db = {}
 
 -- ======================
--- Таймеры (оптимизированные, без сортировки)
+-- Таймеры
 -- ======================
-auction.timerFrame = CreateFrame("Frame")
-auction.timerId = 0
-auction.timers = {}
-
-auction.timerFrame:SetScript("OnUpdate", function()
-    local now = GetTime()
-    local i = 1
-    while i <= #auction.timers do
-        local timer = auction.timers[i]
-        if timer.expires <= now then
-            table.remove(auction.timers, i)
-            local ok, err = pcall(timer.cb)
-            if not ok and auction.Debug then
-                auction:Debug("Timer error: " .. tostring(err))
-            end
-        else
-            i = i + 1
-        end
-    end
-end)
-
-function auction:ScheduleTimer(callback, delay)
-    self.timerId = self.timerId + 1
-    local id = tostring(self.timerId)
-    local expires = GetTime() + delay
-    table.insert(self.timers, { id = id, cb = callback, expires = expires })
-    return id
-end
-
-function auction:CancelTimer(id)
-    for i, timer in ipairs(self.timers) do
-        if timer.id == id then
-            table.remove(self.timers, i)
-            break
-        end
-    end
-end
-
--- ======================
--- Очередь исходящих addon-сообщений
--- ======================
--- Все вызовы SendAddonMessage в аддоне идут через auction:QueueAddonMessage,
--- чтобы не отправлять пачку сообщений в один игровой тик (например, при
--- массовой отправке SYNC по всем предметам босса в ответ на HELLO) и не
--- словить антиспам-мут на сервере. Порядок и содержимое сообщений не
--- меняются, только темп отправки.
-auction.outQueue = {}
-auction.outQueueRunning = false
-auction.outQueueInterval = 0.15 -- ~6-7 сообщений/сек, с запасом от антиспам-фильтра
-
-function auction:QueueAddonMessage(message, channel, target)
-    if not message or message == "" or not channel then return end
-    table.insert(self.outQueue, { message = message, channel = channel, target = target })
-    if not self.outQueueRunning then
-        self.outQueueRunning = true
-        self:FlushOutQueueStep()
-    end
-end
-
-function auction:FlushOutQueueStep()
-    local item = table.remove(self.outQueue, 1)
-    if not item then
-        self.outQueueRunning = false
-        return
-    end
-    if item.target then
-        SendAddonMessage(self.prefix, item.message, item.channel, item.target)
-    else
-        SendAddonMessage(self.prefix, item.message, item.channel)
-    end
-    self:ScheduleTimer(function()
-        self:FlushOutQueueStep()
-    end, self.outQueueInterval)
-end
+-- ScheduleTimer/CancelTimer теперь приходят из AceTimer-3.0 (см. миксины
+-- при создании EPBossAuction выше) — имена методов те же самые, что были
+-- в самодельной реализации, поэтому все остальные файлы (ui.lua, comm.lua,
+-- queue.lua, lootmaster.lua и т.д.) продолжают работать без изменений.
 
 -- ======================
 -- Утилиты
@@ -315,8 +252,8 @@ function auction:FormatColoredName(playerName)
     return self:GetClassColor(playerName) .. playerName
 end
 
--- GetCachedItemName определена в ui.lua (использует общий itemInfoCache
--- вместе с GetCachedItemInfo), здесь не дублируется.
+-- GetCachedItemName определена в ui.lua (использует общий itemInfoCache),
+-- здесь не дублируется.
 
 function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
@@ -761,7 +698,5 @@ function auction:RequestRefresh()
     end, 0.1)
 end
 
--- LoadBidLog / SaveBidLog / ClearBidLog определены в journal.lua (там же
--- применяется TrimBidLog и лимит bidLogLimit), здесь не дублируются.
--- LoadTokenQueues определена в queue.lua (там же инициализация ITEM_ORDER),
--- здесь не дублируется.
+-- LoadBidLog / SaveBidLog / ClearBidLog определены в journal.lua, а
+-- LoadTokenQueues — в queue.lua, здесь не дублируются.

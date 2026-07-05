@@ -12,11 +12,11 @@ function auction:SendToLootMaster(message)
 
     local playerName = UnitName("player")
     if self.lastLM and self.lastLM ~= "" and self.lastLM ~= playerName then
-        SendAddonMessage(self.prefix, message, "WHISPER", self.lastLM)
+        self:QueueAddonMessage(message, "WHISPER", self.lastLM)
         return true
     end
 
-    SendAddonMessage(self.prefix, message, "RAID")
+    self:QueueAddonMessage(message, "RAID")
     return false
 end
 
@@ -55,7 +55,7 @@ function auction:HandleWorldEnter()
                 end, 3)
             else
                 self:Debug("НЕТ СТАВОК, просто сообщаем что мы лутер")
-                SendAddonMessage(self.prefix, "LM", "RAID")
+                self:QueueAddonMessage("LM", "RAID")
             end
         else
             self:Debug("Я НЕ ЛУТЕР")
@@ -85,7 +85,7 @@ function auction:SyncAllToRaid()
         self:Debug("Не лутер, синхронизация отменена")
         return 
     end
-    SendAddonMessage(self.prefix, "LM", "RAID")
+    self:QueueAddonMessage("LM", "RAID")
     local syncCount = 0
     local totalItems = 0
     for bossName, bossBids in pairs(self.bids) do
@@ -115,7 +115,7 @@ function auction:SyncAllToRaid()
     if syncCount > 0 then
         self:Debug("Запланирована отправка "..syncCount.." предметов")
         self:ScheduleTimer(function()
-            SendAddonMessage(self.prefix, "SYNC_COMPLETE", "RAID")
+            self:QueueAddonMessage("SYNC_COMPLETE", "RAID")
         end, delay + 1)
     end
 end
@@ -162,7 +162,7 @@ function auction:SendSyncImmediate(bossName, itemID)
     local itemName = GetSafeItemInfo(itemID)
     local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
     self:Debug("Отправка SYNC для босса "..bossName..": "..itemName.." ("..#bidsForItem.." ставок), версия "..currentVersion)
-    SendAddonMessage(self.prefix, message, "RAID")
+    self:QueueAddonMessage(message, "RAID")
     -- Сохранение данных теперь только по таймеру, не здесь
 end
 
@@ -184,13 +184,13 @@ function auction:SendAllBidsForBoss(bossName, targetPlayer)
             end
             local currentVersion = self:GetDataVersion(bossName, itemID)
             local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
-            SendAddonMessage(self.prefix, message, "WHISPER", targetPlayer)
+            self:QueueAddonMessage(message, "WHISPER", targetPlayer)
             sentCount = sentCount + 1
             self:Debug("Отправлен предмет "..itemID.." ("..#bidsForItem.." ставок)")
         end
     end
     if sentCount > 0 then
-        SendAddonMessage(self.prefix, "SYNC_COMPLETE", "WHISPER", targetPlayer)
+        self:QueueAddonMessage("SYNC_COMPLETE", "WHISPER", targetPlayer)
         return true
     end
     return false
@@ -224,13 +224,41 @@ end
 -- ======================
 -- Обработчики сообщений
 -- ======================
-function auction:HandleMessage(msg, sender)
-    if not msg or msg == "" then return end
-    local cmd, rest = msg:match("^([%w_]+);?(.*)")
-    if not cmd then
-        self:Debug("Не удалось определить команду из: "..msg)
+-- ======================
+-- Транспорт (AceComm-3.0 + AceSerializer-3.0)
+-- ======================
+-- QueueAddonMessage сохраняет прежнюю сигнатуру (message, channel, target),
+-- где message — уже собранная строка вида "CMD;arg1;arg2" как и раньше,
+-- поэтому ни один вызывающий код в ui.lua/queue.lua/options.lua/events.lua
+-- менять не пришлось. Внутри же теперь используется AceComm, который сам
+-- нарезает сообщения длиннее 255 байт на части и надёжно троттлит отправку —
+-- раньше SYNC с большим числом ставок на один предмет мог быть молча обрезан
+-- клиентом (жёсткий лимит SendAddonMessage), теперь это исключено.
+function auction:QueueAddonMessage(message, channel, target)
+    if not message or message == "" or not channel then return end
+    local cmd, rest = message:match("^([%w_]+);?(.*)")
+    if not cmd then return end
+    local payload = self:Serialize(cmd, rest)
+    if target then
+        self:SendCommMessage(self.prefix, payload, channel, target)
+    else
+        self:SendCommMessage(self.prefix, payload, channel)
+    end
+end
+
+-- Вызывается AceComm при получении сообщения с нашим префиксом (регистрация
+-- в events.lua:OnEnable через self:RegisterComm(self.prefix)).
+function auction:OnCommReceived(prefix, payload, distribution, sender)
+    if prefix ~= self.prefix then return end
+    local ok, cmd, rest = self:Deserialize(payload)
+    if not ok or not cmd then
+        self:Debug("Не удалось разобрать входящее сообщение от "..tostring(sender))
         return
     end
+    self:HandleMessage(cmd, rest or "", sender)
+end
+
+function auction:HandleMessage(cmd, rest, sender)
     local handler = self["Handle_"..cmd]
     if handler then
         handler(self, rest, sender)
@@ -246,7 +274,7 @@ function auction:Handle_BID(rest, sender)
     end
     if self.bidsLocked then
         self:Debug("Блокировка активна, ставка отклонена")
-        SendAddonMessage(self.prefix, "LOCKED", "WHISPER", sender)
+        self:QueueAddonMessage("LOCKED", "WHISPER", sender)
         return
     end
     local bossName, itemID, playerName, amount, isOffspec = rest:match("([^;]+);([^;]+);([^;]+);([^;]+);(.*)")
@@ -287,7 +315,7 @@ function auction:Handle_BID(rest, sender)
     end
     if amount < self.db.general.minBid then
         self:Debug("Ставка меньше минимальной ("..self.db.general.minBid.."), игнорируем")
-        SendAddonMessage(self.prefix, "TOOLOW;"..amount..";"..self.db.general.minBid, "WHISPER", sender)
+        self:QueueAddonMessage("TOOLOW;"..amount..";"..self.db.general.minBid, "WHISPER", sender)
         return
     end
     self.bids[bossName] = self.bids[bossName] or {}
@@ -315,7 +343,7 @@ function auction:Handle_BID(rest, sender)
     end
     self:CheckIfOutbid(bossName, itemID)
     self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspecBool)
-    SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender)
+    self:QueueAddonMessage("BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender)
     self:Debug("Ставка обработана, отправлен SYNC")
 end
 
@@ -332,22 +360,12 @@ function auction:Handle_SYNC(rest, sender)
     self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender)
     self.receivedSync = true
     local isLootMaster = self:IsLootMaster()
-    
-    -- Лутер сам себя игнорирует
+    local senderIsLM = (sender == self.lastLM)
     if isLootMaster then
         self:Debug("Я лутер, игнорирую SYNC от "..sender)
         return
-    end
-    
-    -- FIX: если LM ещё не известен — принимаем первого отправителя как источник
-    if not self.lastLM then
-        self.lastLM = sender
-        self:Debug("LM не был известен, назначен автоматически: "..sender)
-    end
-    
-    -- если LM уже известен — фильтруем
-    if self.lastLM and sender ~= self.lastLM then
-        self:Debug("Игнорируем SYNC не от LM: "..tostring(sender))
+    elseif not senderIsLM then
+        self:Debug("Игнорируем SYNC от не-Loot Master: "..tostring(sender).." (ожидался "..tostring(self.lastLM)..")")
         return
     end
     local lastVersion = self:GetLastVersion(bossName, itemID)
@@ -403,7 +421,7 @@ function auction:Handle_HELLO(rest, sender)
     end
     if requestedBoss then
         if not self:SendAllBidsForBoss(requestedBoss, playerName) then
-            SendAddonMessage(self.prefix, "END;"..requestedBoss, "WHISPER", playerName)
+            self:QueueAddonMessage("END;"..requestedBoss, "WHISPER", playerName)
         end
     else
         if self.selectedBoss then
@@ -420,8 +438,8 @@ function auction:Handle_HELLO(rest, sender)
             end
         end
     end
-    SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
-    SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
+    self:QueueAddonMessage("LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
+    self:QueueAddonMessage("HELLO_ACK", "WHISPER", playerName)
 end
 
 function auction:Handle_HELLO_ACK(rest, sender)
@@ -437,14 +455,14 @@ function auction:Handle_LM(rest, sender)
         if self.selectedBoss then
             bossParam = ";"..self.selectedBoss
         end
-        SendAddonMessage(self.prefix, "HELLO"..bossParam, "WHISPER", sender)
+        self:QueueAddonMessage("HELLO"..bossParam, "WHISPER", sender)
     end
 end
 
 function auction:Handle_LM_REQUEST(rest, sender)
     self:Debug("Получен LM_REQUEST от "..sender)
     if self:IsLootMaster() then
-        SendAddonMessage(self.prefix, "LM_RESPONSE;"..UnitName("player"), "WHISPER", sender)
+        self:QueueAddonMessage("LM_RESPONSE;"..UnitName("player"), "WHISPER", sender)
         self:Debug("Отправлен LM_RESPONSE")
     end
 end
@@ -462,7 +480,7 @@ function auction:Handle_CHECK_VERSION(rest, sender)
         for versionKey, version in pairs(self.dataVersions) do
             versionMsg = versionMsg .. ";" .. versionKey .. ":" .. version
         end
-        SendAddonMessage(self.prefix, versionMsg, "WHISPER", sender)
+        self:QueueAddonMessage(versionMsg, "WHISPER", sender)
         self:Debug("Отправлены версии: "..versionMsg)
     end
 end
@@ -563,44 +581,8 @@ end
 -- ======================
 -- Обработчики очереди
 -- ======================
-function auction:Handle_QUEUE_UPDATE(rest, sender)
-    local itemKey, players = rest:match("([^;]+);(.*)")
-    if not itemKey or not self.tokenQueues then return end
-    local queue = {}
-    if players ~= "" then
-        for name in players:gmatch("([^,]+)") do
-            table.insert(queue, name)
-        end
-    end
-    self.tokenQueues[itemKey] = queue
-    if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
-        self:RefreshQueueList()
-    end
-    if not self:IsLootMaster() then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Очередь на "..itemKey.." обновлена.")
-    end
-end
-
-function auction:Handle_QUEUE_REQUEST(rest, sender)
-    if not self:IsLootMaster() then return end
-    self:SyncAllQueuesToRaid(sender)
-end
-
-function auction:Handle_QUEUE_SYNC(rest, sender)
-    local itemKey, players = rest:match("([^;]+);(.*)")
-    if not itemKey then return end
-    local queue = {}
-    if players ~= "" then
-        for name in players:gmatch("([^,]+)") do
-            table.insert(queue, name)
-        end
-    end
-    self.tokenQueues[itemKey] = queue
-    if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
-        self:RefreshQueueList()
-    end
-    self:Debug("Очередь синхронизирована: "..itemKey)
-end
+-- Handle_QUEUE_UPDATE / Handle_QUEUE_REQUEST / Handle_QUEUE_SYNC определены
+-- в queue.lua вместе с остальной логикой очереди на токены, здесь не дублируются.
 
 -- ======================
 -- Проверка, перебита ли ставка текущего игрока
