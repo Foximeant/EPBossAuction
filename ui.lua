@@ -62,7 +62,7 @@ function auction:CreateUI()
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("RS EPBossAuction "..self.version)
+    title:SetText("EPBossAuction "..self.version)
 
     -- Кнопка закрытия
     local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame)
