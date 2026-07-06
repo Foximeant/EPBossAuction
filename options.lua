@@ -184,6 +184,16 @@ function auction:CreateOptionsPanel()
         offspecMultiplierSlider:Disable()
         offspecMultiplierSlider:SetAlpha(0.5)
     end
+
+    -- Подтверждение перед выходом из очереди на токен
+    local confirmQueueLeaveCheck = CreateFrame("CheckButton", "EPBAConfirmQueueLeaveCheck", generalTab, "UICheckButtonTemplate")
+    confirmQueueLeaveCheck:SetPoint("TOPLEFT", offspecMultiplierSlider, "BOTTOMLEFT", 0, -25)
+    confirmQueueLeaveCheck.text = _G[confirmQueueLeaveCheck:GetName() .. "Text"]
+    confirmQueueLeaveCheck.text:SetText("Подтверждать выход из очереди на токен")
+    confirmQueueLeaveCheck:SetChecked(self.db.general.confirmQueueLeave)
+    confirmQueueLeaveCheck:SetScript("OnClick", function(self)
+        auction.db.general.confirmQueueLeave = self:GetChecked()
+    end)
     
     -- ----------------------------------------------
     -- Вкладка "Таблица"
@@ -722,7 +732,8 @@ function auction:CreateOptionsPanel()
     defaultsButton:SetPoint("BOTTOMLEFT", 16, 16)
     defaultsButton:SetText("По умолчанию")
     defaultsButton:SetScript("OnClick", function()
-        auction.db = auction:DeepCopy(auction.defaults)
+        auction.dbHandle:ResetProfile()
+        auction.db = auction.dbHandle.profile
         auction:ApplySettings()
         auction:RefreshOptionsPanelControls()
     end)
@@ -766,6 +777,7 @@ function auction:RefreshOptionsPanelControls()
     if _G["EPBADebugCheck"] then _G["EPBADebugCheck"]:SetChecked(db.general.debug) end
     if _G["EPBAMinBidEdit"] then _G["EPBAMinBidEdit"]:SetText(db.general.minBid) end
     if _G["EPBAConfirmBidCheck"] then _G["EPBAConfirmBidCheck"]:SetChecked(db.general.confirmBid) end
+    if _G["EPBAConfirmQueueLeaveCheck"] then _G["EPBAConfirmQueueLeaveCheck"]:SetChecked(db.general.confirmQueueLeave) end
     if _G["EPBASoundCheck"] then _G["EPBASoundCheck"]:SetChecked(db.general.soundEnabled) end
     if _G["EPBASoundFileEdit"] then _G["EPBASoundFileEdit"]:SetText(db.general.soundFile) end
     setSlider("EPBAOffspecMultiplierSlider", db.general.offspecMultiplier, math.floor(db.general.offspecMultiplier * 100) .. "%")

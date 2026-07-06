@@ -77,6 +77,12 @@ function auction:HandleWorldEnter()
         end, 4)
     end
 
+    -- Подхватываем локальные самозаписи в очередь (сделанные когда угодно,
+    -- даже вне группы) и отправляем их лутеру / применяем у себя.
+    self:ScheduleTimer(function()
+        self:SyncMySignupsIfNeeded()
+    end, 5)
+
     self:Debug("===============================")
 end
 

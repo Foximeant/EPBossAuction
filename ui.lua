@@ -62,7 +62,7 @@ function auction:CreateUI()
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("EPBossAuction "..self.version)
+    title:SetText("RS EPBossAuction "..self.version)
 
     -- Кнопка закрытия
     local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame)
@@ -498,6 +498,9 @@ function auction:CreateUI()
         auction:ForceClickable()
         auction:UpdateLMButtonsState()
         auction:ForceEPUpdate()
+        -- Таблица очищается на OnHide (ReturnRowsToPool), поэтому при
+        -- повторном открытии её нужно перерисовать заново.
+        auction:RequestRefresh()
     end)
 
 end

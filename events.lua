@@ -205,6 +205,7 @@ function auction:OnRosterUpdate()
             self:UpdateLockCheckbox()
         end
         self:UpdateLMButtonsState()
+        self:SyncMySignupsIfNeeded()
 
         if self.optionsPanel and self.optionsPanel:IsShown() then
             local slider = _G["EPBAOffspecMultiplierSlider"]

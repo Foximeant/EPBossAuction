@@ -13,7 +13,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "2.4.0"
+auction.version = "2.4.4"
 auction.debug = false
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -95,10 +95,12 @@ auction.playerEPCacheTime = {}
 auction.playerClassCache = {}
 
 auction.defaults = {
+    profile = {
     general = {
         debug = false,
         minBid = 100,
         confirmBid = false,
+        confirmQueueLeave = false,
         soundEnabled = true,
         soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
         offspecMultiplier = 0.5,
@@ -146,9 +148,19 @@ auction.defaults = {
     },
     tokenQueue = {
         text = "",
+        lastType = nil,
+        lastSlot = nil,
     },
+    }
 }
 
+-- AceDB-3.0 управляет SavedVariable EPBossAuctionSettings и слиянием
+-- дефолтов (заполняются только отсутствующие ключи, как и раньше делала
+-- ручная MergeDefaults). self.db остаётся тем же самым по форме объектом
+-- (self.db.general.X, self.db.window.X и т.д.) — это self.dbHandle.profile,
+-- поэтому весь остальной код (ui.lua, options.lua, queue.lua и т.д.) не
+-- меняется вообще. Реально создаётся в LoadSettings() ниже, когда
+-- SavedVariables уже гарантированно загружены.
 auction.db = {}
 
 -- ======================
@@ -179,18 +191,8 @@ function auction:DeepCopy(orig)
     return copy
 end
 
-function auction:MergeDefaults(saved, defaults)
-    local merged = self:DeepCopy(defaults)
-    if type(saved) ~= "table" then return merged end
-    for k, v in pairs(saved) do
-        if type(v) == "table" and type(merged[k]) == "table" then
-            merged[k] = self:MergeDefaults(v, merged[k])
-        else
-            merged[k] = v
-        end
-    end
-    return merged
-end
+-- MergeDefaults убрана: слияние дефолтов теперь делает AceDB-3.0 само
+-- (см. LoadSettings).
 
 function auction:FormatNumber(n)
     if not n then return "0" end
@@ -519,7 +521,10 @@ function auction:PrecacheItems()
 end
 
 function auction:LoadSettings()
-    self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
+    if not self.dbHandle then
+        self.dbHandle = LibStub("AceDB-3.0"):New("EPBossAuctionSettings", self.defaults, true)
+    end
+    self.db = self.dbHandle.profile
     if self.db.general.minBid == 1000 then
         self.db.general.minBid = 100
     end
@@ -535,7 +540,10 @@ function auction:LoadSettings()
 end
 
 function auction:SaveSettings()
-    EPBossAuctionSettings = self.db
+    -- AceDB сам держит self.db (это self.dbHandle.profile) в синхронизации с
+    -- реальной SavedVariable — отдельно присваивать EPBossAuctionSettings
+    -- больше не нужно (и не нужно этого делать: это сломало бы внутреннее
+    -- устройство AceDB с дефолтами через метатаблицы).
     if not self.db.tokenQueue then self.db.tokenQueue = {} end
     self.db.tokenQueue.text = self.tokenQueueText
     self:SaveBidLog()
