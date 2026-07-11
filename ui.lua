@@ -250,7 +250,7 @@ function auction:CreateUI()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            auction:QueueAddonMessage("LOCK;"..(state and "true" or "false"), "RAID")
+            auction:QueueAddonMessage("LOCK", state, "RAID", nil, "ALERT")
         end)
     end
     self.lockCheckbox = lockCheckbox
@@ -298,9 +298,6 @@ function auction:CreateUI()
     endButton:SetScript("OnClick", function()
         if not auction:IsLootMaster() then return end
         auction:EndAuctionLocal()
-        if auction.selectedBoss then
-            auction:QueueAddonMessage("END;"..auction.selectedBoss, "RAID")
-        end
     end)
     self.endButton = endButton
     self:SkinButton(endButton)
@@ -491,7 +488,7 @@ function auction:CreateUI()
         auction.db.general.offspecMultiplier = multiplier
         auction:SaveSettings()
         print("|cff00ff00[EPBA]|r Коэффициент офф-спек установлен на " .. (multiplier * 100) .. "%")
-        auction:QueueAddonMessage("OFFSPEC_MULT;" .. multiplier, "RAID")
+        auction:QueueAddonMessage("OFFSPEC_MULT", multiplier, "RAID", nil, "ALERT")
     end
 
     frame:SetScript("OnShow", function()
@@ -570,7 +567,7 @@ function auction:UpdateLockCheckbox()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            auction:QueueAddonMessage("LOCK;"..(state and "true" or "false"), "RAID")
+            auction:QueueAddonMessage("LOCK", state, "RAID", nil, "ALERT")
         end)
     else
         self.lockCheckbox:Disable()
@@ -1177,8 +1174,7 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     if auction:IsLootMaster() then
         auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     else
-        local offspecStr = isOffspec and "true" or "false"
-        auction:SendToLootMaster("BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr)
+        auction:SendToLootMaster("BID", { boss = bossName, item = itemID, amount = amount, offspec = isOffspec and true or false }, "ALERT")
     end
     auction.bidBox:SetText("")
 end
@@ -1189,13 +1185,18 @@ function auction:EndAuctionLocal()
     self.bids[bossName] = {}
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
-            self:IncrementDataVersion(self.selectedBoss, itemID)
             self:UpdateSortedBids(bossName, itemID)
             self:UpdateBidCaches(bossName, itemID)
         end
     end
     self:RequestRefresh()
     self:RequestSaveData()
+    -- Рассылаем полное (уже пустое) состояние босса всем — раньше для этого
+    -- было отдельное сообщение END, теперь просто STATE с full=true и
+    -- пустыми списками ставок по каждому предмету.
+    if self:IsLootMaster() then
+        self:SendBossState(bossName, "RAID", nil, true)
+    end
 end
 
 function auction:UpdateBidRowColors()

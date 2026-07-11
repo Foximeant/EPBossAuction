@@ -13,7 +13,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "2.4.5"
+auction.version = "2.4.19"
 auction.debug = false
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -54,8 +54,6 @@ auction.selectedItem = nil
 auction.lastLM = nil
 auction.myEP = 0
 
-auction.dataVersions = {}
-auction.lastVersions = {}
 auction.sortedBids = {}
 auction.maxBidCache = {}
 auction.myBidCache = {}
@@ -65,9 +63,7 @@ auction.pendingSaveTimer = nil
 auction.dataDirty = false
 auction.lastSaveTime = 0
 auction.isLMMode = false
-auction.receivedItems = {}
 auction.receivedSync = false
-auction.receivedAck = false
 
 auction.updateTimer = nil
 auction.lastEPUpdate = 0
@@ -107,25 +103,18 @@ auction.defaults = {
     },
     table = {
         itemFontSize = 12,
-        itemFont = "GameFontNormal",
-        itemColor = {1, 1, 1},
         itemWidth = 250,
         bidFontSize = 12,
-        bidFont = "GameFontNormal",
-        bidColor = {1, 1, 1},
-        bidWidth = 250,
         rowHeight = 20,
         showIcons = true,
         showTopBids = 2,
         hideNoBids = false,
-        alternatingRows = true,
         evenRowColor = {1, 1, 1, 0.03},
         oddRowColor = {0, 0, 0, 0},
         selectedRowColor = {0.3, 0.6, 1, 0.3},
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
         itemColorMode = "gold",
         tooltipAnchor = "CURSOR",
-        columnSplit = 40,
     },
     minimap = {
         show = true,
@@ -147,7 +136,6 @@ auction.defaults = {
         locked = false,
     },
     tokenQueue = {
-        text = "",
         lastType = nil,
         lastSlot = nil,
     },
@@ -321,73 +309,22 @@ function auction:UpdateBidCaches(bossName, itemID)
     self.myBidCache[key] = myBid
 end
 
-function auction:GetVersionKey(bossName, itemID)
-    if not bossName or not itemID then return nil end
-    return tostring(bossName) .. ":" .. tostring(itemID)
-end
-
-function auction:NormalizeVersionTable(versionTable)
-    local normalized = {}
-    if type(versionTable) ~= "table" then
-        return normalized
-    end
-
-    for key, version in pairs(versionTable) do
-        if type(version) == "number" then
-            local keyStr = tostring(key)
-            if keyStr:find(":", 1, true) then
-                normalized[keyStr] = version
-            elseif self.bosses[keyStr] then
-                for _, itemID in ipairs(self.bosses[keyStr]) do
-                    normalized[self:GetVersionKey(keyStr, itemID)] = version
-                end
-            end
-        end
-    end
-
-    return normalized
-end
-
-function auction:GetDataVersion(bossName, itemID)
-    local key = self:GetVersionKey(bossName, itemID)
-    return (key and self.dataVersions[key]) or 0
-end
-
-function auction:IncrementDataVersion(bossName, itemID)
-    local key = self:GetVersionKey(bossName, itemID)
-    if not key then return 0 end
-    self.dataVersions[key] = (self.dataVersions[key] or 0) + 1
-    return self.dataVersions[key]
-end
-
-function auction:GetLastVersion(bossName, itemID)
-    local key = self:GetVersionKey(bossName, itemID)
-    return (key and self.lastVersions[key]) or 0
-end
-
-function auction:SetLastVersion(bossName, itemID, version)
-    local key = self:GetVersionKey(bossName, itemID)
-    if key and version and version > 0 then
-        self.lastVersions[key] = version
-    end
-end
+-- Подсистема версионирования (GetVersionKey/NormalizeVersionTable/
+-- GetDataVersion/IncrementDataVersion/GetLastVersion/SetLastVersion) убрана:
+-- новый протокол (см. comm.lua, сообщения STATE/REQUEST_STATE) всегда
+-- передаёт полное состояние по боссу целиком, номера версий для дедупликации
+-- больше не нужны.
 
 function auction:ResetVersionsForNewLM()
-    self.lastVersions = {}
-    self.receivedItems = {}
     self.receivedSync = false
-    self.receivedAck = false
-    self:Debug("Сброшены версии ставок для нового Loot Master")
+    self:Debug("Сброс состояния синхронизации для нового Loot Master")
 end
 
 function auction:ResetVersionsOnGroupExit()
-    self.dataVersions = {}
-    self.lastVersions = {}
     self.lastLM = nil
-    self.receivedItems = {}
     self.receivedSync = false
-    self.receivedAck = false
-    self:Debug("Сброшены версии ставок после выхода из группы/рейда")
+    self.mySignupsSynced = false
+    self:Debug("Сброс состояния синхронизации после выхода из группы/рейда")
     if self.fullyLoaded then
         self:SaveData()
     end
@@ -535,7 +472,6 @@ function auction:LoadSettings()
     self.minimapButtonPosition = self.db.minimap.position
     self:LoadBidLog()
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
-    self.tokenQueueText = self.db.tokenQueue and self.db.tokenQueue.text or ""
     self:LoadTokenQueues()
 end
 
@@ -544,8 +480,6 @@ function auction:SaveSettings()
     -- реальной SavedVariable — отдельно присваивать EPBossAuctionSettings
     -- больше не нужно (и не нужно этого делать: это сломало бы внутреннее
     -- устройство AceDB с дефолтами через метатаблицы).
-    if not self.db.tokenQueue then self.db.tokenQueue = {} end
-    self.db.tokenQueue.text = self.tokenQueueText
     self:SaveBidLog()
 end
 
@@ -611,7 +545,6 @@ function auction:SaveData(force)
     self.db.general.offspecMultiplier = self.offspecMultiplier
     self.db.minimap.position = self.minimapButtonPosition
     EPBossAuctionSavedBids = self.bids
-    EPBossAuctionSavedVersions = self.dataVersions
     EPBossAuctionSavedTime = GetTime()
     EPBossAuctionSavedLM = UnitName("player")
     EPBossAuctionSavedSelectedBoss = self.selectedBoss

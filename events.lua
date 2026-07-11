@@ -21,8 +21,6 @@ function auction:OnInitialize()
         end
         self:Debug("В сохранении: "..savedCount.." ставок")
         self.bids = EPBossAuctionSavedBids
-        self.dataVersions = self:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
-        self.lastVersions = {}
         self:RebuildBidData()
 
         if EPBossAuctionSavedSelectedBoss and self.bosses[EPBossAuctionSavedSelectedBoss] then
@@ -72,8 +70,6 @@ function auction:OnInitialize()
     else
         self:Debug("Нет сохраненных данных")
         self.bids = {}
-        self.dataVersions = {}
-        self.lastVersions = {}
         self.windowScale = 1.0
         self.bidsLocked = false
         self:RebuildBidData()
@@ -154,7 +150,7 @@ function auction:OnRosterUpdate()
         self.groupRosterTimer = nil
         local playerName = UnitName("player")
         if not IsInRaid() and not IsInGroup() then
-            if self.lastLM or next(self.lastVersions) or next(self.dataVersions) then
+            if self.lastLM then
                 self:ResetVersionsOnGroupExit()
             end
             self:UpdateLockCheckbox()
@@ -168,7 +164,7 @@ function auction:OnRosterUpdate()
                 if self.selectedBoss then
                     self:RefreshTable()
                 end
-                self:QueueAddonMessage("LM", "RAID")
+                self:QueueAddonMessage("LM_ANNOUNCE", nil, "RAID", nil, "ALERT")
                 if self.syncAllTimer then
                     self:CancelTimer(self.syncAllTimer)
                 end
@@ -184,23 +180,16 @@ function auction:OnRosterUpdate()
                 currentLM = GetRaidRosterInfo(raidIndex)
             end
             if currentLM and currentLM ~= self.lastLM then
+                -- Лутер реально сменился (не просто кто-то ещё вошёл/вышел
+                -- из рейда) — запрашиваем актуальное состояние у нового
+                -- лутера один раз. В остальных случаях (состав рейда
+                -- поменялся, а лутер тот же) ничего слать не нужно: каждое
+                -- изменение ставок и так рассылается всем сразу через STATE,
+                -- запрос "а есть что новое?" на каждое шевеление состава
+                -- был главным источником сетевого спама.
                 self:ResetVersionsForNewLM()
                 self.lastLM = currentLM
-            elseif IsInRaid() or IsInGroup() then
-                self:SendToLootMaster("CHECK_VERSION")
-                if self.groupHelloTimer then
-                    self:CancelTimer(self.groupHelloTimer)
-                    self.groupHelloTimer = nil
-                end
-                self.groupHelloTimer = self:ScheduleTimer(function()
-                    self.groupHelloTimer = nil
-                    local bossParam = ""
-                    if self.selectedBoss then
-                        bossParam = ";"..self.selectedBoss
-                    end
-                    self:SendToLootMaster("HELLO"..bossParam)
-                    self:Debug("Отправлен HELLO после GROUP_ROSTER_UPDATE")
-                end, 1)
+                self:RequestDataFromLM()
             end
             self:UpdateLockCheckbox()
         end

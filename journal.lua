@@ -48,7 +48,7 @@ function auction:CreateJournalFrame()
         end
         self.resizeTimer = auction:ScheduleTimer(function()
             if self.journalFrame and self.journalFrame:IsShown() then
-                self:UpdateJournalScroll()
+                self:BuildJournalText(true)
             end
             self.resizeTimer = nil
         end, 0.1)
@@ -155,14 +155,13 @@ function auction:CreateJournalFrame()
     scrollFrame:SetScrollChild(content)
     self.journalContent = content
 
-    local textWidget = content:CreateFontString("EPBossAuctionJournalText", "OVERLAY", "GameFontNormal")
-    textWidget:SetPoint("TOPLEFT", 8, -4)
-    textWidget:SetPoint("RIGHT", -8, 0)
-    textWidget:SetJustifyH("LEFT")
-    textWidget:SetJustifyV("TOP")
-    textWidget:SetWordWrap(true)
-    textWidget:SetTextColor(1, 1, 1)
-    self.journalTextWidget = textWidget
+    -- Раньше весь журнал рендерился одним FontString через SetText —
+    -- у FontString в клиенте WoW есть жёсткий лимит примерно в 4000 символов,
+    -- из-за чего лог обрезался (и последняя видимая строка обрывалась
+    -- посреди текста). Теперь каждая запись — отдельный FontString
+    -- (см. GetJournalRow/BuildJournalText), лимит больше не действует.
+    self.journalRowPool = self.journalRowPool or {}
+    self.journalRows = self.journalRows or {}
 
     self.journalFrame = frame
 
@@ -170,22 +169,64 @@ function auction:CreateJournalFrame()
     self:ApplyJournalSkin()
 end
 
+function auction:GetJournalRow(index)
+    local row = self.journalRowPool[index]
+    if not row then
+        row = self.journalContent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        row:SetJustifyH("LEFT")
+        row:SetJustifyV("TOP")
+        row:SetWordWrap(true)
+        row:SetTextColor(1, 1, 1)
+        self.journalRowPool[index] = row
+    end
+    return row
+end
+
 function auction:BuildJournalText(force)
-    if not self.journalTextWidget then return end
+    if not self.journalContent then return end
     if not force and not self.journalDirty then return end
 
+    self.journalRows = self.journalRows or {}
+    self.journalRowPool = self.journalRowPool or {}
+    for _, row in ipairs(self.journalRows) do
+        row:Hide()
+    end
+    wipe(self.journalRows)
+
+    local scrollWidth = (self.journalScrollFrame and self.journalScrollFrame:GetWidth() or 0) - 28
+    if scrollWidth < 100 then
+        scrollWidth = 500
+    end
+
     local entries = self.bidLog or {}
+    local offsetY = 4
+
+    local function ShowRow(index, text)
+        local row = self:GetJournalRow(index)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", self.journalContent, "TOPLEFT", 8, -offsetY)
+        row:SetWidth(scrollWidth)
+        row:SetText(text)
+        row:Show()
+        table.insert(self.journalRows, row)
+        local rowHeight = row:GetStringHeight()
+        if not rowHeight or rowHeight == 0 then rowHeight = 14 end
+        offsetY = offsetY + rowHeight + 2
+    end
+
     if #entries == 0 then
-        self.journalTextWidget:SetText("Журнал пуст >_<")
+        ShowRow(1, "Журнал пуст >_<")
+        self.journalContentHeight = offsetY + 4
         self.journalDirty = false
         self:UpdateJournalScroll()
         return
     end
 
-    local textLines = {}
+    local rowIndex = 0
     for i = #entries, 1, -1 do
         local entry = entries[i]
         if entry then
+            rowIndex = rowIndex + 1
             local playerName = entry.player or "Игрок не найден"
             local amount = entry.amount or 0
             local itemName = entry.itemID and self:GetCachedItemName(entry.itemID) or "предмет не найден"
@@ -200,26 +241,24 @@ function auction:BuildJournalText(force)
                 amountStr = "поставил " .. self:FormatNumber(amount) .. " EP" .. offspecMark
             end
 
-            textLines[#textLines + 1] = string.format("%s %s %s на %s (%s)", timeStr, playerName, amountStr, itemName, bossName)
+            ShowRow(rowIndex, string.format("%s %s %s на %s (%s)", timeStr, playerName, amountStr, itemName, bossName))
         end
     end
 
-    self.journalTextWidget:SetText(table.concat(textLines, "\n"))
+    self.journalContentHeight = offsetY + 4
     self.journalDirty = false
     self:UpdateJournalScroll()
 end
 
 function auction:UpdateJournalScroll()
-    if not self.journalTextWidget or not self.journalContent or not self.journalScrollFrame then return end
+    if not self.journalContent or not self.journalScrollFrame then return end
 
     local scrollWidth = self.journalScrollFrame:GetWidth() - 28
     if scrollWidth < 100 then
         scrollWidth = 500
     end
 
-    self.journalTextWidget:SetWidth(scrollWidth)
-
-    local textHeight = self.journalTextWidget:GetStringHeight()
+    local textHeight = self.journalContentHeight
     if not textHeight or textHeight == 0 then
         textHeight = 400
     end
@@ -247,7 +286,7 @@ function auction:ToggleJournal()
         self.journalLayoutTimer = self:ScheduleTimer(function()
             self.journalLayoutTimer = nil
             if self.journalFrame and self.journalFrame:IsShown() then
-                self:UpdateJournalScroll()
+                self:BuildJournalText(true)
             end
         end, 0.1)
     end
@@ -255,7 +294,7 @@ end
 
 function auction:RefreshJournal()
     self.journalDirty = true
-    if not self.journalTextWidget then return end
+    if not self.journalContent then return end
     if self.journalFrame and self.journalFrame:IsShown() then
         if self.journalRefreshTimer then
             return

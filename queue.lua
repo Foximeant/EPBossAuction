@@ -4,7 +4,7 @@ local auction = EPBossAuction
 -- Типы токенов и слоты
 -- ======================
 local TOKEN_TYPES = {
-    "Охотник/Рыцарь смерти/Маг/Чернокнижник",
+    "Охотник/Разбойник/Маг/Чернокнижник",
     "Воин/Жрец/Друид",
     "Паладин/Разбойник/Шаман",
 }
@@ -524,7 +524,7 @@ function auction:ToggleMySignup()
             self:SendQueueUpdate(itemKey)
         end
     elseif IsInRaid() or IsInGroup() then
-        self:SendToLootMaster("QUEUE_JOIN;"..itemKey..":"..ts)
+        self:SendToLootMaster("QUEUE_JOIN", { [itemKey] = ts })
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Запись отправлена лутеру.")
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Запись сохранена. Она уедет лутеру, как только вы окажетесь с ним в одной группе.")
@@ -546,7 +546,7 @@ function auction:LeaveMySignup(itemKey)
             self:SendQueueUpdate(itemKey)
         end
     elseif IsInRaid() or IsInGroup() then
-        self:SendToLootMaster("QUEUE_LEAVE;"..itemKey)
+        self:SendToLootMaster("QUEUE_LEAVE", itemKey)
     end
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Вы вышли из очереди на \""..itemKey.."\".")
     self:RefreshQueueList()
@@ -556,13 +556,9 @@ end
 function auction:SendMySignups()
     if self:IsLootMaster() then return end
     self.db.mySignups = self.db.mySignups or {}
-    local parts = {}
-    for itemKey, ts in pairs(self.db.mySignups) do
-        table.insert(parts, itemKey..":"..ts)
-    end
-    if #parts == 0 then return end
-    self:SendToLootMaster("QUEUE_JOIN;"..table.concat(parts, ","))
-    self:Debug("Отправлены собственные записи в очередь ("..#parts..")")
+    if not next(self.db.mySignups) then return end
+    self:SendToLootMaster("QUEUE_JOIN", self.db.mySignups)
+    self:Debug("Отправлены собственные записи в очередь")
 end
 
 -- Вызывается при входе в мир / изменении состава группы (см. comm.lua и
@@ -572,6 +568,12 @@ function auction:SyncMySignupsIfNeeded()
     if not (IsInRaid() or IsInGroup()) then return end
     self.db.mySignups = self.db.mySignups or {}
     if not next(self.db.mySignups) then return end
+    -- Раньше это слалось заново на КАЖДЫЙ GROUP_ROSTER_UPDATE (то есть при
+    -- входе/выходе любого другого игрока), пока у нас есть хоть одна активная
+    -- запись — лишний повторный QUEUE_JOIN в рейд на каждое шевеление состава.
+    -- Достаточно один раз за сессию в текущей группе; флаг сбрасывается в
+    -- ResetVersionsOnGroupExit при выходе из группы/рейда.
+    if self.mySignupsSynced then return end
 
     if self:IsLootMaster() then
         local playerName = UnitName("player")
@@ -590,8 +592,10 @@ function auction:SyncMySignupsIfNeeded()
                 self:RefreshQueueList()
             end
         end
+        self.mySignupsSynced = true
     elseif self.lastLM then
         self:SendMySignups()
+        self.mySignupsSynced = true
     end
 end
 
@@ -620,12 +624,7 @@ end
 function auction:SendQueueUpdate(itemKey)
     if not self:IsLootMaster() then return end
     local queue = self.tokenQueues[itemKey] or {}
-    local parts = {}
-    for _, entry in ipairs(queue) do
-        table.insert(parts, entry.player..":"..entry.time)
-    end
-    local msg = "QUEUE_UPDATE;"..itemKey..";"..table.concat(parts, ",")
-    self:QueueAddonMessage(msg, "RAID")
+    self:QueueAddonMessage("QUEUE_UPDATE", { item = itemKey, queue = queue }, "RAID")
 end
 
 function auction:SaveTokenQueues()
@@ -659,22 +658,17 @@ function auction:RequestQueuesFromLM()
         return
     end
     self:Debug("Запрос очередей у лутера")
-    self:QueueAddonMessage("QUEUE_REQUEST", "RAID")
+    self:QueueAddonMessage("QUEUE_REQUEST", nil, "RAID")
 end
 
 function auction:SyncAllQueuesToRaid(target)
     if not self:IsLootMaster() then return end
-    local recipient = target
     for itemKey, queue in pairs(self.tokenQueues) do
-        local parts = {}
-        for _, entry in ipairs(queue) do
-            table.insert(parts, entry.player..":"..entry.time)
-        end
-        local msg = "QUEUE_SYNC;"..itemKey..";"..table.concat(parts, ",")
+        local payload = { item = itemKey, queue = queue }
         if target then
-            self:QueueAddonMessage(msg, "WHISPER", recipient)
+            self:QueueAddonMessage("QUEUE_SYNC", payload, "WHISPER", target)
         else
-            self:QueueAddonMessage(msg, "RAID")
+            self:QueueAddonMessage("QUEUE_SYNC", payload, "RAID")
         end
     end
     self:Debug("Очереди отправлены "..(target and ("игроку "..target) or "в рейд"))
@@ -683,23 +677,14 @@ end
 -- ======================
 -- Обработчики сети
 -- ======================
-local function ParseQueueEntries(playersPart)
-    local queue = {}
-    if playersPart and playersPart ~= "" then
-        for pair in playersPart:gmatch("([^,]+)") do
-            local playerName, ts = pair:match("^(.+):(%d+)$")
-            if playerName and ts then
-                table.insert(queue, { player = playerName, time = tonumber(ts) })
-            end
-        end
-    end
-    return queue
-end
+-- Раньше очередь по сети передавалась вручную собранной строкой вида
+-- "item;player1:ts1,player2:ts2" и разбиралась через gmatch/match — теперь
+-- payload это обычная Lua-таблица { item = itemKey, queue = {...} },
+-- ParseQueueEntries/сборка строк больше не нужны.
 
-function auction:Handle_QUEUE_UPDATE(rest, sender)
-    local itemKey, playersPart = rest:match("([^;]+);(.*)")
-    if not itemKey or not self.tokenQueues then return end
-    local queue = ParseQueueEntries(playersPart)
+function auction:Handle_QUEUE_UPDATE(data, sender)
+    if type(data) ~= "table" or not data.item or not self.tokenQueues then return end
+    local itemKey, queue = data.item, data.queue or {}
     self.tokenQueues[itemKey] = queue
     self:ReconcileMySignup(itemKey, queue)
     if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
@@ -710,15 +695,14 @@ function auction:Handle_QUEUE_UPDATE(rest, sender)
     end
 end
 
-function auction:Handle_QUEUE_REQUEST(rest, sender)
+function auction:Handle_QUEUE_REQUEST(data, sender)
     if not self:IsLootMaster() then return end
     self:SyncAllQueuesToRaid(sender)
 end
 
-function auction:Handle_QUEUE_SYNC(rest, sender)
-    local itemKey, playersPart = rest:match("([^;]+);(.*)")
-    if not itemKey then return end
-    local queue = ParseQueueEntries(playersPart)
+function auction:Handle_QUEUE_SYNC(data, sender)
+    if type(data) ~= "table" or not data.item then return end
+    local itemKey, queue = data.item, data.queue or {}
     self.tokenQueues[itemKey] = queue
     self:ReconcileMySignup(itemKey, queue)
     if self.queueFrame and self.queueFrame:IsShown() and self.selectedQueueItem == itemKey then
@@ -729,13 +713,14 @@ end
 
 -- Игрок сам записался (в любой момент, даже вне рейда) — при входе в общую
 -- группу с лутером это долетает сюда одним сообщением со всеми его записями.
-function auction:Handle_QUEUE_JOIN(rest, sender)
+-- data = { [itemKey] = timestamp, ... }
+function auction:Handle_QUEUE_JOIN(data, sender)
     if not self:IsLootMaster() then return end
+    if type(data) ~= "table" then return end
     local changed = {}
-    for pair in rest:gmatch("([^,]+)") do
-        local itemKey, ts = pair:match("^(.+):(%d+)$")
-        if itemKey and ts then
-            if self:InsertQueueSignup(itemKey, sender, tonumber(ts)) then
+    for itemKey, ts in pairs(data) do
+        if type(ts) == "number" then
+            if self:InsertQueueSignup(itemKey, sender, ts) then
                 changed[itemKey] = true
             end
         end
@@ -751,9 +736,9 @@ function auction:Handle_QUEUE_JOIN(rest, sender)
     end
 end
 
-function auction:Handle_QUEUE_LEAVE(rest, sender)
+function auction:Handle_QUEUE_LEAVE(data, sender)
     if not self:IsLootMaster() then return end
-    local itemKey = rest
+    local itemKey = data
     if not itemKey or itemKey == "" then return end
     if self:RemoveQueueEntryByPlayer(itemKey, sender) then
         self:SaveTokenQueues()

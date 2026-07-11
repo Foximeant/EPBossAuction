@@ -171,7 +171,7 @@ function auction:CreateOptionsPanel()
         auction:SaveData()
         
         -- Рассылаем новый коэффициент рейду
-        auction:QueueAddonMessage("OFFSPEC_MULT;" .. value, "RAID")
+        auction:QueueAddonMessage("OFFSPEC_MULT", value, "RAID", nil, "ALERT")
         
         -- Обновляем отображение максимальной ставки
         if auction.myEP > 0 then
@@ -185,16 +185,6 @@ function auction:CreateOptionsPanel()
         offspecMultiplierSlider:SetAlpha(0.5)
     end
 
-    -- Подтверждение перед выходом из очереди на токен
-    local confirmQueueLeaveCheck = CreateFrame("CheckButton", "EPBAConfirmQueueLeaveCheck", generalTab, "UICheckButtonTemplate")
-    confirmQueueLeaveCheck:SetPoint("TOPLEFT", offspecMultiplierSlider, "BOTTOMLEFT", 0, -25)
-    confirmQueueLeaveCheck.text = _G[confirmQueueLeaveCheck:GetName() .. "Text"]
-    confirmQueueLeaveCheck.text:SetText("Подтверждать выход из очереди на токен")
-    confirmQueueLeaveCheck:SetChecked(self.db.general.confirmQueueLeave)
-    confirmQueueLeaveCheck:SetScript("OnClick", function(self)
-        auction.db.general.confirmQueueLeave = self:GetChecked()
-    end)
-    
     -- ----------------------------------------------
     -- Вкладка "Таблица"
     -- ----------------------------------------------
@@ -450,6 +440,29 @@ function auction:CreateOptionsPanel()
     end)
      
     -- ----------------------------------------------
+    -- Вкладка "Очередь"
+    -- ----------------------------------------------
+    local queueTab = CreateFrame("Frame", nil, contentChild)
+    queueTab:SetPoint("TOPLEFT", 10, -10)
+    queueTab:SetSize(540, 400)
+    queueTab:Hide()
+    self.queueOptionsTab = queueTab
+
+    local queueTitle = queueTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    queueTitle:SetPoint("TOPLEFT", 10, -10)
+    queueTitle:SetText("Очередь на токены:")
+    queueTitle:SetFontObject(GameFontNormalLarge)
+
+    local confirmQueueLeaveCheck = CreateFrame("CheckButton", "EPBAConfirmQueueLeaveCheck", queueTab, "UICheckButtonTemplate")
+    confirmQueueLeaveCheck:SetPoint("TOPLEFT", queueTitle, "BOTTOMLEFT", 0, -15)
+    confirmQueueLeaveCheck.text = _G[confirmQueueLeaveCheck:GetName() .. "Text"]
+    confirmQueueLeaveCheck.text:SetText("Подтверждать выход из очереди на токен")
+    confirmQueueLeaveCheck:SetChecked(self.db.general.confirmQueueLeave)
+    confirmQueueLeaveCheck:SetScript("OnClick", function(self)
+        auction.db.general.confirmQueueLeave = self:GetChecked()
+    end)
+
+    -- ----------------------------------------------
     -- Вкладка "Кнопка миникарты"
     -- ----------------------------------------------
     local minimapTab = CreateFrame("Frame", nil, contentChild)
@@ -538,7 +551,44 @@ function auction:CreateOptionsPanel()
         auction:ApplySettings()
         auction:SaveSettings()
     end)
-    
+
+    -- Показывать тултип при наведении
+    local minimapTooltipCheck = CreateFrame("CheckButton", "EPBAMinimapTooltipCheck", minimapTab, "UICheckButtonTemplate")
+    minimapTooltipCheck:SetPoint("TOPLEFT", resetPosButton, "BOTTOMLEFT", 0, -20)
+    minimapTooltipCheck.text = _G[minimapTooltipCheck:GetName() .. "Text"]
+    minimapTooltipCheck.text:SetText("Показывать подсказку при наведении")
+    minimapTooltipCheck:SetChecked(self.db.minimap.tooltip)
+    minimapTooltipCheck:SetScript("OnClick", function(self)
+        auction.db.minimap.tooltip = self:GetChecked()
+    end)
+
+    -- Слой отрисовки кнопки (на случай конфликтов с другими аддонами миникарты)
+    local minimapStrataText = minimapTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    minimapStrataText:SetPoint("TOPLEFT", minimapTooltipCheck, "BOTTOMLEFT", 0, -20)
+    minimapStrataText:SetText("Слой отрисовки:")
+    minimapStrataText:SetWidth(100)
+
+    local minimapStrataDropdown = CreateFrame("Frame", "EPBAMinimapStrataDropdown", minimapTab, "UIDropDownMenuTemplate")
+    minimapStrataDropdown:SetPoint("LEFT", minimapStrataText, "RIGHT", 10, 0)
+    UIDropDownMenu_SetWidth(minimapStrataDropdown, 120)
+    local strataOptions = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+    UIDropDownMenu_SetText(minimapStrataDropdown, self.db.minimap.strata or "MEDIUM")
+    UIDropDownMenu_Initialize(minimapStrataDropdown, function()
+        for _, strata in ipairs(strataOptions) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = strata
+            info.func = function()
+                auction.db.minimap.strata = strata
+                UIDropDownMenu_SetText(minimapStrataDropdown, strata)
+                if auction.minimapButton then
+                    auction.minimapButton:SetFrameStrata(strata)
+                end
+            end
+            info.checked = (auction.db.minimap.strata == strata)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+
     -- ----------------------------------------------
     -- Вкладка "Окно"
     -- ----------------------------------------------
@@ -691,8 +741,9 @@ function auction:CreateOptionsPanel()
     -- Кнопки вкладок
     -- ----------------------------------------------
     local tabs = {
-        { text = "Общие", frame = generalTab },
+        { text = "Ставки", frame = generalTab },
         { text = "Таблица", frame = tableTab },
+        { text = "Очередь", frame = queueTab },
         { text = "Миникарта", frame = minimapTab },
         { text = "Окно", frame = windowTab },
     }
@@ -809,6 +860,10 @@ function auction:RefreshOptionsPanelControls()
     if _G["EPBAShowMinimapCheck"] then _G["EPBAShowMinimapCheck"]:SetChecked(db.minimap.show) end
     setSlider("EPBAButtonSizeSlider", db.minimap.size)
     setSlider("EPBARadiusSlider", db.minimap.radius)
+    if _G["EPBAMinimapTooltipCheck"] then _G["EPBAMinimapTooltipCheck"]:SetChecked(db.minimap.tooltip) end
+    if _G["EPBAMinimapStrataDropdown"] then
+        UIDropDownMenu_SetText(_G["EPBAMinimapStrataDropdown"], db.minimap.strata or "MEDIUM")
+    end
 
     setSlider("EPBAAlphaSlider", db.window.alpha, math.floor(db.window.alpha * 100) .. "%")
     if _G["EPBALockWindowCheck"] then _G["EPBALockWindowCheck"]:SetChecked(db.window.locked) end
