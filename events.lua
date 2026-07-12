@@ -103,8 +103,19 @@ function auction:OnEnable()
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     self:RegisterEvent("LOOT_OPENED")
     self:RegisterEvent("LOOT_CLOSED")
-    self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnRosterUpdate")
-    self:RegisterEvent("RAID_ROSTER_UPDATE", "OnRosterUpdate")
+    -- RAID_ROSTER_UPDATE — устаревший алиас GROUP_ROSTER_UPDATE, в текущем
+    -- клиенте стреляет практически всегда синхронно с ним же на одно и то же
+    -- изменение состава; регистрация обоих на один обработчик просто
+    -- удваивала количество вызовов, поэтому оставляем только один.
+    --
+    -- RegisterBucketEvent (AceBucket-3.0) вместо RegisterEvent + ручного
+    -- self:ScheduleTimer/CancelTimer: раньше дебаунс был "sliding window" —
+    -- каждое новое событие полностью отменяло и заново взводило таймер,
+    -- из-за чего при нестабильном составе (массовый заход в рейд, дисконнекты)
+    -- обработчик мог не срабатывать секундами. Bucket гарантированно
+    -- срабатывает не реже, чем раз в interval секунд, если события продолжают
+    -- поступать, и полностью останавливается, когда события прекращаются.
+    self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 2, "OnRosterUpdate")
     self:RegisterEvent("PLAYER_LOGOUT")
     self:RegisterEvent("EPGP_UPDATE", "OnEPGPUpdate")
     self:RegisterEvent("EPGP_DATA_CHANGED", "OnEPGPUpdate")
@@ -139,76 +150,74 @@ function auction:LOOT_CLOSED()
     end
 end
 
+-- Вызывается AceBucket (см. OnEnable) не чаще раза в 2 секунды, пока
+-- продолжают идти события GROUP_ROSTER_UPDATE, и один раз после того как
+-- они прекратились. Аргумент (таблица "какие события и сколько раз
+-- пришли") нам не нужен — интересует только сам факт "состав менялся".
 function auction:OnRosterUpdate()
     if not self.fullyLoaded then return end
     self:CacheRaidClasses()
-    if self.groupRosterTimer then
-        self:CancelTimer(self.groupRosterTimer)
-        self.groupRosterTimer = nil
-    end
-    self.groupRosterTimer = self:ScheduleTimer(function()
-        self.groupRosterTimer = nil
-        local playerName = UnitName("player")
-        if not IsInRaid() and not IsInGroup() then
-            if self.lastLM then
-                self:ResetVersionsOnGroupExit()
-            end
-            self:UpdateLockCheckbox()
-            self:UpdateLMButtonsState()
-            return
-        end
-        if self:IsLootMaster() then
-            if self.lastLM ~= playerName then
-                self.lastLM = playerName
-                self:UpdateLockCheckbox()
-                if self.selectedBoss then
-                    self:RefreshTable()
-                end
-                self:QueueAddonMessage("LM_ANNOUNCE", nil, "RAID", nil, "ALERT")
-                if self.syncAllTimer then
-                    self:CancelTimer(self.syncAllTimer)
-                end
-                self.syncAllTimer = self:ScheduleTimer(function()
-                    self.syncAllTimer = nil
-                    self:SyncAllToRaid()
-                end, 2)
-            end
-        else
-            local currentLM = nil
-            local method, partyIndex, raidIndex = GetLootMethod()
-            if method == "master" and raidIndex then
-                currentLM = GetRaidRosterInfo(raidIndex)
-            end
-            if currentLM and currentLM ~= self.lastLM then
-                -- Лутер реально сменился (не просто кто-то ещё вошёл/вышел
-                -- из рейда) — запрашиваем актуальное состояние у нового
-                -- лутера один раз. В остальных случаях (состав рейда
-                -- поменялся, а лутер тот же) ничего слать не нужно: каждое
-                -- изменение ставок и так рассылается всем сразу через STATE,
-                -- запрос "а есть что новое?" на каждое шевеление состава
-                -- был главным источником сетевого спама.
-                self:ResetVersionsForNewLM()
-                self.lastLM = currentLM
-                self:RequestDataFromLM()
-            end
-            self:UpdateLockCheckbox()
-        end
-        self:UpdateLMButtonsState()
-        self:SyncMySignupsIfNeeded()
 
-        if self.optionsPanel and self.optionsPanel:IsShown() then
-            local slider = _G["EPBAOffspecMultiplierSlider"]
-            if slider then
-                if self:IsLootMaster() then
-                    slider:Enable()
-                    slider:SetAlpha(1.0)
-                else
-                    slider:Disable()
-                    slider:SetAlpha(0.5)
-                end
+    local playerName = UnitName("player")
+    if not IsInRaid() and not IsInGroup() then
+        if self.lastLM then
+            self:ResetVersionsOnGroupExit()
+        end
+        self:UpdateLockCheckbox()
+        self:UpdateLMButtonsState()
+        return
+    end
+    if self:IsLootMaster() then
+        if self.lastLM ~= playerName then
+            self.lastLM = playerName
+            self:UpdateLockCheckbox()
+            if self.selectedBoss then
+                self:RefreshTable()
+            end
+            self:QueueAddonMessage("LM_ANNOUNCE", nil, "RAID", nil, "ALERT")
+            if self.syncAllTimer then
+                self:CancelTimer(self.syncAllTimer)
+            end
+            self.syncAllTimer = self:ScheduleTimer(function()
+                self.syncAllTimer = nil
+                self:SyncAllToRaid()
+            end, 2)
+        end
+    else
+        local currentLM = nil
+        local method, partyIndex, raidIndex = GetLootMethod()
+        if method == "master" and raidIndex then
+            currentLM = GetRaidRosterInfo(raidIndex)
+        end
+        if currentLM and currentLM ~= self.lastLM then
+            -- Лутер реально сменился (не просто кто-то ещё вошёл/вышел
+            -- из рейда) — запрашиваем актуальное состояние у нового
+            -- лутера один раз. В остальных случаях (состав рейда
+            -- поменялся, а лутер тот же) ничего слать не нужно: каждое
+            -- изменение ставок и так рассылается всем сразу через STATE,
+            -- запрос "а есть что новое?" на каждое шевеление состава
+            -- был главным источником сетевого спама.
+            self:ResetVersionsForNewLM()
+            self.lastLM = currentLM
+            self:RequestDataFromLM()
+        end
+        self:UpdateLockCheckbox()
+    end
+    self:UpdateLMButtonsState()
+    self:SyncMySignupsIfNeeded()
+
+    if self.optionsPanel and self.optionsPanel:IsShown() then
+        local slider = _G["EPBAOffspecMultiplierSlider"]
+        if slider then
+            if self:IsLootMaster() then
+                slider:Enable()
+                slider:SetAlpha(1.0)
+            else
+                slider:Disable()
+                slider:SetAlpha(0.5)
             end
         end
-    end, 2)
+    end
 end
 
 function auction:PLAYER_LOGOUT()

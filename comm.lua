@@ -33,6 +33,33 @@ local function GetSafeItemInfo(itemID)
     return "предмет "..tostring(itemID)
 end
 
+-- Проверяет sender напрямую через игровое API, а не через self.lastLM.
+-- self.lastLM обновляется с задержкой (LM_ANNOUNCE, roster-бакет раз в
+-- 2 сек) — если сравнивать только с ним, сообщение от реального лутера
+-- в этом окне рассинхрона молча отбрасывается (это и была причина, из-за
+-- которой "Очистить" и обычные ставки иногда не долетали до части рейда).
+local function IsSenderCurrentLootMaster(sender)
+    local method, partyIndex, raidIndex = GetLootMethod()
+    if method ~= "master" or not raidIndex then return false end
+    return GetRaidRosterInfo(raidIndex) == sender
+end
+
+-- Общая проверка для входящих LM->клиент сообщений (STATE/LOCK/BID_RESULT):
+-- если sender совпадает с закэшированным self.lastLM — ок, как раньше.
+-- Если не совпадает, но по факту является актуальным лутером по данным
+-- игры — самоисправляемся (подтягиваем self.lastLM) вместо отбрасывания.
+-- Возвращает true, если сообщению можно доверять.
+function auction:ConfirmMessageFromLM(sender)
+    if sender == self.lastLM then return true end
+    if IsSenderCurrentLootMaster(sender) then
+        self:Debug("self.lastLM был устаревшим ("..tostring(self.lastLM)..
+            "), исправлено на актуального лутера "..tostring(sender))
+        self.lastLM = sender
+        return true
+    end
+    return false
+end
+
 -- ======================
 -- Транспорт (AceComm-3.0 + AceSerializer-3.0)
 -- ======================
@@ -354,7 +381,7 @@ end
 
 function auction:Handle_BID_RESULT(data, sender)
     if type(data) ~= "table" then return end
-    if sender ~= self.lastLM then return end
+    if not self:ConfirmMessageFromLM(sender) then return end
     if data.status == "too_low" then
         print(string.format("|cffff0000[EPBA]|r Ставка слишком мала. Минимум: %s EP", self:FormatNumber(data.minBid or 0)))
     elseif data.status == "locked" then
@@ -370,7 +397,7 @@ function auction:Handle_STATE(data, sender)
         self:Debug("Я лутер, игнорирую STATE от "..tostring(sender))
         return
     end
-    if sender ~= self.lastLM then
+    if not self:ConfirmMessageFromLM(sender) then
         self:Debug("Игнорируем STATE от не-Loot Master: "..tostring(sender).." (ожидался "..tostring(self.lastLM)..")")
         return
     end
@@ -454,7 +481,7 @@ function auction:Handle_LM_ANNOUNCE(data, sender)
 end
 
 function auction:Handle_LOCK(data, sender)
-    if sender ~= self.lastLM then return end
+    if not self:ConfirmMessageFromLM(sender) then return end
     if self:IsLootMaster() then
         self:Debug("Я лутер, игнорирую свой LOCK")
         return
@@ -463,7 +490,7 @@ function auction:Handle_LOCK(data, sender)
 end
 
 function auction:Handle_OFFSPEC_MULT(data, sender)
-    if sender ~= self.lastLM then return end
+    if not self:ConfirmMessageFromLM(sender) then return end
     local multiplier = tonumber(data)
     if multiplier then
         self.offspecMultiplier = multiplier

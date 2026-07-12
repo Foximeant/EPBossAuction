@@ -88,12 +88,14 @@ end
 function auction:StartEPUpdates()
     if self.epUpdateTimer then
         self:CancelTimer(self.epUpdateTimer)
+        self.epUpdateTimer = nil
     end
-    local function updateFunc()
-        auction:CheckAndUpdateEP()
-        auction.epUpdateTimer = auction:ScheduleTimer(updateFunc, auction.epUpdateInterval)
-    end
-    self.epUpdateTimer = self:ScheduleTimer(updateFunc, self.epUpdateInterval)
+    -- ScheduleRepeatingTimer вместо самодельной рекурсии через ScheduleTimer:
+    -- один хендл на весь цикл жизни таймера, не нужно вручную пересоздавать
+    -- его на каждый тик (и нет риска словить дублирующийся хендл, если
+    -- StartEPUpdates вызовут повторно между отменой старого и созданием
+    -- нового таймера).
+    self.epUpdateTimer = self:ScheduleRepeatingTimer("CheckAndUpdateEP", self.epUpdateInterval)
     self:Debug("Запущено периодическое обновление EP (интервал "..self.epUpdateInterval.." сек)")
 end
 
@@ -145,8 +147,23 @@ end
 
 function auction:ForceEPUpdate(callback)
     if self.isUpdatingEP then
-        self:Debug("ForceEPUpdate уже выполняется, пропускаем")
-        if callback then callback(false, self.myEP) end
+        -- Раньше здесь коллбэк вызывался с success=false и на этом всё —
+        -- если это было обновление EP, запущенное из-под ставки игрока
+        -- (SendBidLocal), ставка тихо терялась: пользователь жал "Сделать
+        -- ставку" ровно в момент, когда параллельно уже шёл период. апдейт
+        -- EP (раз в epUpdateInterval) или апдейт по EPGP_UPDATE/DATA_CHANGED
+        -- (который как раз чаще всего прилетает во время самого рейда,
+        -- когда офицеры начисляют EP — то есть именно когда люди бидают).
+        -- Внешне это выглядело как "ставка регистрируется с задержкой":
+        -- на самом деле она просто не уходила, и её приходилось повторять.
+        -- Теперь вместо дропа — кладём коллбэк в очередь и выполняем его
+        -- сразу по завершении уже идущего обновления, с тем же результатом,
+        -- без действий со стороны игрока.
+        self:Debug("ForceEPUpdate уже выполняется, коллбэк поставлен в очередь")
+        self.pendingEPCallbacks = self.pendingEPCallbacks or {}
+        if callback then
+            table.insert(self.pendingEPCallbacks, callback)
+        end
         return
     end
     self.isUpdatingEP = true
@@ -199,6 +216,17 @@ function auction:ForceEPUpdate(callback)
         end
         auction:Debug("Принудительное обновление завершено, EP="..newEP)
         if callback then callback(true, newEP) end
+
+        -- Отдаём тот же свежий результат всем, кто "постучался" за время
+        -- обновления (см. начало функции) — вместо тихой потери их ставок.
+        if auction.pendingEPCallbacks and #auction.pendingEPCallbacks > 0 then
+            local queued = auction.pendingEPCallbacks
+            auction.pendingEPCallbacks = {}
+            for _, queuedCallback in ipairs(queued) do
+                queuedCallback(true, newEP)
+            end
+        end
+
         auction.isUpdatingEP = false
     end, 0.5)
 end
