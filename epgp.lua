@@ -123,18 +123,6 @@ function auction:UpdateEPDisplay()
     if self.frame and self.frame:IsShown() and self.myEPText then
         self.myEPText:SetText("Ваш ЕП: "..self:FormatNumber(self.myEP))
         self:UpdateMaxBidDisplay()
-        
-        local currentBid = tonumber(self.bidBox:GetText()) or 0
-        local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
-        local maxBid = self:GetMaxBidAmount(isOffspec)
-        
-        if currentBid > 0 and currentBid > maxBid then
-            self.myEPText:SetTextColor(1, 0, 0)
-            self.bidBox:SetTextColor(1, 0, 0)
-        else
-            self.myEPText:SetTextColor(1, 1, 1)
-            self.bidBox:SetTextColor(1, 1, 1)
-        end
     end
 end
 

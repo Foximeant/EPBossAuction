@@ -116,6 +116,14 @@ function auction:OnEnable()
     -- срабатывает не реже, чем раз в interval секунд, если события продолжают
     -- поступать, и полностью останавливается, когда события прекращаются.
     self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 2, "OnRosterUpdate")
+    -- Смена метода лута (например рейд-лидер переключил на "Мастер лута"
+    -- и назначил кого-то) — это отдельное событие, не связанное с составом
+    -- рейда. GROUP_ROSTER_UPDATE на него не реагирует, поэтому без этой
+    -- регистрации UpdateLockCheckbox/UpdateLMButtonsState могли не
+    -- обновиться до следующего реального изменения состава (кто-то
+    -- зашёл/вышел) — отсюда чекбокс "Блок", застрявший задизейбленным
+    -- у свежеиспечённого лутера.
+    self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", "OnRosterUpdate")
     self:RegisterEvent("PLAYER_LOGOUT")
     self:RegisterEvent("EPGP_UPDATE", "OnEPGPUpdate")
     self:RegisterEvent("EPGP_DATA_CHANGED", "OnEPGPUpdate")
@@ -170,7 +178,6 @@ function auction:OnRosterUpdate()
     if self:IsLootMaster() then
         if self.lastLM ~= playerName then
             self.lastLM = playerName
-            self:UpdateLockCheckbox()
             if self.selectedBoss then
                 self:RefreshTable()
             end
@@ -201,8 +208,11 @@ function auction:OnRosterUpdate()
             self.lastLM = currentLM
             self:RequestDataFromLM()
         end
-        self:UpdateLockCheckbox()
     end
+    -- Безусловно, а не только на разовый переход в/из ЛМ — иначе при
+    -- повторном срабатывании без смены lastLM чекбокс мог не подхватить
+    -- актуальное состояние (см. также PARTY_LOOT_METHOD_CHANGED выше).
+    self:UpdateLockCheckbox()
     self:UpdateLMButtonsState()
     self:SyncMySignupsIfNeeded()
 

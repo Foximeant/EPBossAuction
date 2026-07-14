@@ -199,22 +199,12 @@ function auction:CreateUI()
             self:SetText(string.sub(text, 1, 6))
             self:SetCursorPosition(6)
         end
-        local amount = tonumber(text) or 0
-        local isOffspec = auction.offspecCheckbox and auction.offspecCheckbox:GetChecked() or false
-        local maxBid = auction:GetMaxBidAmount(isOffspec)
-        if amount > 0 and amount > maxBid then
-            self:SetTextColor(1, 0, 0)
-            auction.myEPText:SetTextColor(1, 0, 0)
-            if auction.maxBidText then
-                auction.maxBidText:SetTextColor(1, 0, 0)
-            end
-        else
-            self:SetTextColor(1, 1, 1)
-            auction.myEPText:SetTextColor(1, 1, 1)
-            if auction.maxBidText then
-                auction.maxBidText:SetTextColor(0.7, 0.7, 0.7)
-            end
-        end
+        -- Раньше тут была отдельная копия подсветки (цвет текста), которая
+        -- не знала про бар ставки — из-за этого бар не двигался при вводе
+        -- цифр и обновлялся только когда где-то ещё вызывался
+        -- UpdateMaxBidDisplay (например по клику на офф-спек). Теперь один
+        -- источник истины на всё: текст, цвета и бар.
+        auction:UpdateMaxBidDisplay()
     end)
     editBox:SetScript("OnEnterPressed", function()
         auction:SendBidLocal()
@@ -242,16 +232,27 @@ function auction:CreateUI()
     lockText:SetText("Блок")
     lockCheckbox:SetChecked(self.bidsLocked or false)
     lockCheckbox.text = lockText
+    -- Обработчик клика ставим один раз и навсегда, с проверкой роли внутри
+    -- (Disable() и так не даёт кликнуть не-ЛМ — проверка здесь чисто
+    -- защитная). Раньше это переустанавливалось через SetScript в
+    -- UpdateLockCheckbox при каждом обновлении состава/лут-метода, а
+    -- HookScript в Blizzard API реализован поверх того же SetScript —
+    -- то есть каждая переустановка стирала хук RefreshState из
+    -- SkinCheckbox, и визуальная галочка переставала обновляться по
+    -- клику до следующего OnShow/OnEnable.
+    lockCheckbox:SetScript("OnClick", function(self)
+        if not auction:IsLootMaster() then
+            self:SetChecked(auction.bidsLocked or false)
+            return
+        end
+        local checked = self:GetChecked()
+        local state = (checked == 1)
+        auction:SetBidsLocked(state)
+        auction:QueueAddonMessage("LOCK", state, "RAID", nil, "ALERT")
+    end)
     if not self:IsLootMaster() then
         lockCheckbox:Disable()
         lockCheckbox:SetAlpha(0.5)
-    else
-        lockCheckbox:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()
-            local state = (checked == 1)
-            auction:SetBidsLocked(state)
-            auction:QueueAddonMessage("LOCK", state, "RAID", nil, "ALERT")
-        end)
     end
     self.lockCheckbox = lockCheckbox
     self:SkinCheckbox(lockCheckbox)
@@ -264,17 +265,7 @@ function auction:CreateUI()
     offspecText:SetText("Офф-спек")
     offspecCheckbox:SetChecked(false)
     offspecCheckbox:SetScript("OnClick", function(self)
-        local checked = self:GetChecked()
-        if auction.myEP > 0 then
-            auction:UpdateMaxBidDisplay()
-        end
-        local amount = tonumber(auction.bidBox:GetText()) or 0
-        local maxBid = auction:GetMaxBidAmount(checked)
-        if amount > 0 and amount > maxBid then
-            auction.bidBox:SetTextColor(1, 0, 0)
-        else
-            auction.bidBox:SetTextColor(1, 1, 1)
-        end
+        auction:UpdateMaxBidDisplay()
     end)
     self.offspecCheckbox = offspecCheckbox
     self:SkinCheckbox(offspecCheckbox)
@@ -338,6 +329,29 @@ function auction:CreateUI()
     maxBidText:SetText("Макс. ставка: ...")
     maxBidText:SetTextColor(0.7, 0.7, 0.7)
     auction.maxBidText = maxBidText
+
+    -- 11.1 Полоса "сколько от макс. ставки я сейчас набираю" —
+    -- заполняется по мере ввода числа в bidBox относительно GetMaxBidAmount.
+    -- До этого о превышении лимита сигнализировал только цвет текста —
+    -- бар даёт то же самое, но заметнее и в стилистике ElvUI (плоская
+    -- полоса на тёмном фоне с акцентным цветом заливки).
+    local bidBar = CreateFrame("StatusBar", "EPBossAuctionBidBar", leftPanel)
+    bidBar:SetSize(140, 10)
+    bidBar:SetPoint("TOP", maxBidText, "BOTTOM", 0, -6)
+    bidBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    bidBar:SetMinMaxValues(0, 1)
+    bidBar:SetValue(0)
+    bidBar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    local themeColors = self.theme.colors
+    bidBar:SetBackdropColor(themeColors.inputBg[1], themeColors.inputBg[2], themeColors.inputBg[3], themeColors.inputBg[4])
+    bidBar:SetBackdropBorderColor(themeColors.border[1], themeColors.border[2], themeColors.border[3], themeColors.border[4])
+    bidBar:GetStatusBarTexture():SetVertexColor(themeColors.accent[1], themeColors.accent[2], themeColors.accent[3], 1)
+    auction.bidBar = bidBar
 
     -- ======================
     -- ПРАВАЯ ОБЛАСТЬ – ТАБЛИЦА
@@ -527,10 +541,28 @@ function auction:UpdateMaxBidDisplay()
     
     self.maxBidText:SetText(string.format("Макс. ставка: %s", self:FormatNumber(maxBid)))
     
-    if currentBid > 0 and currentBid > maxBid then
+    local overCap = currentBid > 0 and currentBid > maxBid
+    if overCap then
         self.maxBidText:SetTextColor(1, 0, 0)
+        self.bidBox:SetTextColor(1, 0, 0)
+        if self.myEPText then self.myEPText:SetTextColor(1, 0, 0) end
     else
         self.maxBidText:SetTextColor(0.7, 0.7, 0.7)
+        self.bidBox:SetTextColor(1, 1, 1)
+        if self.myEPText then self.myEPText:SetTextColor(1, 1, 1) end
+    end
+
+    if self.bidBar then
+        -- maxBid может быть 0 (EP ещё не подтянулся/офф-спек без EP) —
+        -- тогда просто пустая полоса, без деления на ноль.
+        local fraction = maxBid > 0 and (currentBid / maxBid) or 0
+        self.bidBar:SetValue(math.min(fraction, 1))
+        local c = self.theme.colors
+        if overCap then
+            self.bidBar:GetStatusBarTexture():SetVertexColor(0.85, 0.15, 0.15, 1)
+        else
+            self.bidBar:GetStatusBarTexture():SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 1)
+        end
     end
 end
 
@@ -563,16 +595,9 @@ function auction:UpdateLockCheckbox()
     if isLM then
         self.lockCheckbox:Enable()
         self.lockCheckbox:SetAlpha(1.0)
-        self.lockCheckbox:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()
-            local state = (checked == 1)
-            auction:SetBidsLocked(state)
-            auction:QueueAddonMessage("LOCK", state, "RAID", nil, "ALERT")
-        end)
     else
         self.lockCheckbox:Disable()
         self.lockCheckbox:SetAlpha(0.5)
-        self.lockCheckbox:SetScript("OnClick", nil)
     end
     if self.bidButton then
         if self.bidsLocked then
