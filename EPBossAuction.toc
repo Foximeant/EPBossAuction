@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: EPBossAuction
-## Notes: Доска ставок на лут (EP), редизайн с нуля на Ace3
+## Notes: Доска ставок на лут (EP)
 ## Author: Demisaa
 ## Version: 3.0.0(beta)
 ## SavedVariables: EPBossAuctionDB
