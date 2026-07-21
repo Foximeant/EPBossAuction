@@ -4,7 +4,7 @@
 ## Author: Demisaa
 ## Version: 3.0.0(beta)
 ## SavedVariables: EPBossAuctionDB
-
+## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main
 Libs\embeds.xml
 
 Core.lua
