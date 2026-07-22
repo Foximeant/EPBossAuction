@@ -10,6 +10,11 @@ local ROW_BACKDROP = {
 	edgeFile = "Interface\\Buttons\\WHITE8x8",
 	edgeSize = 1,
 }
+-- Черновик несохранённого ввода — переживает пересборку Render(), которая
+-- происходит при КАЖДОЙ чужой ставке (см. State:ApplyBid -> UI:Refresh()).
+-- Без этого напечатанный текст стирался, стоило кому-то поставить раньше вас.
+local draftKey, draftText, draftOffspec
+
 local ROW_HEIGHT = 24
 local RANK_COL_WIDTH = 34
 local NAME_COL_WIDTH = 260
@@ -19,6 +24,8 @@ local NAME_COL_WIDTH = 260
 -- onBack(): вернуться к ItemListView
 function BidDetailView:Render(container, bossID, itemID, onBack)
 	container:ReleaseChildren()
+
+	local key = tostring(bossID) .. ":" .. tostring(itemID)
 
 	-- ВАЖНО: content-пейн TreeGroup настроен на Fill-layout (ожидает ровно
 	-- одного ребёнка). Поэтому все секции кладём в один wrapper со своим
@@ -130,6 +137,18 @@ function BidDetailView:Render(container, bossID, itemID, onBack)
 	offspecCheck:SetWidth(150)
 	bottomRow:AddChild(offspecCheck)
 
+	-- Восстанавливаем то, что человек уже успел напечатать/выбрать для
+	-- ЭТОГО предмета до того, как пришла чужая ставка и пересобрала вид
+	if draftKey == key then
+		if draftText and draftText ~= "" then
+			edit:SetText(draftText)
+			edit.editbox:SetCursorPosition(#draftText)
+		end
+		if draftOffspec then
+			offspecCheck:SetValue(true)
+		end
+	end
+
 	-- Ваш ЕП (из гильдейского аддона EPGP) — справочно, под вводом ставки.
 	-- При офф-спеке показываем половину: ставки в офф-спек обычно вдвое
 	-- дешевле по местным правилам, но ставим реальную сумму сам игрок —
@@ -143,6 +162,14 @@ function BidDetailView:Render(container, bossID, itemID, onBack)
 	local epLabel = AceGUI:Create("Label")
 	epLabel:SetFullWidth(true)
 	epRow:AddChild(epLabel)
+
+	local function GetMaxAllowedBid()
+		local ep = ns.EPGPBridge:GetPlayerEP(UnitName("player"))
+		if not ep then
+			return nil -- не знаем ЕП — не ограничиваем
+		end
+		return offspecCheck:GetValue() and math.floor(ep / 2) or ep
+	end
 
 	local function RefreshEPLabel()
 		local ep = ns.EPGPBridge:GetPlayerEP(UnitName("player"))
@@ -160,8 +187,37 @@ function BidDetailView:Render(container, bossID, itemID, onBack)
 		end
 	end
 
-	offspecCheck:SetCallback("OnValueChanged", RefreshEPLabel)
+	-- Живая проверка при вводе: если сумма больше доступного ЕП — красим
+	-- поле красным. Возвращает true, если текущий ввод допустим (в т.ч.
+	-- когда ЕП неизвестен и мы никого не ограничиваем).
+	local function ValidateBidAmount()
+		local amount = tonumber(edit:GetText())
+		local maxAllowed = GetMaxAllowedBid()
+		if amount and maxAllowed and amount > maxAllowed then
+			edit.editbox:SetTextColor(1, 0.15, 0.15)
+			return false
+		end
+		edit.editbox:SetTextColor(1, 1, 1)
+		return true
+	end
+
+	local function SaveDraft()
+		draftKey = key
+		draftText = edit:GetText()
+		draftOffspec = offspecCheck:GetValue()
+	end
+
+	edit:SetCallback("OnTextChanged", function()
+		SaveDraft()
+		ValidateBidAmount()
+	end)
+	offspecCheck:SetCallback("OnValueChanged", function()
+		SaveDraft()
+		RefreshEPLabel()
+		ValidateBidAmount()
+	end)
 	RefreshEPLabel()
+	ValidateBidAmount()
 
 	-- AceGUI EditBox сам добавляет "OK" в поле ввода — отдельная кнопка не нужна
 	edit:SetCallback("OnEnterPressed", function(widget, event, text)
@@ -170,7 +226,19 @@ function BidDetailView:Render(container, bossID, itemID, onBack)
 			print("|cffff0000EPBA:|r ставка должна быть числом")
 			return
 		end
+		local maxAllowed = GetMaxAllowedBid()
+		if maxAllowed and amount > maxAllowed then
+			print(string.format("|cffff0000EPBA:|r ставка %d превышает доступный ЕП (%d)", amount, maxAllowed))
+			ValidateBidAmount()
+			return
+		end
 		ns.State:PlaceBid(bossID, itemID, amount, offspecCheck:GetValue())
+		-- Ставка ушла — черновик для этого предмета больше не актуален,
+		-- иначе следующая пересборка вида (в т.ч. от нашей же ставки) снова
+		-- подставит только что отправленный текст обратно в поле
+		if draftKey == key then
+			draftKey, draftText, draftOffspec = nil, nil, nil
+		end
 		BidDetailView:Render(container, bossID, itemID, onBack)
 	end)
 end

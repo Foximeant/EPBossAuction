@@ -13,6 +13,14 @@ local defaults = {
 	},
 }
 
+-- IsInRaid()/IsInGroup() появились только в патче 5.0.4 (Pandaria) — в
+-- клиенте 3.3.5 их просто нет, вызов падал с ошибкой "attempt to call
+-- a nil value" и код ниже никогда не выполнялся (отсюда не работали и
+-- очистка стейта при выходе из группы, и синхронизация при входе).
+local function IsGrouped()
+	return GetNumPartyMembers() > 0 or GetNumRaidMembers() > 0
+end
+
 function addon:OnInitialize()
 	self.db = LibStub("AceDB-3.0"):New("EPBossAuctionDB", defaults, true) -- char-scope
 
@@ -20,7 +28,7 @@ function addon:OnInitialize()
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnGroupRosterUpdate")
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED", "OnItemInfoReceived")
 
-	self.wasInGroup = IsInRaid() or IsInGroup()
+	self.wasInGroup = IsGrouped()
 end
 
 function addon:OnEnable()
@@ -46,8 +54,17 @@ function addon:ToggleLootMaster()
 	if self.db.char.isLootMaster then
 		print("|cff00ff00EPBA:|r вы назначены лутмастером")
 		if ns.Comm then
-			ns.Comm.masterName = UnitName("player")
-			ns.Comm:AnnounceLM()
+			-- Сначала пытаемся подтянуть state от текущего известного ЛМ
+			-- (если он есть и ещё не успел снять с себя роль) — и только
+			-- через секунду объявляем себя новым ЛМ. Без этой задержки все
+			-- (включая старого ЛМ) тут же переспросили бы sync у НАС, а мы
+			-- в момент объявления могли ещё не знать чужие ставки — они бы
+			-- просто исчезли у всех.
+			ns.Comm:RequestSync()
+			self:ScheduleTimer(function()
+				ns.Comm.masterName = UnitName("player")
+				ns.Comm:AnnounceLM()
+			end, 1)
 		end
 	else
 		print("|cffff0000EPBA:|r вы больше не лутмастер")
@@ -80,7 +97,7 @@ end
 -- Делается независимо на каждом клиенте (не полагаемся на broadcast от ЛМ,
 -- т.к. ЛМ может вылететь без graceful disconnect).
 function addon:OnGroupRosterUpdate()
-	local inGroup = IsInRaid() or IsInGroup()
+	local inGroup = IsGrouped()
 	if not inGroup and self.wasInGroup then
 		wipe(self.db.char.state)
 		if ns.UI and ns.UI.Refresh then

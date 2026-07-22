@@ -4,7 +4,7 @@ local AceGUI = LibStub("AceGUI-3.0")
 ns.UI = {}
 local UI = ns.UI
 
-local frame, treeGroup, lmButton
+local frame, wrapper, treeGroup, lmButton
 local currentBossID, currentItemID, currentView -- currentView: "list" | "detail" | nil
 local resizeTimer
 
@@ -49,6 +49,7 @@ function UI:Create()
 	frame:SetCallback("OnClose", function(widget)
 		AceGUI:Release(widget)
 		frame = nil
+		wrapper = nil
 		if resizeTimer then
 			ns.addon:CancelTimer(resizeTimer)
 			resizeTimer = nil
@@ -61,18 +62,25 @@ function UI:Create()
 	-- (у AceGUI Frame и так есть дефолт 400x200, но он слишком мал под нашу таблицу)
 	frame.frame:SetMinResize(560, 320)
 
-	-- У AceGUI SimpleGroup при изменении ширины родителем НЕ пересчитывается
-	-- внутренний Flow-layout (только обновляется content.width, раскладка
-	-- остаётся старой) — из-за этого при сужении окна перенесённый текст
-	-- ставок наезжал на нижнюю границу строки. Просто перерисовываем текущий
-	-- вид заново после ресайза — с небольшой задержкой, чтобы не дёргать
-	-- перерисовку на каждый пиксель во время перетаскивания угла окна.
+	-- У AceGUI SimpleGroup/Flow при живом ресайзе окна НЕ пересчитывается
+	-- раскладка автоматически: анкорится через SetAllPoints только самый
+	-- верхний child (у Fill-layout), а всё, что вложено глубже (наш
+	-- wrapper с topBar+treeGroup, и внутри — строки таблиц), позиционируется
+	-- явными пиксельными SetWidth/SetPoint, посчитанными один раз в момент
+	-- создания. Без принудительного DoLayout() после ресайза элементы
+	-- оставались на старых координатах, но кликабельная область могла уже
+	-- относиться к другому виджету — отсюда "клики не туда".
+	-- Пересчитываем с небольшой задержкой, чтобы не дёргать это на каждый
+	-- пиксель во время перетаскивания угла окна.
 	frame.frame:HookScript("OnSizeChanged", function()
 		if resizeTimer then
 			ns.addon:CancelTimer(resizeTimer)
 		end
 		resizeTimer = ns.addon:ScheduleTimer(function()
 			resizeTimer = nil
+			if wrapper then
+				wrapper:DoLayout()
+			end
 			UI:Refresh()
 		end, 0.15)
 	end)
@@ -84,7 +92,7 @@ function UI:Create()
 	-- Кнопка — обычный AceGUI Button, а не сырой CreateFrame: так её
 	-- подхватывают скины интерфейса (ElvUI и подобные), которые смотрят
 	-- именно на AceGUI-виджеты.
-	local wrapper = AceGUI:Create("SimpleGroup")
+	wrapper = AceGUI:Create("SimpleGroup")
 	wrapper:SetLayout("Flow")
 	wrapper:SetFullWidth(true)
 	wrapper:SetFullHeight(true)
@@ -125,6 +133,7 @@ function UI:Toggle()
 	if frame then
 		AceGUI:Release(frame)
 		frame = nil
+		wrapper = nil
 		if resizeTimer then
 			ns.addon:CancelTimer(resizeTimer)
 			resizeTimer = nil

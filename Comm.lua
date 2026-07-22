@@ -26,9 +26,11 @@ local Comm = ns.Comm
 -- заново узнаётся через SYNC_RESPONSE/LM_ANNOUNCE при каждом входе в группу.
 Comm.masterName = nil
 
+-- IsInRaid()/IsInGroup() — API из патча 5.0.4, недоступны в 3.3.5.
+-- Используем классические счётчики, они есть в клиенте с самого начала.
 local function GetGroupChannel()
-	if IsInRaid() then return "RAID" end
-	if IsInGroup() then return "PARTY" end
+	if GetNumRaidMembers() > 0 then return "RAID" end
+	if GetNumPartyMembers() > 0 then return "PARTY" end
 	return nil
 end
 
@@ -91,6 +93,9 @@ function addon:OnCommReceived(prefix, message, distribution, sender)
 	elseif msgType == MSG_STATE_UPDATE then
 		ns.State:ApplyBossState(payload.bossID, payload.bossData)
 	elseif msgType == MSG_SYNC_REQUEST then
+		if sender == UnitName("player") then
+			return -- не отвечаем сами себе на собственный broadcast
+		end
 		if addon:IsLootMaster() then
 			ns.Comm:SendSyncResponse(sender)
 		end

@@ -4,12 +4,18 @@ local AceGUI = LibStub("AceGUI-3.0")
 ns.ItemListView = {}
 local ItemListView = ns.ItemListView
 
--- Общая таблица на все строки — не аллоцируем новую при каждом Render()
+-- Общая таблица на все строки — не аллоцируем новую при каждом Render().
+-- Только заливка, без рамки (edgeFile/edgeSize убраны — теперь строки
+-- разделяет только зебра, а не бордер)
 local ROW_BACKDROP = {
 	bgFile = "Interface\\Buttons\\WHITE8x8",
-	edgeFile = "Interface\\Buttons\\WHITE8x8",
-	edgeSize = 1,
 }
+
+-- Базовая яркость заливки чередующихся строк (зебра). Наведение добавляет
+-- сверху ещё немного, поэтому даже "тёмная" строка при ховере отличима.
+local ZEBRA_ALPHA_ODD = 0.035
+local ZEBRA_ALPHA_EVEN = 0
+local HOVER_ALPHA_BONUS = 0.05
 
 local NAME_COL_WIDTH = 300
 
@@ -53,7 +59,7 @@ function ItemListView:Render(container, bossID, onItemClick)
 		return
 	end
 
-	for _, itemID in ipairs(boss.items) do
+	for i, itemID in ipairs(boss.items) do
 		local name, icon = ns.ItemInfo:GetDisplay(itemID)
 
 		-- Строка — SimpleGroup с двумя колонками фиксированной ширины,
@@ -73,8 +79,10 @@ function ItemListView:Render(container, bossID, onItemClick)
 		-- переработанного фрейма (см. Util:ResetRawInteractivity).
 		ns.Util:ResetRawInteractivity(row.frame)
 		row.frame:SetBackdrop(ROW_BACKDROP)
-		row.frame:SetBackdropColor(0, 0, 0, 0)
-		row.frame:SetBackdropBorderColor(1, 1, 1, 0.15)
+
+		-- Зебра: чередуем яркость заливки через строку, вместо рамки
+		local baseAlpha = (i % 2 == 0) and ZEBRA_ALPHA_EVEN or ZEBRA_ALPHA_ODD
+		row.frame:SetBackdropColor(1, 1, 1, baseAlpha)
 		row.frame:EnableMouse(true)
 		row.frame:SetScript("OnMouseUp", function()
 			onItemClick(bossID, itemID)
@@ -83,11 +91,11 @@ function ItemListView:Render(container, bossID, onItemClick)
 			GameTooltip:SetOwner(rowFrame, "ANCHOR_LEFT")
 			GameTooltip:SetHyperlink("item:" .. itemID)
 			GameTooltip:Show()
-			rowFrame:SetBackdropColor(1, 1, 1, 0.07)
+			rowFrame:SetBackdropColor(1, 1, 1, baseAlpha + HOVER_ALPHA_BONUS)
 		end)
 		row.frame:SetScript("OnLeave", function(rowFrame)
 			GameTooltip:Hide()
-			rowFrame:SetBackdropColor(0, 0, 0, 0)
+			rowFrame:SetBackdropColor(1, 1, 1, baseAlpha)
 		end)
 
 		local nameLabel = AceGUI:Create("Label")
