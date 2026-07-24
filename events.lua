@@ -7,8 +7,6 @@ f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("PLAYER_LOGOUT")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
-f:RegisterEvent("LOOT_OPENED")
-f:RegisterEvent("LOOT_CLOSED")
 f:RegisterEvent("EPGP_UPDATE")
 f:RegisterEvent("EPGP_DATA_CHANGED")
 
@@ -113,18 +111,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             return
         end
         auction:HandleWorldEnter()
-
-    elseif event == "LOOT_OPENED" then
-        if auction.fullyLoaded and auction.IsLootMaster and auction:IsLootMaster() then
-            auction:ScheduleTimer(function()
-                auction:ShowLootMasterWindowFromLoot()
-            end, 0.1)
-        end
-
-    elseif event == "LOOT_CLOSED" then
-        if auction.lootMasterFrame then
-            auction.lootMasterFrame:Hide()
-        end
 
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, msg, channel, sender = arg1, ...

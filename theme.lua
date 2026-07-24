@@ -1,14 +1,19 @@
 local auction = EPBossAuction
 
+-- Цветовая схема в стиле ElvUI: плоская нейтральная серо-чёрная база
+-- (без синего/цветного оттенка фона, как было раньше) + один яркий
+-- акцентный цвет поверх неё. Классический ElvUI держит панели почти
+-- чёрными, обводку — чистым чёрным в 1px, а цвет использует точечно:
+-- только на фокусе/выделении/прогресс-барах, а не на каждой кнопке.
 auction.theme = {
     colors = {
-        panel = {0.07, 0.09, 0.12, 0.95},
-        border = {0.18, 0.22, 0.30, 1},
-        button = {0.16, 0.20, 0.28, 0.95},
-        buttonHover = {0.22, 0.30, 0.42, 1},
-        buttonDisabled = {0.10, 0.12, 0.16, 0.8},
-        accent = {0.35, 0.65, 1.0, 1},
-        inputBg = {0.05, 0.06, 0.09, 1},
+        panel = {0.06, 0.06, 0.06, 0.95},
+        border = {0.0, 0.0, 0.0, 1},
+        button = {0.10, 0.10, 0.10, 0.95},
+        buttonHover = {0.16, 0.16, 0.16, 1},
+        buttonDisabled = {0.04, 0.04, 0.04, 0.8},
+        accent = {0.10, 0.55, 0.95, 1},
+        inputBg = {0.045, 0.045, 0.045, 1},
     },
     symbols = {
         font = "Interface\\AddOns\\EPBossAuction\\fonts\\DejaVuSans.ttf",
@@ -21,11 +26,19 @@ auction.theme = {
 
 function auction:TrySetSymbolFont(fontString, size)
     if not fontString then return false end
+    -- Раньше в кандидаты входили ещё STANDARD_TEXT_FONT и Fonts\ARIALN.TTF.
+    -- SetFont на них возвращает true (шрифт как файл грузится нормально),
+    -- но это латинские шрифты клиента без глифов ✓/▼ — сам символ
+    -- рендерится пустым местом, а функция при этом считалась успешной,
+    -- поэтому ASCII-фолбэк (x/v) даже не пробовался. Отсюда пустой квадрат
+    -- у чекбокса при "Заблокировать ставки" вместо символа.
+    -- Юникод-глиф способны отдать только специально собранные шрифты —
+    -- пробуем только их, и сразу возвращаем false, если их нет:
+    -- вызывающий код тогда сам переключится на ASCII-фолбэк с обычным
+    -- GameFontNormal, который гарантированно отрисуется.
     local candidates = {
         self.db and self.db.general and self.db.general.symbolFont,
         self.theme and self.theme.symbols and self.theme.symbols.font,
-        STANDARD_TEXT_FONT,
-        "Fonts\\ARIALN.TTF",
     }
     for _, fontPath in ipairs(candidates) do
         if fontPath and fontPath ~= "" then
@@ -83,11 +96,13 @@ function auction:SkinButton(button)
     button:HookScript("OnEnter", function(btn)
         if btn:IsEnabled() then
             btn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+            btn:SetBackdropBorderColor(c.accent[1], c.accent[2], c.accent[3], c.accent[4])
         end
     end)
     button:HookScript("OnLeave", function(btn)
         if btn:IsEnabled() then
             btn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+            btn:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
         else
             btn:SetBackdropColor(c.buttonDisabled[1], c.buttonDisabled[2], c.buttonDisabled[3], c.buttonDisabled[4])
         end
@@ -155,6 +170,7 @@ function auction:SkinCheckbox(checkbox)
         mark:SetFontObject(GameFontNormal)
         mark:SetText(symbols.checkFallback or "x")
     end
+    mark:SetTextColor(c.accent[1], c.accent[2], c.accent[3], 1)
     mark:Hide()
     checkbox._epbaMark = mark
 
@@ -177,6 +193,18 @@ function auction:SkinCheckbox(checkbox)
         box:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
         RefreshState(box)
     end)
+
+    -- OnClick/OnShow ловят только реальный клик мышью или повторный показ
+    -- окна. Когда состояние чекбокса меняют программно — SetChecked(state),
+    -- например при получении LOCK по сети или в SetBidsLocked — ни один
+    -- из этих скриптов не срабатывает, и галочка визуально "зависает" в
+    -- старом положении, хотя GetChecked() уже вернёт новое значение.
+    -- Оборачиваем сам SetChecked, чтобы поймать вообще любое изменение.
+    local origSetChecked = checkbox.SetChecked
+    checkbox.SetChecked = function(box, ...)
+        origSetChecked(box, ...)
+        RefreshState(box)
+    end
 
     RefreshState(checkbox)
     checkbox._epbaSkinned = true

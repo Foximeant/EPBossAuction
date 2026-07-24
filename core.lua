@@ -6,28 +6,28 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.0.2"
+auction.version = "2.3.7"
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
 
 auction.bosses = {
-    ["Архимонд"] = {156148, 156149, 156151, 156154, 156155, 156168, 156169, 156170, 156171, 156172, 156173, 156174, 156175, 156176, 156177, 156178, 156179},
+    ["Каз'рогал"] = {31092, 31093, 31094},
+    ["Архимонд"] = {156148, 156149, 156151, 156154, 156155, 156168, 156169, 156170, 156171, 156172, 156173, 156174, 156175, 156176, 156177, 156178, 156179, 31097, 31095, 31096},
     ["Мурозонд"] = {139026, 139027, 139028, 139029, 139030, 139031, 139032, 139033, 139034, 139035, 139036, 139037, 139038, 139039, 139048, 139049, 139050, 139051, 139045, 139053, 139054, 139055, 139056, 139057, 139058},
     ["Верховный полководец Надж'ентус"] = {156181, 156182, 156183, 156184, 156185, 156186, 156187, 156188, 156189, 156190, 156191, 156192, 156193, 156194, 156195, 156196},
     ["Супремус"] = {156197, 156198, 156199, 156200, 156201, 156202, 156203, 156204, 156205, 156206, 156207, 156208, 156209, 156210, 156211, 156212},
     ["Реликварий душ"] = {156224, 156225, 156226, 156227, 156228, 156229, 156230, 156231, 156232, 156233},
     ["Гуртогг Кипящая Кровь"] = {156234, 156235, 156236, 156237, 156238, 156239, 156240, 156242, 156243, 156244, 156256},
     ["Терон Кровожад"] = {156245, 156246, 156247, 156248, 156249, 156250, 156251, 156252, 156253, 156254},
-    ["Тень Акамы"] = {99898, 156213, 156214, 156215, 156216, 156217, 156218, 156220, 156221, 156222, 156223, 34853, 34854, 34855},
+    ["Тень Акамы"] = {99898, 156213, 156214, 156215, 156216, 156217, 156218, 156220, 156221, 156222, 156223},
     ["Зорт"] = {97753, 97754, 97755, 97756, 97757, 97760, 97761, 97762, 97763, 97767, 97768, 97769},
-    ["Т6 токены"] = {34848, 34851, 34852, 31097, 31095, 31096},
-    ["Матушка Шахраз"] = {31101, 31102, 31103},
-    ["Совет Иллидари"] = {31098, 31099, 31100},
-    ["Иллидан Ярость Бури"] = {31089, 31090, 31091, 32837, 32838},
+    ["Матушка Шахраз"] = {156267, 156257, 156265, 156258, 156260, 156261, 156259, 156266, 156262, 156263, 156264, 31101, 31102, 31103},
+    ["Совет Иллидари"] = {156274, 156275, 156276, 156277, 156278, 156279, 156280, 156281, 156282, 156283, 156284, 31098, 31099, 31100},
+    ["Иллидан Ярость Бури"] = {156268, 156269, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089, 31090, 31091, 119287, 119288},
 }
 auction.bossOrder = {
-    "Т6 токены",
+    "Каз'рогал",
     "Архимонд",
     "Мурозонд",
     "Зорт",
@@ -90,7 +90,7 @@ auction.playerClassCache = {}
 auction.defaults = {
     general = {
         debug = false,
-        minBid = 1000,
+        minBid = 100,
         confirmBid = false,
         soundEnabled = true,
         soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
@@ -136,9 +136,6 @@ auction.defaults = {
         y = 0,
         alpha = 1.0,
         locked = false,
-    },
-    tokenQueue = {
-        text = "",
     },
 }
 
@@ -554,6 +551,9 @@ end
 
 function auction:LoadSettings()
     self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
+    if self.db.general.minBid == 1000 then
+        self.db.general.minBid = 100
+    end
     self.db.window.width = math.max(650, self.db.window.width or 650)
     self.db.window.height = math.max(515, self.db.window.height or 515)
     self.debug = self.db.general.debug
@@ -561,14 +561,10 @@ function auction:LoadSettings()
     self.minimapButtonPosition = self.db.minimap.position
     self:LoadBidLog()
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
-    self.tokenQueueText = self.db.tokenQueue and self.db.tokenQueue.text or ""
-    self:LoadTokenQueues()
 end
 
 function auction:SaveSettings()
     EPBossAuctionSettings = self.db
-    if not self.db.tokenQueue then self.db.tokenQueue = {} end
-    self.db.tokenQueue.text = self.tokenQueueText
     self:SaveBidLog()
 end
 
@@ -758,10 +754,3 @@ function auction:ClearBidLog()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
 end
 
-function auction:LoadTokenQueues()
-    if self.db and self.db.tokenQueues then
-        self.tokenQueues = self.db.tokenQueues
-    else
-        self.tokenQueues = {}
-    end
-end

@@ -316,25 +316,14 @@ function auction:CreateUI()
     self.journalButton = journalButton
     self:SkinButton(journalButton)
 
-    -- 9. Кнопка "Очередь"
-    local queueButton = CreateFrame("Button", "EPBossAuctionQueueButton", leftPanel, "UIPanelButtonTemplate")
-    queueButton:SetSize(140, 25)
-    queueButton:SetPoint("TOP", journalButton, "BOTTOM", 0, -8)
-    queueButton:SetText("Очередь")
-    queueButton:SetScript("OnClick", function()
-        auction:ToggleQueue()
-    end)
-    self.queueButton = queueButton
-    self:SkinButton(queueButton)
-
-    -- 10. Текст "Ваш ЕП"
+    -- 9. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epText:SetPoint("TOP", queueButton, "BOTTOM", 0, -15)
+    epText:SetPoint("TOP", journalButton, "BOTTOM", 0, -15)
     epText:SetJustifyH("CENTER")
     epText:SetText("Ваш ЕП: ...")
     auction.myEPText = epText
 
-    -- 11. Текст максимальной ставки
+    -- 10. Текст максимальной ставки
     local maxBidText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     maxBidText:SetPoint("TOP", epText, "BOTTOM", 0, -2)
     maxBidText:SetJustifyH("CENTER")
@@ -1266,8 +1255,5 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
 
     if self:IsLootMaster() then
         self:QueueSync(bossName, itemID)
-        if self.RefreshLootMasterWindowIfShown then
-            self:RefreshLootMasterWindowIfShown()
-        end
     end
 end
