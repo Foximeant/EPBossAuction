@@ -3,7 +3,7 @@
 ## Author: Demissa
 ## Version: 3.0.4(release)
 ## Notes: Таблица ставок ЕП
-## SavedVariables: EPBossAuctionSavedBids, EPBossAuctionSavedVersions, EPBossAuctionSavedTime, EPBossAuctionSavedLM, EPBossAuctionSavedSelectedBoss, EPBossAuctionSavedSelectedItem, EPBossAuctionSavedScale, EPBossAuctionSavedMinimapPos, EPBossAuctionBidsLocked, EPBossAuctionSavedOffspecMultiplier, EPBossAuctionSettings, EPBossAuctionBidLog
+## SavedVariables: EPBossAuctionSavedBids, EPBossAuctionSavedVersions, EPBossAuctionSavedTime, EPBossAuctionSavedLM, EPBossAuctionSavedSelectedBoss, EPBossAuctionSavedSelectedItem, EPBossAuctionSavedScale, EPBossAuctionSavedMinimapPos, EPBossAuctionBidsLocked, EPBossAuctionSavedOffspecMultiplier, EPBossAuctionSettings
 ## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main
 core.lua
 theme.lua
@@ -13,4 +13,3 @@ minimap.lua
 ui.lua
 options.lua
 events.lua
-journal.lua

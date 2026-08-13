@@ -270,7 +270,6 @@ function auction:Handle_BID(rest, sender)
             end
         end
         self:CheckIfOutbid(bossName, itemID)
-        self:AddBidLogEntry(playerName, 0, itemID, bossName, isOffspecBool)
         self:Debug("Отказ от ставки обработан")
         return
     end
@@ -303,7 +302,6 @@ function auction:Handle_BID(rest, sender)
         end
     end
     self:CheckIfOutbid(bossName, itemID)
-    self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspecBool)
     SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender)
     self:Debug("Ставка обработана, отправлен SYNC")
 end
@@ -350,7 +348,6 @@ function auction:Handle_SYNC(rest, sender)
                 end
             end
         end
-        self:LogBidChangesFromSync(oldBids, newBids, itemID, bossName)
         self.bids[bossName][itemID] = newBids
         self:UpdateSortedBids(bossName, itemID)
         self:UpdateBidCaches(bossName, itemID)

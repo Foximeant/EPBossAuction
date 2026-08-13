@@ -89,10 +89,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
         
-        if auction and auction.ApplyJournalSkin then
-            auction:ApplyJournalSkin()
-        end
-        
         if auction.pendingWorldEnter then
             auction:HandleWorldEnter()
             auction.pendingWorldEnter = nil

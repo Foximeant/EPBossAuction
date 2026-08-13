@@ -6,8 +6,8 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.0.4(release)"
-auction.debug = true
+auction.version = "3.0.5"
+auction.debug = false
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
 
@@ -22,9 +22,9 @@ auction.bosses = {
     ["Терон Кровожад"] = {156245, 156246, 156247, 156248, 156249, 156250, 156251, 156252, 156253, 156254},
     ["Тень Акамы"] = {99898, 156213, 156214, 156215, 156216, 156217, 156218, 156220, 156221, 156222, 156223},
     ["Зорт"] = {97753, 97754, 97755, 97756, 97757, 97760, 97761, 97762, 97763, 97767, 97768, 97769},
-    ["Матушка Шахраз"] = {156267, 156257, 156265, 156258, 156260, 156261, 156259, 156266, 156262, 156263, 156264, 31101, 31102, 31103},
-    ["Совет Иллидари"] = {156274, 156275, 156276, 156277, 156278, 156279, 156280, 156281, 156282, 156283, 156284, 31098, 31099, 31100},
-    ["Иллидан Ярость Бури"] = {156268, 156269, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089, 31090, 31091, 119287, 119288},
+    ["Матушка Шахраз"] = {102229, 156267, 156257, 156265, 156258, 156260, 156261, 156259, 156266, 156262, 156263, 156264, 31101, 31102, 31103},
+    ["Совет Иллидари"] = {102226, 102222, 102227, 156274, 156275, 156276, 156277, 156278, 156280, 156281, 156282, 156284, 31098, 31099, 31100},
+    ["Иллидан Ярость Бури"] = {102228, 156268, 156269, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089, 31090, 31091, 119287, 119288},
 }
 auction.bossOrder = {
     "Каз'рогал",
@@ -79,7 +79,6 @@ auction.minimapButtonPosition = { angle = 0 }
 auction.bidsLocked = false
 auction.offspecMultiplier = 0.5
 
-auction.bidLog = {}
 auction.outbidNotified = {}
 auction.outbidThrottle = {}
 
@@ -112,7 +111,7 @@ auction.defaults = {
         alternatingRows = true,
         evenRowColor = {1, 1, 1, 0.03},
         oddRowColor = {0, 0, 0, 0},
-        selectedRowColor = {0.3, 0.6, 1, 0.3},
+        selectedRowColor = {0.80, 0.62, 0.10, 0.30},
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
         itemColorMode = "gold",
         tooltipAnchor = "CURSOR",
@@ -559,13 +558,11 @@ function auction:LoadSettings()
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
-    self:LoadBidLog()
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
 end
 
 function auction:SaveSettings()
     EPBossAuctionSettings = self.db
-    self:SaveBidLog()
 end
 
 function auction:RequestSaveData(delay)
@@ -731,26 +728,5 @@ function auction:RequestRefresh()
             self:RefreshTable()
         end
     end, 0.1)
-end
-
-function auction:LoadBidLog()
-    if EPBossAuctionBidLog then
-        self.bidLog = EPBossAuctionBidLog
-    else
-        self.bidLog = {}
-    end
-end
-
-function auction:SaveBidLog()
-    EPBossAuctionBidLog = self.bidLog
-end
-
-function auction:ClearBidLog()
-    self.bidLog = {}
-    self:SaveBidLog()
-    if self.journalFrame and self.journalFrame:IsShown() then
-        self:RefreshJournal()
-    end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Журнал ставок очищен.")
 end
 

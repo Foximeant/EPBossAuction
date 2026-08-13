@@ -62,7 +62,7 @@ function auction:CreateUI()
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("RS EPBossAuction "..self.version)
+    title:SetText("EPBA "..self.version)
 
     -- Кнопка закрытия
     local close = CreateFrame("Button", "EPBossAuctionCloseButton", frame)
@@ -305,25 +305,14 @@ function auction:CreateUI()
     self.endButton = endButton
     self:SkinButton(endButton)
 
-    -- 8. Кнопка "Журнал"
-    local journalButton = CreateFrame("Button", "EPBossAuctionJournalButton", leftPanel, "UIPanelButtonTemplate")
-    journalButton:SetSize(140, 25)
-    journalButton:SetPoint("TOP", endButton, "BOTTOM", 0, -8)
-    journalButton:SetText("Журнал ставок")
-    journalButton:SetScript("OnClick", function()
-        auction:ToggleJournal()
-    end)
-    self.journalButton = journalButton
-    self:SkinButton(journalButton)
-
-    -- 9. Текст "Ваш ЕП"
+    -- 8. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    epText:SetPoint("TOP", journalButton, "BOTTOM", 0, -15)
+    epText:SetPoint("TOP", endButton, "BOTTOM", 0, -15)
     epText:SetJustifyH("CENTER")
     epText:SetText("Ваш ЕП: ...")
     auction.myEPText = epText
 
-    -- 10. Текст максимальной ставки
+    -- 9. Текст максимальной ставки
     local maxBidText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     maxBidText:SetPoint("TOP", epText, "BOTTOM", 0, -2)
     maxBidText:SetJustifyH("CENTER")
@@ -487,6 +476,9 @@ function auction:CreateUI()
         auction:ForceClickable()
         auction:UpdateLMButtonsState()
         auction:ForceEPUpdate()
+        if auction.selectedBoss then
+            auction:RefreshTable()
+        end
     end)
 
 end
@@ -578,15 +570,13 @@ end
 -- Обновление состояния кнопок для лутера
 -- ======================
 function auction:UpdateLMButtonsState()
-    if not self.endButton or not self.journalButton then return end
+    if not self.endButton then return end
     local isLM = self:IsLootMaster()
     self.endButton:SetEnabled(isLM)
     if isLM then
         self.endButton:SetAlpha(1.0)
-        self.journalButton:SetAlpha(1.0)
     else
         self.endButton:SetAlpha(0.5)
-        self.journalButton:SetAlpha(1.0)
     end
 end
 
@@ -753,7 +743,7 @@ function auction:RestoreRowBackground(row)
     local dbTable = self.db.table
     local evenColor = dbTable.evenRowColor or {1, 1, 1, 0.03}
     local oddColor = dbTable.oddRowColor or {0, 0, 0, 0}
-    local selectedColor = dbTable.selectedRowColor or {0.3, 0.6, 1, 0.3}
+    local selectedColor = dbTable.selectedRowColor or {0.80, 0.62, 0.10, 0.30}
 
     if row.itemID and row.itemID == self.selectedItem then
         row.bg:SetTexture(selectedColor[1], selectedColor[2], selectedColor[3], selectedColor[4])
@@ -781,7 +771,7 @@ function auction:GetTableLayoutMetrics()
         showTopBids = dbTable.showTopBids or 2,
         evenColor = dbTable.evenRowColor or {1, 1, 1, 0.03},
         oddColor = dbTable.oddRowColor or {0, 0, 0, 0},
-        selectedColor = dbTable.selectedRowColor or {0.3, 0.6, 1, 0.3},
+        selectedColor = dbTable.selectedRowColor or {0.80, 0.62, 0.10, 0.30},
         itemFontSize = dbTable.itemFontSize or 12,
         bidFontSize = dbTable.bidFontSize or 12,
         colorMode = dbTable.itemColorMode or "gold",
@@ -959,7 +949,7 @@ function auction:RefreshTable()
     local showTopBids = dbTable.showTopBids or 2
     local evenColor = dbTable.evenRowColor or {1,1,1,0.03}
     local oddColor = dbTable.oddRowColor or {0,0,0,0}
-    local selectedColor = dbTable.selectedRowColor or {0.3,0.6,1,0.3}
+    local selectedColor = dbTable.selectedRowColor or {0.80,0.62,0.10,0.30}
     local itemFontSize = dbTable.itemFontSize or 12
     local bidFontSize = dbTable.bidFontSize or 12
     local colorMode = dbTable.itemColorMode or "gold"
@@ -1093,7 +1083,7 @@ function auction:HighlightSelectedRow(selectedItemID)
     local dbTable = self.db.table
     local evenColor = dbTable.evenRowColor or {1,1,1,0.03}
     local oddColor = dbTable.oddRowColor or {0,0,0,0}
-    local selectedColor = dbTable.selectedRowColor or {0.3,0.6,1,0.3}
+    local selectedColor = dbTable.selectedRowColor or {0.80,0.62,0.10,0.30}
 
     -- Снимаем подсветку с предыдущей строки
     if self.lastHighlightedRow and self.lastHighlightedRow:IsShown() then
@@ -1209,10 +1199,6 @@ end
 function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     if not bossName or not itemID or not playerName then
         return
-    end
-
-    if self:IsLootMaster() and playerName == UnitName("player") then
-        self:AddBidLogEntry(playerName, amount, itemID, bossName, isOffspec)
     end
 
     self.bids[bossName] = self.bids[bossName] or {}
