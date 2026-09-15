@@ -561,7 +561,7 @@ function auction:CheckIfOutbid(bossName, itemID)
 
     if not self.outbidNotified[key] then
         self.outbidNotified[key] = true
-        local itemName = self:GetCachedItemName(itemID)
+        local itemName = self:GetCachedItemName(itemID, bossName)
         local topPlayer = "???"
         local bids = self.bids[bossName] and self.bids[bossName][itemID]
         if bids then
