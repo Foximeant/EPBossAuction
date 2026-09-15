@@ -583,21 +583,23 @@ end
 -- ======================
 -- Кэширование информации о предмете
 -- ======================
-function auction:GetCachedItemInfo(itemID)
+function auction:GetCachedItemInfo(itemID, bossName)
     if not itemID then return nil, nil end
-    if self.itemInfoCache[itemID] then
-        return self.itemInfoCache[itemID].name, self.itemInfoCache[itemID].icon
+    local configuredName = self:GetConfiguredItemName(bossName or self.selectedBoss, itemID)
+    local cached = self.itemInfoCache[itemID]
+    if cached then
+        return configuredName or cached.name, cached.icon
     end
     local name = GetItemInfo(itemID)
     local icon = GetItemIcon(itemID)
     if name then
         self.itemInfoCache[itemID] = { name = name, icon = icon }
     end
-    return name, icon
+    return configuredName or name, icon
 end
 
-function auction:GetCachedItemName(itemID)
-    local name = self:GetCachedItemInfo(itemID)
+function auction:GetCachedItemName(itemID, bossName)
+    local name = self:GetCachedItemInfo(itemID, bossName)
     return name or ("item:"..tostring(itemID))
 end
 
@@ -1134,7 +1136,7 @@ function auction:SendBidLocal()
         end
         if self.db.general.confirmBid and amount > 0 then
             StaticPopupDialogs["EPBA_CONFIRM_BID"] = {
-                text = "Подтвердите ставку\nПредмет: "..GetItemInfo(self.selectedItem).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
+                text = "Подтвердите ставку\nПредмет: "..self:GetCachedItemName(self.selectedItem, self.selectedBoss).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
                 button1 = "Да", button2 = "Нет",
                 OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec) end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
