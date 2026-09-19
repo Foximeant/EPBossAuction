@@ -143,6 +143,7 @@ function auction:CreateUI()
                     UIDropDownMenu_Refresh(auction.itemDropdown)
                 end
                 auction:RequestRefresh()
+                auction:RefreshSignupButtons()
             end
             info.checked = (auction.selectedBoss == boss)
             UIDropDownMenu_AddButton(info)
@@ -295,15 +296,44 @@ function auction:CreateUI()
     endButton:SetSize(140, 25)
     endButton:SetPoint("TOP", requestButton, "BOTTOM", 0, -8)
     endButton:SetText("Очистить таблицу")
-    endButton:SetScript("OnClick", function()
+    endButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    endButton:SetScript("OnClick", function(_, clickButton)
         if not auction:IsLootMaster() then return end
-        auction:EndAuctionLocal()
-        if auction.selectedBoss then
-            SendAddonMessage(auction.prefix, "END;"..auction.selectedBoss, "RAID")
+        if clickButton == "RightButton" then
+            if not auction.selectedBoss then return end
+            local bossName = auction.selectedBoss
+            StaticPopupDialogs["EPBA_CONFIRM_CLEAR_BOSS"] = {
+                text = "Очистить ставки по боссу\n\""..bossName.."\"?",
+                button1 = "Да", button2 = "Отмена",
+                OnAccept = function()
+                    auction:EndAuctionLocal()
+                    SendAddonMessage(auction.prefix, "END;"..bossName, "RAID")
+                end,
+                timeout = 0, whileDead = true, hideOnEscape = true,
+            }
+            StaticPopup_Show("EPBA_CONFIRM_CLEAR_BOSS")
+        else
+            StaticPopupDialogs["EPBA_CONFIRM_CLEAR_ALL"] = {
+                text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса)",
+                button1 = "Да, все", button2 = "Отмена",
+                OnAccept = function()
+                    auction:EndAuctionAllLocal()
+                    SendAddonMessage(auction.prefix, "END_ALL", "RAID")
+                end,
+                timeout = 0, whileDead = true, hideOnEscape = true,
+            }
+            StaticPopup_Show("EPBA_CONFIRM_CLEAR_ALL")
         end
     end)
     self.endButton = endButton
     self:SkinButton(endButton)
+    endButton:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(endButton, auction:GetTooltipAnchor())
+        GameTooltip:SetText("ЛКМ — очистить всех боссов")
+        GameTooltip:AddLine("ПКМ — очистить только текущего босса", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    endButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- 8. Текст "Ваш ЕП"
     local epText = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -319,6 +349,9 @@ function auction:CreateUI()
     maxBidText:SetText("Макс. ставка: ...")
     maxBidText:SetTextColor(0.7, 0.7, 0.7)
     auction.maxBidText = maxBidText
+
+    -- 10. Явка на босса (хочу бить / хочу отдохнуть / хочу валик)
+    self:CreateSignupButtons(leftPanel, maxBidText)
 
     -- ======================
     -- ПРАВАЯ ОБЛАСТЬ – ТАБЛИЦА
@@ -601,6 +634,106 @@ end
 function auction:GetCachedItemName(itemID, bossName)
     local name = self:GetCachedItemInfo(itemID, bossName)
     return name or ("item:"..tostring(itemID))
+end
+
+-- ======================
+-- Явка на босса (хочу бить / хочу отдохнуть / хочу валик)
+-- ======================
+function auction:CreateSignupButtons(parent, anchorAbove)
+    local c = self.theme.colors
+    self.signupButtons = {}
+    local prevAnchor = anchorAbove
+
+    for i, cat in ipairs(self.SIGNUP_CATEGORIES) do
+        local btn = CreateFrame("Button", nil, parent)
+        btn:SetSize(140, 22)
+        if i == 1 then
+            btn:SetPoint("TOP", prevAnchor, "BOTTOM", 0, -14)
+        else
+            btn:SetPoint("TOP", self.signupButtons[i - 1], "BOTTOM", 0, -4)
+        end
+
+        btn:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 }
+        })
+        btn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+        btn:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+
+        local icon = btn:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("LEFT", 5, 0)
+        icon:SetTexture(cat.icon)
+        btn.icon = icon
+
+        local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        text:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+        text:SetJustifyH("LEFT")
+        btn.text = text
+
+        btn.category = cat.key
+        btn.label = cat.label
+
+        btn:SetScript("OnClick", function()
+            if not auction.selectedBoss then return end
+            auction:ToggleSignup(auction.selectedBoss, cat.key)
+            auction:RefreshSignupButtons()
+        end)
+
+        btn:SetScript("OnEnter", function()
+            if not auction.selectedBoss then
+                btn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+                return
+            end
+            btn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+            GameTooltip:SetOwner(btn, auction:GetTooltipAnchor())
+            GameTooltip:SetText(cat.label)
+            local names = auction:GetSignupNames(auction.selectedBoss, cat.key)
+            if #names == 0 then
+                GameTooltip:AddLine("Пока никто не отметился", 0.6, 0.6, 0.6)
+            else
+                GameTooltip:AddLine(table.concat(names, ", "), 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+
+        btn:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+            auction:RefreshSignupButtons()
+        end)
+
+        self.signupButtons[i] = btn
+    end
+
+    self:RefreshSignupButtons()
+end
+
+-- Обновляет счётчик ("Хочу бить (7)") и подсветку "нажато" на своей отметке.
+function auction:RefreshSignupButtons()
+    if not self.signupButtons then return end
+    local c = self.theme.colors
+    local playerName = UnitName("player")
+    for _, btn in ipairs(self.signupButtons) do
+        if not auction.selectedBoss then
+            btn.text:SetText(btn.label)
+            btn:SetBackdropColor(c.buttonDisabled[1], c.buttonDisabled[2], c.buttonDisabled[3], c.buttonDisabled[4])
+            btn:Disable()
+        else
+            btn:Enable()
+            local count = self:GetSignupCount(auction.selectedBoss, btn.category)
+            btn.text:SetText(btn.label.." ("..count..")")
+            local mine = self:IsSignedUp(auction.selectedBoss, btn.category, playerName)
+            if mine then
+                btn:SetBackdropColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
+                btn.text:SetTextColor(0, 0, 0)
+            else
+                btn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+                btn.text:SetTextColor(1, 1, 1)
+            end
+        end
+    end
 end
 
 -- ======================
@@ -1163,14 +1296,26 @@ end
 
 function auction:EndAuctionLocal()
     if not self.selectedBoss then return end
-    local bossName = self.selectedBoss
+    self:ClearBossLocal(self.selectedBoss)
+    self:RequestRefresh()
+    self:RequestSaveData()
+end
+
+-- Общая часть очистки одного босса (без Refresh/Save — вызывающий сам решает, когда их дергать)
+function auction:ClearBossLocal(bossName)
     self.bids[bossName] = {}
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
-            self:IncrementDataVersion(self.selectedBoss, itemID)
+            self:IncrementDataVersion(bossName, itemID)
             self:UpdateSortedBids(bossName, itemID)
             self:UpdateBidCaches(bossName, itemID)
         end
+    end
+end
+
+function auction:EndAuctionAllLocal()
+    for bossName in pairs(self.bosses) do
+        self:ClearBossLocal(bossName)
     end
     self:RequestRefresh()
     self:RequestSaveData()

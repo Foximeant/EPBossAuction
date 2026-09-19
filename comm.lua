@@ -211,6 +211,23 @@ function auction:RequestDataFromLM()
 end
 
 -- ======================
+-- Явка на босса (хочу бить / отдохнуть / валик)
+-- ======================
+function auction:BroadcastSignup(bossName, category, playerName, state)
+    local msg = "SIGNUP;"..bossName..";"..category..";"..playerName..";"..(state and "1" or "0")
+    SendAddonMessage(self.prefix, msg, "RAID")
+end
+
+function auction:Handle_SIGNUP(rest, sender)
+    local bossName, category, playerName, stateStr = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
+    if not (bossName and category and playerName and stateStr) then
+        self:Debug("Ошибка парсинга SIGNUP: "..rest)
+        return
+    end
+    self:ApplySignup(bossName, category, playerName, stateStr == "1")
+end
+
+-- ======================
 -- Обработчики сообщений
 -- ======================
 function auction:HandleMessage(msg, sender)
@@ -483,8 +500,7 @@ function auction:Handle_SYNC_COMPLETE(rest, sender)
     self:Debug("Синхронизация завершена")
 end
 
-function auction:Handle_END(rest, sender)
-    local bossName = rest
+function auction:ClearBossLocal_Remote(bossName)
     self.bids[bossName] = {}
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
@@ -499,11 +515,26 @@ function auction:Handle_END(rest, sender)
             end
         end
     end
+end
+
+function auction:Handle_END(rest, sender)
+    local bossName = rest
+    self:ClearBossLocal_Remote(bossName)
     if self.selectedBoss == bossName then
         self:RequestRefresh()
     end
     self:RequestSaveData()
   end
+
+function auction:Handle_END_ALL(rest, sender)
+    for bossName in pairs(self.bosses) do
+        self:ClearBossLocal_Remote(bossName)
+    end
+    if self.selectedBoss then
+        self:RequestRefresh()
+    end
+    self:RequestSaveData()
+end
 
 function auction:Handle_LOCK(rest, sender)
     self:Debug("LOCK получен, rest='"..tostring(rest).."'")

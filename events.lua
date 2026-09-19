@@ -28,6 +28,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.bids = EPBossAuctionSavedBids
             auction.dataVersions = auction:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
             auction.lastVersions = {}
+            auction.signups = EPBossAuctionSavedSignups or {}
             auction:RebuildBidData()
 
             if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then
