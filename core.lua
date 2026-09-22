@@ -2,11 +2,44 @@ local addonName = ...
 EPBossAuction = {}
 local auction = EPBossAuction
 
+-- ============================================================
+-- core.lua — ядро аддона
+-- ============================================================
+-- Здесь: список боссов/предметов (auction.bosses), настройки по
+-- умолчанию (auction.defaults), явка на босса (SIGNUP_CATEGORIES
+-- и функции Get/Toggle/ApplySignup), утилиты общего назначения
+-- (CompareVersions, FormatNumber, DeepCopy, MergeDefaults) и
+-- загрузка/сохранение SavedVariables.
+--
+-- Остальные файлы дополняют ту же таблицу auction (объявленную
+-- здесь) своими методами:
+--   comm.lua    — сетевой протокол (SendAddonMessage/Handle_*)
+--   ui.lua      — главное окно и все визуальные элементы
+--   events.lua  — обработка событий WoW, точка входа при загрузке
+--   epgp.lua    — получение EP игрока из стороннего EPGP-аддона
+--   theme.lua   — цвета/скин интерфейса
+--   options.lua — панель настроек
+--   minimap.lua — кнопка на миникарте
+-- ============================================================
+
 -- ======================
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.0.18"
+auction.version = "3.1.2"
+
+-- Список изменений по версиям для окна "Что нового?"
+auction.changelog = {
+    ["3.1.0"] = {
+        "Добавлена явка на босса: \"Хочу бить\", \"Хочу отдохнуть\", \"Хочу валик\" — кнопки под таблицей ставок",
+        "\"Очистить таблицу\": ЛКМ — очистить всех боссов сразу, ПКМ — только текущего. Явка чистится вместе со ставками",
+        "Уведомление в чат, если у кого-то в гильдии версия аддона новее вашей",
+        "Это окно — теперь при обновлении аддона показывается список изменений",
+    },
+    ["3.1.1"] = {
+        "Опционально: анонс в рейд-варн при блокировке/разблокировке ставок и очистке таблицы (настройки → \"Анонс в рейд-варн\")",
+    },
+}
 auction.debug = true
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
@@ -39,7 +72,7 @@ auction.bosses = {
 auction.SIGNUP_CATEGORIES = {
     { key = "fight",   label = "Хочу бить",      icon = "Interface\\Icons\\Ability_DualWield" },
     { key = "rest",    label = "Хочу отдохнуть",  icon = "Interface\\Icons\\Spell_Nature_Sleep" },
-    { key = "valanyr", label = "Хочу валик",      icon = "Interface\\Icons\\INV_Mace_2H_Valanyr" },
+    { key = "valanyr", label = "Хочу валик",      icon = "Interface\\Icons\\INV_Mace_99" },
 }
 
 -- self.signups[bossName][category] = { [playerName] = true, ... }
@@ -169,6 +202,7 @@ auction.defaults = {
         soundEnabled = true,
         soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
         offspecMultiplier = 0.5,
+        announceToRaid = false,
     },
     table = {
         itemFontSize = 12,
@@ -276,6 +310,23 @@ function auction:DeepCopy(orig)
     return copy
 end
 
+-- Сравнение версий вида "3.0.18": 1 если v1 новее, -1 если старее, 0 если равны
+function auction:CompareVersions(v1, v2)
+    local function toParts(v)
+        local parts = {}
+        for numStr in tostring(v):gmatch("%d+") do
+            table.insert(parts, tonumber(numStr))
+        end
+        return parts
+    end
+    local p1, p2 = toParts(v1), toParts(v2)
+    for i = 1, math.max(#p1, #p2) do
+        local a, b = p1[i] or 0, p2[i] or 0
+        if a ~= b then return a > b and 1 or -1 end
+    end
+    return 0
+end
+
 function auction:MergeDefaults(saved, defaults)
     local merged = self:DeepCopy(defaults)
     if type(saved) ~= "table" then return merged end
@@ -349,6 +400,10 @@ function auction:FormatColoredName(playerName)
     return self:GetClassColor(playerName) .. playerName
 end
 
+-- Наследие старой системы "кастомных названий предметов" (до явки на босса
+-- через SIGNUP_CATEGORIES). self.itemNames больше нигде не заполняется,
+-- так что эта функция всегда возвращает nil — оставлена только чтобы не
+-- трогать вызовы ниже; при желании можно убрать вместе с GetCachedItemName.
 function auction:GetConfiguredItemName(bossName, itemID)
     local bossItems = self.itemNames and self.itemNames[bossName]
     return bossItems and bossItems[itemID] or nil
@@ -431,6 +486,16 @@ function auction:UpdateBidCaches(bossName, itemID)
     self.myBidCache[key] = myBid
 end
 
+-- ======================
+-- Версии данных по предметам (bossName:itemID → счётчик).
+-- Две РАЗНЫЕ таблицы, легко перепутать:
+--   dataVersions — "моя авторитетная версия" (у ЛМ растёт при каждой
+--                  ставке через IncrementDataVersion; у остальных — то,
+--                  что прислал ЛМ по CHECK_VERSION/VERSIONS)
+--   lastVersions — "версия, которую я последней применил из SYNC"
+--                  (используется в comm.lua Handle_SYNC, чтобы не
+--                  накатывать одни и те же/устаревшие данные повторно)
+-- ======================
 function auction:GetVersionKey(bossName, itemID)
     if not bossName or not itemID then return nil end
     return tostring(bossName) .. ":" .. tostring(itemID)
@@ -610,6 +675,11 @@ function auction:GetRaidKey()
     return table.concat(names, ",")
 end
 
+-- Реально ли этот клиент — мастер-лут, по данным самого клиента
+-- (GetLootMethod/раид-ростер), а НЕ по сетевым заявлениям других
+-- игроков. Так безопаснее: никто не может притвориться ЛМ, просто
+-- разослав сообщение "LM" — этот статус нельзя подделать по сети,
+-- только реально стать мастер-лутом в игре.
 function auction:IsLootMaster()
     local method, partyIndex, raidIndex = GetLootMethod()
     if method ~= "master" then return false end
@@ -647,6 +717,9 @@ function auction:SaveSettings()
     EPBossAuctionSettings = self.db
 end
 
+-- Отложенное сохранение с debounce: повторные вызовы за время задержки
+-- (по умолчанию 1 сек) схлопываются в одно фактическое SaveData —
+-- чтобы не писать в SavedVariables на каждую мелкую правку подряд.
 function auction:RequestSaveData(delay)
     self.dataDirty = true
 

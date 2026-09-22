@@ -1,5 +1,45 @@
 local auction = EPBossAuction
 
+-- ============================================================
+-- comm.lua — сетевой протокол аддона
+-- ============================================================
+-- Весь обмен идёт через SendAddonMessage(auction.prefix, ...) по
+-- каналам RAID/GUILD/WHISPER. Входящие сообщения приходят в
+-- events.lua (CHAT_MSG_ADDON) и передаются сюда в HandleMessage,
+-- которая по первому слову до ";" находит функцию Handle_<CMD>
+-- и вызывает её как auction:Handle_<CMD>(rest, sender) — поэтому
+-- добавить новую команду = просто написать функцию с таким именем,
+-- регистрировать её отдельно не нужно.
+--
+-- Формат сообщения: "КОМАНДА;параметр1;параметр2;..."
+--
+-- Роли:
+--   ЛМ (Loot Master, определяется через IsLootMaster() = реальный
+--   мастер-лут в GetLootMethod()) — источник истины по ставкам.
+--   Обычные участники — только читают и шлют BID лутеру.
+--
+-- Таблица команд (кто шлёт → кто обрабатывает):
+--   LM              рейд ← ЛМ            "я лутер, вот я"
+--   LM_REQUEST      ЛМ ← игрок           "кто у нас лутер?"
+--   LM_RESPONSE     игрок ← ЛМ           ответ на LM_REQUEST
+--   HELLO           ЛМ ← игрок           "пришли мне данные по боссу X"
+--   HELLO_ACK       игрок ← ЛМ           подтверждение получения HELLO
+--   CHECK_VERSION   ЛМ ← игрок           "какие у тебя версии данных?"
+--   VERSIONS        игрок ← ЛМ           ответ на CHECK_VERSION
+--   BID             ЛМ ← игрок           игрок делает/снимает ставку
+--   BIDOK           игрок ← ЛМ           подтверждение принятой ставки
+--   TOOLOW          игрок ← ЛМ           ставка меньше минимальной
+--   SYNC            рейд ← ЛМ            полные данные по предмету + версия
+--   SYNC_COMPLETE   рейд/игрок ← ЛМ      "синхронизация завершена"
+--   LOCK            рейд ← ЛМ            блокировка/разблокировка ставок
+--   LOCKED          игрок ← ЛМ           "ставки сейчас заблокированы"
+--   END             рейд ← ЛМ            очистка ставок по одному боссу
+--   END_ALL         рейд ← ЛМ            очистка ставок по всем боссам
+--   SIGNUP          рейд ← любой         явка на босса (хочу бить/отдохнуть/валик)
+--   MY_VERSION      гильдия ← любой      версия аддона (для уведомления об обновлении)
+--   OFFSPEC_MULT    рейд ← ЛМ            новый коэффициент офф-спека
+-- ============================================================
+
 local function GetSafeItemInfo(itemID)
     if not itemID then return "неизвестный предмет" end
     local name = GetItemInfo(itemID)
@@ -64,9 +104,43 @@ function auction:HandleWorldEnter()
             end
         end
         self:UpdateMyEP()
+        self:BroadcastMyVersion()
     end, 2)
 
     self:Debug("===============================")
+end
+
+-- Рассылка/приём версии аддона — предупреждение, если у кого-то в гильдии версия новее.
+-- Только гильдия (не рейд/группа) — это гильдейский аддон.
+function auction:BroadcastMyVersion()
+    if not IsInGuild() then return end
+    SendAddonMessage(self.prefix, "MY_VERSION;"..self.version, "GUILD")
+end
+
+function auction:Handle_MY_VERSION(rest, sender)
+    local remoteVersion = rest
+    if not remoteVersion or remoteVersion == "" then return end
+    if self:CompareVersions(remoteVersion, self.version) > 0 then
+        if not self.updateNoticeShown or self:CompareVersions(remoteVersion, self.updateNoticeShown) > 0 then
+            self.updateNoticeShown = remoteVersion
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Доступна новая версия аддона: "..remoteVersion.." (у вас "..self.version.."). Обновите EPBossAuction!")
+            local updateURL = GetAddOnMetadata and GetAddOnMetadata("EPBossAuction", "X-Sirus-Update")
+            if updateURL and updateURL ~= "" then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ссылка: "..updateURL)
+            end
+        end
+    end
+end
+
+-- Анонс в рейд-варн (или в рейд-чат, если нет прав на варн) — только если включено в настройках
+function auction:AnnounceToRaid(message)
+    if not (self.db and self.db.general and self.db.general.announceToRaid) then return end
+    if not (IsInRaid() or IsInGroup()) then return end
+    local channel = "RAID"
+    if IsInRaid() and (IsRaidLeader() or IsRaidOfficer()) then
+        channel = "RAID_WARNING"
+    end
+    SendChatMessage("[EPBA] "..message, channel)
 end
 
 function auction:SyncAllToRaid()
@@ -245,6 +319,7 @@ function auction:HandleMessage(msg, sender)
     end
 end
 
+-- Ставка от игрока (только ЛМ обрабатывает). amount == 0 значит "отказ от ставки".
 function auction:Handle_BID(rest, sender)
     if not self:IsLootMaster() then 
         self:Debug("Игнорируем BID, я не лутер")
@@ -345,6 +420,11 @@ function auction:Handle_SYNC(rest, sender)
         return
     end
     local lastVersion = self:GetLastVersion(bossName, itemID)
+    -- ВАЖНО: "or senderIsLM" — осознанное решение, не баг. Раньше были проблемы
+    -- с версированием (застревание на старой версии при обрывах синхронизации),
+    -- поэтому текущему ЛМ (senderIsLM) данные принимаются безусловно, даже если
+    -- версия не выше нашей — источник истины важнее номера версии. Не убирать
+    -- это условие "ради чистоты" без понимания, почему оно тут появилось.
     if version > lastVersion or senderIsLM then
         if version <= lastVersion and senderIsLM then
             self:Debug("Принимаем данные от лутера с версией "..version.." (моя версия "..lastVersion..")")
@@ -380,6 +460,8 @@ function auction:Handle_SYNC(rest, sender)
     end
 end
 
+-- Запрос данных от игрока (только ЛМ отвечает): либо по конкретному боссу
+-- (rest = имя босса), либо "_ACK" — это подтверждение, не запрос.
 function auction:Handle_HELLO(rest, sender)
     if rest == "_ACK" then
         self:Debug("Получено HELLO_ACK, обрабатываем как подтверждение")
@@ -422,6 +504,7 @@ function auction:Handle_HELLO_ACK(rest, sender)
     self:Debug("Получено подтверждение HELLO_ACK от "..sender)
 end
 
+-- --- Поиск лутера (кто ЛМ) ---
 function auction:Handle_LM(rest, sender)
     self:Debug("Получено LM от "..sender)
     if not self:IsLootMaster() then
@@ -448,6 +531,10 @@ function auction:Handle_LM_RESPONSE(rest, sender)
     self:Debug("Лутер найден: "..lmName)
 end
 
+-- --- Версии ДАННЫХ по предметам (не путать с версией самого аддона —
+-- за неё отвечают MY_VERSION/BroadcastMyVersion выше). Тут version — это
+-- счётчик изменений конкретного bossName:itemID, растёт при каждой ставке,
+-- нужен только чтобы отличить свежие данные от устаревших при синхронизации ---
 function auction:Handle_CHECK_VERSION(rest, sender)
     self:Debug("Получен CHECK_VERSION от "..sender)
     if self:IsLootMaster() then
@@ -502,6 +589,7 @@ end
 
 function auction:ClearBossLocal_Remote(bossName)
     self.bids[bossName] = {}
+    self.signups[bossName] = nil
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
             self:UpdateSortedBids(bossName, itemID)
@@ -522,6 +610,7 @@ function auction:Handle_END(rest, sender)
     self:ClearBossLocal_Remote(bossName)
     if self.selectedBoss == bossName then
         self:RequestRefresh()
+        self:RefreshSignupButtons()
     end
     self:RequestSaveData()
   end
@@ -532,6 +621,7 @@ function auction:Handle_END_ALL(rest, sender)
     end
     if self.selectedBoss then
         self:RequestRefresh()
+        self:RefreshSignupButtons()
     end
     self:RequestSaveData()
 end

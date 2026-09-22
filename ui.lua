@@ -1,5 +1,25 @@
 local auction = EPBossAuction
 
+-- ============================================================
+-- ui.lua — весь визуальный интерфейс аддона
+-- ============================================================
+-- Главное окно (auction.frame): слева панель управления (выбор
+-- босса/предмета, поле ставки, кнопки лутера, явка), справа —
+-- прокручиваемая таблица предметов текущего босса (auction.rowPool —
+-- переиспользуемый пул строк, а не создание новых на каждый рефреш).
+--
+-- Данные (auction.bids/signups/bosses) и сеть (SendAddonMessage/
+-- Handle_*) сюда не относятся — они в core.lua и comm.lua
+-- соответственно. Этот файл только рисует и реагирует на клики,
+-- вызывая методы оттуда.
+--
+-- Также здесь: окно "Что нового?" (ShowWhatsNewWindow, в самом низу
+-- файла) и вспомогательные функции очистки ставок (EndAuctionLocal/
+-- EndAuctionAllLocal/ClearBossLocal), которые тоже относятся к UI-
+-- кнопке "Очистить таблицу", а не к сети (за сетевую часть очистки
+-- отвечают Handle_END/Handle_END_ALL в comm.lua).
+-- ============================================================
+
 -- ======================
 -- Создание основного окна (левая панель)
 -- ======================
@@ -252,6 +272,7 @@ function auction:CreateUI()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
             SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:AnnounceToRaid(state and "Ставки ЗАБЛОКИРОВАНЫ" or "Ставки ОТКРЫТЫ")
         end)
     end
     self.lockCheckbox = lockCheckbox
@@ -308,6 +329,7 @@ function auction:CreateUI()
                 OnAccept = function()
                     auction:EndAuctionLocal()
                     SendAddonMessage(auction.prefix, "END;"..bossName, "RAID")
+                    auction:AnnounceToRaid("Ставки по \""..bossName.."\" очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
             }
@@ -319,6 +341,7 @@ function auction:CreateUI()
                 OnAccept = function()
                     auction:EndAuctionAllLocal()
                     SendAddonMessage(auction.prefix, "END_ALL", "RAID")
+                    auction:AnnounceToRaid("Ставки по всем боссам очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
             }
@@ -582,6 +605,7 @@ function auction:UpdateLockCheckbox()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
             SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:AnnounceToRaid(state and "Ставки ЗАБЛОКИРОВАНЫ" or "Ставки ОТКРЫТЫ")
         end)
     else
         self.lockCheckbox:Disable()
@@ -1298,12 +1322,14 @@ function auction:EndAuctionLocal()
     if not self.selectedBoss then return end
     self:ClearBossLocal(self.selectedBoss)
     self:RequestRefresh()
+    self:RefreshSignupButtons()
     self:RequestSaveData()
 end
 
 -- Общая часть очистки одного босса (без Refresh/Save — вызывающий сам решает, когда их дергать)
 function auction:ClearBossLocal(bossName)
     self.bids[bossName] = {}
+    self.signups[bossName] = nil
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do
             self:IncrementDataVersion(bossName, itemID)
@@ -1318,6 +1344,7 @@ function auction:EndAuctionAllLocal()
         self:ClearBossLocal(bossName)
     end
     self:RequestRefresh()
+    self:RefreshSignupButtons()
     self:RequestSaveData()
 end
 
@@ -1389,4 +1416,94 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     if self:IsLootMaster() then
         self:QueueSync(bossName, itemID)
     end
+end
+
+-- ======================
+-- Окно "Что нового?"
+-- ======================
+function auction:GetChangelogSince(lastSeenVersion)
+    local versions = {}
+    for v in pairs(self.changelog or {}) do
+        if self:CompareVersions(v, lastSeenVersion) > 0 then
+            table.insert(versions, v)
+        end
+    end
+    table.sort(versions, function(a, b) return self:CompareVersions(a, b) < 0 end)
+    return versions
+end
+
+function auction:ShowWhatsNewWindow()
+    local lastSeen = self.pendingWhatsNew
+    self.pendingWhatsNew = nil
+    if not lastSeen then return end
+
+    local versions = self:GetChangelogSince(lastSeen)
+    if #versions == 0 then return end
+
+    local c = self.theme.colors
+    if not self.whatsNewFrame then
+        local frame = CreateFrame("Frame", "EPBossAuctionWhatsNewFrame", UIParent)
+        frame:SetSize(420, 360)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        self:SkinPanel(frame)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+
+        local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOP", 0, -16)
+        title:SetText("Что нового в EPBossAuction")
+        title:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
+        frame.title = title
+
+        local versionText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+        versionText:SetPoint("TOP", title, "BOTTOM", 0, -4)
+        frame.versionText = versionText
+
+        local scrollFrame = CreateFrame("ScrollFrame", "EPBossAuctionWhatsNewScroll", frame, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", 16, -60)
+        scrollFrame:SetPoint("BOTTOMRIGHT", -34, 50)
+
+        local body = CreateFrame("Frame", nil, scrollFrame)
+        body:SetSize(420 - 16 - 34, 1) -- совпадает с отступами scrollFrame выше
+        scrollFrame:SetScrollChild(body)
+        frame.body = body
+
+        local bodyText = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        bodyText:SetPoint("TOPLEFT", 0, 0)
+        bodyText:SetPoint("RIGHT", body, "RIGHT", -4, 0)
+        bodyText:SetJustifyH("LEFT")
+        bodyText:SetJustifyV("TOP")
+        bodyText:SetSpacing(4)
+        body.text = bodyText
+
+        local closeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        closeButton:SetSize(120, 24)
+        closeButton:SetPoint("BOTTOM", 0, 16)
+        closeButton:SetText("Понятно")
+        self:SkinButton(closeButton)
+        closeButton:SetScript("OnClick", function() frame:Hide() end)
+
+        self.whatsNewFrame = frame
+    end
+
+    local frame = self.whatsNewFrame
+    frame.versionText:SetText("Версия "..self.version)
+
+    local lines = {}
+    for _, v in ipairs(versions) do
+        if #versions > 1 then
+            table.insert(lines, "|cffffd200"..v.."|r")
+        end
+        for _, entry in ipairs(self.changelog[v] or {}) do
+            table.insert(lines, "  • "..entry)
+        end
+    end
+    frame.body.text:SetText(table.concat(lines, "\n"))
+    frame.body:SetHeight(frame.body.text:GetStringHeight() + 10)
+
+    frame:Show()
 end
