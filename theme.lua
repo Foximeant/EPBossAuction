@@ -262,6 +262,7 @@ function auction:SkinScrollBar(scrollBar)
     if thumb then
         thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
         thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
+        thumb:Show()
     end
     scrollBar:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
