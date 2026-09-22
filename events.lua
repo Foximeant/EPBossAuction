@@ -1,5 +1,21 @@
 local auction = EPBossAuction
 
+-- ============================================================
+-- events.lua — точка входа аддона
+-- ============================================================
+-- Один фрейм, один OnEvent-обработчик на все события WoW, которые
+-- нужны аддону. Порядок при запуске: ADDON_LOADED → LoadSettings/
+-- CreateUI → восстановление SavedVariables → ApplySettings →
+-- auction.fullyLoaded = true → (если WoW уже прислал
+-- PLAYER_ENTERING_WORLD до этого момента) HandleWorldEnter() из
+-- comm.lua, которая и запускает поиск ЛМ/синхронизацию.
+--
+-- GROUP_ROSTER_UPDATE/RAID_ROSTER_UPDATE — самая частая и самая
+-- "тяжёлая" ветка: дергается при любом изменении состава пати/рейда,
+-- поэтому обёрнута в debounce-таймер (auction.groupRosterTimer, 2 сек),
+-- чтобы не спамить сеть при быстрых цепочках инвайтов/выходов.
+-- ============================================================
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("CHAT_MSG_ADDON")
@@ -89,13 +105,25 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:StartEPUpdates()
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
-        
+
+        -- "Что нового?": показываем, если аддон обновился с прошлого входа
+        if EPBossAuctionSavedLastSeenVersion and auction:CompareVersions(auction.version, EPBossAuctionSavedLastSeenVersion) > 0 then
+            auction.pendingWhatsNew = EPBossAuctionSavedLastSeenVersion
+        end
+        EPBossAuctionSavedLastSeenVersion = auction.version
+
         if auction.pendingWorldEnter then
             auction:HandleWorldEnter()
             auction.pendingWorldEnter = nil
         end
         auction:Debug("Аддон загружен")
-        
+
+        if auction.pendingWhatsNew then
+            auction:ScheduleTimer(function()
+                auction:ShowWhatsNewWindow()
+            end, 2)
+        end
+
         -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
         auction:ScheduleTimer(function()
             auction:CleanOutbidNotified()

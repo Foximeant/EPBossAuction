@@ -1,5 +1,18 @@
 local auction = EPBossAuction
 
+-- ============================================================
+-- theme.lua — оформление интерфейса (тёмная тема в стиле ElvUI)
+-- ============================================================
+-- auction.theme.colors — палитра (тёмно-серые панели, золотой акцент).
+-- SkinPanel(frame)/SkinButton(button) — хелперы, которые снимают
+-- стандартные текстуры Blizzard и красят фрейм/кнопку в эту палитру;
+-- вызываются из ui.lua/options.lua при создании почти любого элемента.
+-- Есть также SkinInput/SkinCheckbox/SkinDropdown/SkinScrollBar — для
+-- остальных стандартных виджетов Blizzard.
+-- Кнопки явки (CreateSignupButtons в ui.lua) специально НЕ используют
+-- SkinButton — у них свой скин, см. комментарий там же.
+-- ============================================================
+
 auction.theme = {
     colors = {
         panel = {0.10, 0.10, 0.10, 0.95},
@@ -249,6 +262,7 @@ function auction:SkinScrollBar(scrollBar)
     if thumb then
         thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
         thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
+        thumb:Show()
     end
     scrollBar:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",

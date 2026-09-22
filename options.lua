@@ -1,5 +1,14 @@
 local auction = EPBossAuction
 
+-- ============================================================
+-- options.lua — панель настроек (Interface Options → EPBossAuction)
+-- ============================================================
+-- Строит вкладки с чекбоксами/слайдерами, которые читают/пишут
+-- auction.db (структура и дефолты — в core.lua, auction.defaults).
+-- auction:ApplySettings() (core.lua) — синхронизирует изменённые
+-- настройки с уже открытым главным окном на лету.
+-- ============================================================
+
 function auction:CreateOptionsPanel()
     -- Создаём панель
     local panel = CreateFrame("Frame", "EPBossAuctionOptionsPanel", UIParent)
@@ -134,9 +143,20 @@ function auction:CreateOptionsPanel()
         end
     end)
 
+    -- Анонс в рейд-варн при блокировке/разблокировке ставок и очистке таблицы
+    local announceCheck = CreateFrame("CheckButton", "EPBAAnnounceToRaidCheck", generalTab, "UICheckButtonTemplate")
+    announceCheck:SetPoint("TOPLEFT", soundFileText, "BOTTOMLEFT", 0, -15)
+    announceCheck.text = _G[announceCheck:GetName() .. "Text"]
+    announceCheck.text:SetText("Анонсировать в рейд-варн блокировку и очистку ставок")
+    announceCheck:SetChecked(self.db.general.announceToRaid)
+    announceCheck:SetScript("OnClick", function(self)
+        auction.db.general.announceToRaid = self:GetChecked()
+        auction:ApplySettings()
+    end)
+
     -- Коэффициент офф-спек (только для лутера)
     local offspecTitle = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    offspecTitle:SetPoint("TOPLEFT", soundFileText, "BOTTOMLEFT", 0, -30)
+    offspecTitle:SetPoint("TOPLEFT", announceCheck, "BOTTOMLEFT", 0, -20)
     offspecTitle:SetText("Офф-спек коэффициент (только Loot Master):")
     offspecTitle:SetFontObject(GameFontNormalLarge)
 
@@ -767,6 +787,7 @@ function auction:RefreshOptionsPanelControls()
     if _G["EPBAMinBidEdit"] then _G["EPBAMinBidEdit"]:SetText(db.general.minBid) end
     if _G["EPBAConfirmBidCheck"] then _G["EPBAConfirmBidCheck"]:SetChecked(db.general.confirmBid) end
     if _G["EPBASoundCheck"] then _G["EPBASoundCheck"]:SetChecked(db.general.soundEnabled) end
+    if _G["EPBAAnnounceToRaidCheck"] then _G["EPBAAnnounceToRaidCheck"]:SetChecked(db.general.announceToRaid) end
     if _G["EPBASoundFileEdit"] then _G["EPBASoundFileEdit"]:SetText(db.general.soundFile) end
     setSlider("EPBAOffspecMultiplierSlider", db.general.offspecMultiplier, math.floor(db.general.offspecMultiplier * 100) .. "%")
 
