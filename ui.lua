@@ -1421,10 +1421,13 @@ end
 -- ======================
 -- Окно "Что нового?"
 -- ======================
-function auction:GetChangelogSince(lastSeenVersion)
+function auction:GetChangelogVersions()
     local versions = {}
     for v in pairs(self.changelog or {}) do
-        if self:CompareVersions(v, lastSeenVersion) > 0 then
+        -- Показываем полный журнал изменений, а не только изменения после
+        -- последней сохранённой версии: игрок может пропустить несколько
+        -- обновлений и должен увидеть все заметки.
+        if self:CompareVersions(self.version, v) >= 0 then
             table.insert(versions, v)
         end
     end
@@ -1437,7 +1440,7 @@ function auction:ShowWhatsNewWindow()
     self.pendingWhatsNew = nil
     if not lastSeen then return end
 
-    local versions = self:GetChangelogSince(lastSeen)
+    local versions = self:GetChangelogVersions()
     if #versions == 0 then return end
 
     local c = self.theme.colors
@@ -1467,6 +1470,11 @@ function auction:ShowWhatsNewWindow()
         scrollFrame:SetPoint("TOPLEFT", 16, -60)
         scrollFrame:SetPoint("BOTTOMRIGHT", -34, 50)
 
+        local scrollBar = _G[scrollFrame:GetName() .. "ScrollBar"]
+        if scrollBar then
+            self:SkinScrollBar(scrollBar)
+        end
+
         local body = CreateFrame("Frame", nil, scrollFrame)
         body:SetSize(420 - 16 - 34, 1) -- совпадает с отступами scrollFrame выше
         scrollFrame:SetScrollChild(body)
@@ -1474,7 +1482,8 @@ function auction:ShowWhatsNewWindow()
 
         local bodyText = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         bodyText:SetPoint("TOPLEFT", 0, 0)
-        bodyText:SetPoint("RIGHT", body, "RIGHT", -4, 0)
+        bodyText:SetWidth(body:GetWidth() - 4)
+        bodyText:SetNonSpaceWrap(false)
         bodyText:SetJustifyH("LEFT")
         bodyText:SetJustifyV("TOP")
         bodyText:SetSpacing(4)
