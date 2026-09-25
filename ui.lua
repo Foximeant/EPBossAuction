@@ -23,6 +23,9 @@ local auction = EPBossAuction
 -- ======================
 -- Создание основного окна (левая панель)
 -- ======================
+-- Строит главное окно целиком: левую панель управления (дропдауны,
+-- поле ставки, кнопки ЛМ, кнопки явки) и правую прокручиваемую таблицу
+-- предметов. Вызывается один раз при ADDON_LOADED (events.lua).
 function auction:CreateUI()
     -- Инициализация пула строк (чтобы избежать nil в OnHide)
     self.rowPool = {}
@@ -555,6 +558,7 @@ end
 -- ======================
 -- Обновление отображения максимальной ставки
 -- ======================
+-- Обновляет текст максимально допустимой ставки под текущий режим (обычная/офф-спек, по чекбоксу).
 function auction:UpdateMaxBidDisplay()
     if not self.maxBidText then return end
     
@@ -574,6 +578,8 @@ end
 -- ======================
 -- Установка состояния блокировки
 -- ======================
+-- Устанавливает состояние блокировки ставок (self.bidsLocked) и
+-- синхронизирует чекбокс/доступность кнопки ставки в UI под это состояние.
 function auction:SetBidsLocked(state)
     self.bidsLocked = state
     if self.lockCheckbox then
@@ -594,6 +600,9 @@ end
 -- ======================
 -- Обновление состояния чекбокса
 -- ======================
+-- Перевешивает обработчик и доступность чекбокса блокировки под роль:
+-- у ЛМ чекбокс активен и кликабелен (с рассылкой LOCK+анонсом), у
+-- остальных — задизейблен и без обработчика (только показывает состояние).
 function auction:UpdateLockCheckbox()
     if not self.lockCheckbox then return end
     local isLM = self:IsLootMaster()
@@ -626,6 +635,7 @@ end
 -- ======================
 -- Обновление состояния кнопок для лутера
 -- ======================
+-- Включает/выключает кнопку "Очистить таблицу" в зависимости от роли (доступна только ЛМ).
 function auction:UpdateLMButtonsState()
     if not self.endButton then return end
     local isLM = self:IsLootMaster()
@@ -640,6 +650,9 @@ end
 -- ======================
 -- Кэширование информации о предмете
 -- ======================
+-- Название + иконка предмета с кэшированием (self.itemInfoCache), с учётом
+-- легаси-переопределения имени через GetConfiguredItemName (сейчас всегда
+-- nil). Основной источник для отрисовки строки таблицы (RenderItemRow).
 function auction:GetCachedItemInfo(itemID, bossName)
     if not itemID then return nil, nil end
     local configuredName = self:GetConfiguredItemName(bossName or self.selectedBoss, itemID)
@@ -663,6 +676,10 @@ end
 -- ======================
 -- Явка на босса (хочу бить / хочу отдохнуть / хочу валик)
 -- ======================
+-- Создаёт 3 кнопки явки (по auction.SIGNUP_CATEGORIES) под указанным
+-- якорем, каждая — со своим ручным скином (см. комментарий про SkinButton
+-- в theme.lua), обработчиком клика (ToggleSignup) и тултипом со списком
+-- отметившихся.
 function auction:CreateSignupButtons(parent, anchorAbove)
     local c = self.theme.colors
     self.signupButtons = {}
@@ -735,6 +752,9 @@ function auction:CreateSignupButtons(parent, anchorAbove)
 end
 
 -- Обновляет счётчик ("Хочу бить (7)") и подсветку "нажато" на своей отметке.
+-- Перерисовывает текст/подсветку кнопок явки под текущего выбранного
+-- босса: счётчик в скобках и "нажатое" состояние своей отметки. Дёргается
+-- после любого изменения явки или смены босса.
 function auction:RefreshSignupButtons()
     if not self.signupButtons then return end
     local c = self.theme.colors
@@ -763,6 +783,13 @@ end
 -- ======================
 -- Пул строк и создание шаблона
 -- ======================
+-- Создаёт ОДИН шаблон строки таблицы предметов (используется пулом,
+-- см. GetRowFromPool/ReturnRowsToPool — строки переиспользуются, а не
+-- создаются заново на каждый рефреш). Каждая строка разбита на две
+-- кликабельные зоны: левая (leftClick, 250px) — выбор предмета под ставку
+-- + тултип самого предмета; правая (rightClick, остаток ширины) — тултип
+-- со списком всех ставок (ShowBidsTooltip). Правый клик в обеих зонах —
+-- скрыть предмет из таблицы на сессию (HideItemForSession).
 function auction:CreateRowTemplate()
     local row = CreateFrame("Button", nil, self.content)
     row:SetSize(100, 20)
@@ -863,6 +890,7 @@ function auction:CreateRowTemplate()
     return row
 end
 
+-- Достаёт свободную строку из пула или создаёт новую (CreateRowTemplate), если пул пуст.
 function auction:GetRowFromPool()
     if #self.rowPool > 0 then
         return table.remove(self.rowPool, 1)
@@ -870,6 +898,7 @@ function auction:GetRowFromPool()
     return self:CreateRowTemplate()
 end
 
+-- Прячет и очищает все активные строки (self.activeRows) и возвращает их в пул для переиспользования.
 function auction:ReturnRowsToPool()
     if not self.activeRows then return end
     for _, row in ipairs(self.activeRows) do
@@ -886,16 +915,21 @@ function auction:ReturnRowsToPool()
     self.lastHighlightedRow = nil
 end
 
+-- Скрыт ли предмет из таблицы в этой игровой сессии (см. HideItemForSession — не сохраняется между входами).
 function auction:IsItemHiddenForSession(bossName, itemID)
     return self.hiddenItems and self.hiddenItems[bossName] and self.hiddenItems[bossName][itemID] == true
 end
 
+-- Отмечает предмет как скрытый на текущую сессию (правый клик по строке) — только в памяти, не в SavedVariables.
 function auction:HideItemForSession(bossName, itemID)
     if not bossName or not itemID then return end
     self.hiddenItems[bossName] = self.hiddenItems[bossName] or {}
     self.hiddenItems[bossName][itemID] = true
 end
 
+-- Возвращает фон строки к нормальному состоянию (зебра-полоска чёт/нечет
+-- или подсветка выбранного предмета) — вызывается при уходе курсора со
+-- строки (OnLeave), чтобы снять временный hover-цвет.
 function auction:RestoreRowBackground(row)
     if not row or not row.bg or not row.index then return end
 
@@ -913,6 +947,9 @@ function auction:RestoreRowBackground(row)
     row.bg:SetTexture(color[1], color[2], color[3], color[4])
 end
 
+-- Собирает все параметры разметки таблицы (ширины колонок, размеры
+-- шрифтов, цвета строк и т.п.) в один стол metrics — считается один раз
+-- перед отрисовкой всех строк (RefreshTable), а не заново для каждой.
 function auction:GetTableLayoutMetrics()
     local dbTable = self.db.table
     local scrollWidth = self.scrollFrame and self.scrollFrame:GetWidth() or 0
@@ -939,6 +976,11 @@ function auction:GetTableLayoutMetrics()
     }
 end
 
+-- Заполняет одну строку данными предмета (имя/иконка/цвет/позиция) и
+-- ставками (через UpdateBidRowColors косвенно). Возвращает true, если
+-- имя/иконка предмета ещё не были в кэше (GetItemInfo вернул nil) — тогда
+-- вызывающий код (RefreshRowForItem) планирует повторную отрисовку позже,
+-- когда клиент догрузит данные предмета.
 function auction:RenderItemRow(row, itemID, index, metrics)
     if not row or not itemID or not metrics then return false end
 
@@ -1024,6 +1066,7 @@ function auction:RenderItemRow(row, itemID, index, metrics)
     return hasPendingItemInfo
 end
 
+-- Ищет уже отрисованную строку (среди self.activeRows) по itemID — без похода в GetRowFromPool.
 function auction:FindActiveRowByItemID(itemID)
     if not self.activeRows or not itemID then return nil end
     for _, row in ipairs(self.activeRows) do
@@ -1034,6 +1077,11 @@ function auction:FindActiveRowByItemID(itemID)
     return nil
 end
 
+-- Точечно перерисовывает ОДНУ строку (если она сейчас видна), не трогая
+-- остальную таблицу — быстрее, чем полный RefreshTable, используется
+-- после изменения ставок по одному предмету (Handle_BID/Handle_SYNC/
+-- ApplyBidChange). Возвращает false, если строка не найдена/не видна —
+-- тогда вызывающий код сам должен вызвать RequestRefresh() как фолбэк.
 function auction:RefreshRowForItem(itemID)
     if not self.frame or not self.frame:IsShown() then return false end
     if not self.selectedBoss or not itemID then return false end
@@ -1067,6 +1115,10 @@ function auction:RefreshRowForItem(itemID)
     return true
 end
 
+-- Показывает тултип с полным списком ставок по предмету (все, не только
+-- топ-N из таблицы) — цвет EP игрока красный/зелёный в зависимости от
+-- того, хватает ли ему EP на собственную ставку. Вызывается по наведению
+-- на правую зону строки (rightClick в CreateRowTemplate).
 function auction:ShowBidsTooltip(itemID)
     local bids = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
     if #bids == 0 then
@@ -1090,6 +1142,10 @@ end
 -- ======================
 -- Обновление таблицы (переработано с пулом)
 -- ======================
+-- Полная перерисовка таблицы предметов текущего босса: возвращает старые
+-- строки в пул (ReturnRowsToPool), затем заново раздаёт из пула и
+-- заполняет (RenderItemRow) по каждому предмету. Тяжелее RefreshRowForItem,
+-- используется при смене босса или когда точечное обновление невозможно.
 function auction:RefreshTable()
     if not self.selectedBoss then return end
     local items = self.bosses[self.selectedBoss]
@@ -1237,6 +1293,7 @@ function auction:RefreshTable()
     end
 end
 
+-- Подсвечивает строку выбранного предмета акцентным цветом, снимая подсветку с предыдущей выбранной строки.
 function auction:HighlightSelectedRow(selectedItemID)
     if not self.activeRows then return end
     local dbTable = self.db.table
@@ -1266,6 +1323,7 @@ function auction:HighlightSelectedRow(selectedItemID)
     end
 end
 
+-- Заглушка (историческая) — раньше принудительно чинила кликабельность кнопок, сейчас не нужна, оставлена как no-op на случай, если что-то её ещё вызывает.
 function auction:ForceClickable()
     -- больше не нужно, кнопки уже есть
 end
@@ -1273,6 +1331,11 @@ end
 -- ======================
 -- Локальные функции ставок
 -- ======================
+-- Обработка клика по кнопке ставки: валидирует сумму (не ниже minBid,
+-- не выше GetMaxBidAmount по актуальному EP — сначала форсит ForceEPUpdate,
+-- чтобы не свериться с устаревшим кэшем), затем либо сразу спрашивает
+-- подтверждение (если confirmBid включён в настройках), либо сразу шлёт
+-- через SendBidAfterConfirm.
 function auction:SendBidLocal()
     if self.bidsLocked then return end
     if not self.selectedBoss or not self.selectedItem then return end
@@ -1305,6 +1368,9 @@ function auction:SendBidLocal()
     end)
 end
 
+-- Фактическая отправка ставки после (не)обязательного подтверждения:
+-- если я сам ЛМ — применяю локально (ApplyBidChange) без похода в сеть,
+-- иначе шлю BID лутеру (SendToLootMaster).
 function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     local bossName = auction.selectedBoss
     local itemID = auction.selectedItem
@@ -1318,6 +1384,7 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
     auction.bidBox:SetText("")
 end
 
+-- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
 function auction:EndAuctionLocal()
     if not self.selectedBoss then return end
     self:ClearBossLocal(self.selectedBoss)
@@ -1339,6 +1406,7 @@ function auction:ClearBossLocal(bossName)
     end
 end
 
+-- "Очистить таблицу", ЛКМ — сразу все боссы (после подтверждающего StaticPopup в обработчике кнопки).
 function auction:EndAuctionAllLocal()
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal(bossName)
@@ -1348,6 +1416,10 @@ function auction:EndAuctionAllLocal()
     self:RequestSaveData()
 end
 
+-- Перестраивает текст топ-ставок (row.bidsStr) во всех видимых строках по
+-- self.db.table.showTopBids — красит имя красным, если у игрока сейчас
+-- не хватает EP на собственную ставку. Вызывается при любом изменении EP
+-- (своего или чужого), не только ставок.
 function auction:UpdateBidRowColors()
     if not self.activeRows or not self.selectedBoss then return end
     local showTopBids = self.db.table.showTopBids or 2
@@ -1370,6 +1442,12 @@ function auction:UpdateBidRowColors()
     end
 end
 
+-- Единая точка применения изменения ставки К ДАННЫМ (добавить/обновить/
+-- удалить при amount==0) — вызывается и когда ставлю я сам (если я ЛМ,
+-- из SendBidAfterConfirm), и как общий код для отражения результата.
+-- В отличие от Handle_BID (comm.lua) не парсит сетевое сообщение и не
+-- шлёт BIDOK/TOOLOW — просто меняет self.bids и запускает синхронизацию
+-- (QueueSync), если я ЛМ.
 function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     if not bossName or not itemID or not playerName then
         return
@@ -1421,6 +1499,11 @@ end
 -- ======================
 -- Окно "Что нового?"
 -- ======================
+-- Возвращает ВСЕ версии из auction.changelog, что не новее текущей
+-- (self.version) — то есть полный журнал изменений целиком, а не только
+-- новые с прошлого входа. Так игрок, пропустивший несколько обновлений
+-- (или у кого SavedVariables повреждены/сброшены), всё равно видит
+-- историю, а не пустое окно.
 function auction:GetChangelogVersions()
     local versions = {}
     for v in pairs(self.changelog or {}) do
@@ -1431,10 +1514,16 @@ function auction:GetChangelogVersions()
             table.insert(versions, v)
         end
     end
-    table.sort(versions, function(a, b) return self:CompareVersions(a, b) < 0 end)
+    -- Сортировка от новой версии к старой — в окне "Что нового?" свежие
+    -- изменения должны быть сверху.
+    table.sort(versions, function(a, b) return self:CompareVersions(a, b) > 0 end)
     return versions
 end
 
+-- Строит (лениво, один раз — self.whatsNewFrame) и показывает окно
+-- "Что нового?": заголовок, текущая версия, прокручиваемый список
+-- изменений (GetChangelogVersions) и кнопка "Понятно". Вызывается через
+-- ScheduleTimer из events.lua при обнаружении новой версии после входа.
 function auction:ShowWhatsNewWindow()
     local lastSeen = self.pendingWhatsNew
     self.pendingWhatsNew = nil
