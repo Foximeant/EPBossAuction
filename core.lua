@@ -26,7 +26,7 @@ local auction = EPBossAuction
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.1.3"
+auction.version = "3.1.4"
 
 -- Список изменений по версиям для окна "Что нового?"
 auction.changelog = {
@@ -45,6 +45,12 @@ auction.changelog = {
     ["3.1.3"] = {
         "Правки проверки версий",
         "Правки списка предметов",
+    },
+    ["3.1.4"] = {
+        "Добавлен выбор подземелья: теперь сначала выбор подземелья, потом босса внутри него",
+        "Убран дублирующий выпадающий список выбора предмета — выбор происходит кликом по строке в таблице",
+        "Подземелья приведены к списку: Чёрный Храм, Битва за гору Хиджал, Боссы Категорий, Бронзовое святилище, Ульдуар 25 (героич.)",
+        "Добавлены новые боссы (Бронзовое святилище(Импорус, Элонус), Ульдуар 25 героич.) — пока без предметов",
     },
 }
 auction.debug = true
@@ -71,6 +77,25 @@ auction.bosses = {
     ["Матушка Шахраз"] = {102229, 104267, 156267, 156284, 156276, 156257, 156265, 156258, 156260, 156259, 156266, 156262, 156264, 31101, 31102, 31103},
     ["Совет Иллидари"] = {102223, 156277, 156278, 156274, 156282, 156280, 102226, 156261, 102222, 156281, 102227, 156263, 156275, 31098, 31099, 31100},
     ["Иллидан Ярость Бури"] = {102228, 156268, 156269, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089, 31090, 31091},
+
+    -- Новые боссы (Бронзовое святилище, Ульдуар 25 героич.) — предметы ещё
+    -- не заведены, список пуст. Наполнить, когда появятся силы.
+    ["Импорус"] = {},
+    ["Исказитель времени Элонус"] = {},
+    ["Огненный Левиафан"] = {},
+    ["Повелитель горнов Игнис"] = {},
+    ["Острокрылая"] = {},
+    ["Разрушитель ХТ-002"] = {},
+    ["Железное Собрание"] = {},
+    ["Кологарн"] = {},
+    ["Ауриайя"] = {},
+    ["Ходир"] = {},
+    ["Торим"] = {},
+    ["Фрейя"] = {},
+    ["Мимирон"] = {},
+    ["Генерал Везакс"] = {},
+    ["Йогг-Сарон"] = {},
+    ["Алгалон Наблюдатель"] = {},
 }
 
 -- ======================
@@ -90,16 +115,20 @@ function auction:GetSignupSet(bossName, category)
     return self.signups[bossName][category]
 end
 
+-- Отметился ли конкретный игрок в этой категории явки этого босса.
 function auction:IsSignedUp(bossName, category, playerName)
     return self:GetSignupSet(bossName, category)[playerName] == true
 end
 
+-- Сколько человек отметилось в категории — то самое число в скобках на
+-- кнопке явки ("Хочу бить (7)").
 function auction:GetSignupCount(bossName, category)
     local n = 0
     for _ in pairs(self:GetSignupSet(bossName, category)) do n = n + 1 end
     return n
 end
 
+-- Отсортированный список имён отметившихся — для тултипа кнопки явки.
 function auction:GetSignupNames(bossName, category)
     local names = {}
     for player in pairs(self:GetSignupSet(bossName, category)) do
@@ -137,27 +166,84 @@ function auction:ApplySignup(bossName, category, playerName, state)
     end
 end
 
-auction.bossOrder = {
-  --  "TEST",
-    "Лютый Хлад",
-    "Анетерон",
-    "Каз'рогал",
-    "Азгалор",
-    "Архимонд",
-    "Мурозонд",
-    "Зорт",
-    "Верховный полководец Надж'ентус",
-    "Супремус",
-    "Реликварий душ",
-    "Гуртогг Кипящая Кровь",
-    "Терон Кровожад",
-    "Тень Акамы",
-    "Матушка Шахраз",
-    "Совет Иллидари",
-    "Иллидан Ярость Бури",
+-- Подземелья → боссы (для дропдауна "Подземелье"). Порядок внутри группы —
+-- порядок в дропдауне "Босс". Если группировка не совпадает с тем, что у
+-- вас на сервере — это просто список имён, переставляй/переименовывай как
+-- нужно, на данные ставок/явки/сеть это не влияет (см. DEVELOPER_GUIDE.md).
+auction.instances = {
+    ["Чёрный Храм"] = {
+        "Верховный полководец Надж'ентус",
+        "Супремус",
+        "Реликварий душ",
+        "Гуртогг Кипящая Кровь",
+        "Терон Кровожад",
+        "Тень Акамы",
+        "Матушка Шахраз",
+        "Совет Иллидари",
+        "Иллидан Ярость Бури",
+    },
+    ["Битва за гору Хиджал"] = {
+        "Лютый Хлад",
+        "Анетерон",
+        "Каз'рогал",
+        "Азгалор",
+        "Архимонд",
+    },
+    ["Боссы Категорий"] = {
+        "Зорт",
+    },
+    ["Бронзовое святилище"] = {
+        "Импорус",
+        "Исказитель времени Элонус",
+        "Мурозонд",
+    },
+    ["Ульдуар 25 (героический)"] = {
+        "Огненный Левиафан",
+        "Повелитель горнов Игнис",
+        "Острокрылая",
+        "Разрушитель ХТ-002",
+        "Железное Собрание",
+        "Кологарн",
+        "Ауриайя",
+        "Ходир",
+        "Торим",
+        "Фрейя",
+        "Мимирон",
+        "Генерал Везакс",
+        "Йогг-Сарон",
+        "Алгалон Наблюдатель",
+    },
 }
+auction.instanceOrder = {
+    "Чёрный Храм",
+    "Битва за гору Хиджал",
+    "Боссы Категорий",
+    "Бронзовое святилище",
+    "Ульдуар 25 (героический)",
+}
+
+-- Обратный индекс bossName → instanceName, для восстановления выбора при
+-- входе (events.lua) и для UpdateLockCheckbox/прочего кода, которому нужно
+-- только имя босса, а не подземелье.
+auction.bossToInstance = {}
+for instanceName, bosses in pairs(auction.instances) do
+    for _, bossName in ipairs(bosses) do
+        auction.bossToInstance[bossName] = instanceName
+    end
+end
+
+-- bossOrder оставлен для обратной совместимости (вдруг где-то ещё
+-- используется плоский список) — собирается из instances/instanceOrder,
+-- отдельно не редактируется.
+auction.bossOrder = {}
+for _, instanceName in ipairs(auction.instanceOrder) do
+    for _, bossName in ipairs(auction.instances[instanceName]) do
+        table.insert(auction.bossOrder, bossName)
+    end
+end
 auction.bids = {}
 auction.selectedBoss = nil
+auction.selectedInstance = nil
 auction.selectedItem = nil
 auction.lastLM = nil
 auction.myEP = 0
@@ -244,7 +330,7 @@ auction.defaults = {
     window = {
         scale = 1.0,
         width = 650,
-        height = 515,
+        height = 605,
         point = "CENTER",
         relativePoint = "CENTER",
         x = 0,
@@ -280,6 +366,11 @@ auction.timerFrame:SetScript("OnUpdate", function()
     end
 end)
 
+-- ======================
+-- Самописный таймер (замена AceTimer-3.0, которого в проекте нет — см.
+-- DEVELOPER_GUIDE.md). OnUpdate-фрейм проверяет очередь self.timers
+-- каждый кадр и запускает те callback, чьё время (GetTime()) настало.
+-- ======================
 function auction:ScheduleTimer(callback, delay)
     self.timerId = self.timerId + 1
     local id = tostring(self.timerId)
@@ -288,6 +379,7 @@ function auction:ScheduleTimer(callback, delay)
     return id
 end
 
+-- Отменяет таймер по id, возвращённому из ScheduleTimer, если он ещё не сработал.
 function auction:CancelTimer(id)
     for i, timer in ipairs(self.timers) do
         if timer.id == id then
@@ -308,6 +400,9 @@ function auction:Debug(msg, ...)
     DEFAULT_CHAT_FRAME:AddMessage("|cff888888[EPBA DEBUG]|r "..msg)
 end
 
+-- Рекурсивная глубокая копия таблицы (для не-таблиц — просто возврат значения).
+-- Используется, чтобы не расшарить один и тот же вложенный стол между
+-- auction.defaults и auction.db (см. MergeDefaults).
 function auction:DeepCopy(orig)
     if type(orig) ~= "table" then return orig end
     local copy = {}
@@ -334,6 +429,11 @@ function auction:CompareVersions(v1, v2)
     return 0
 end
 
+-- Рекурсивно накладывает сохранённые настройки (saved, из SavedVariables)
+-- поверх дефолтов (defaults, auction.defaults), начиная с глубокой копии
+-- дефолтов. Так у новых ключей, которых нет в старом сохранении (появились
+-- в новой версии аддона), всегда будет значение по умолчанию — апдейт
+-- настроек между версиями ничего специально делать не требует.
 function auction:MergeDefaults(saved, defaults)
     local merged = self:DeepCopy(defaults)
     if type(saved) ~= "table" then return merged end
@@ -347,6 +447,7 @@ function auction:MergeDefaults(saved, defaults)
     return merged
 end
 
+-- Форматирует число с разделителями разрядов через пробел ("12 345").
 function auction:FormatNumber(n)
     if not n then return "0" end
     local sign = ""
@@ -362,6 +463,10 @@ function auction:FormatNumber(n)
     return sign .. formatted
 end
 
+-- Перестраивает self.playerClassCache (имя → класс) по текущему составу
+-- рейда/группы + сам игрок. Нужен, чтобы красить имена по классу
+-- (FormatColoredName/GetClassColor) без похода в GetRaidRosterInfo на
+-- каждую перерисовку строки таблицы.
 function auction:CacheRaidClasses()
     local newCache = {}
     if IsInRaid() then
@@ -386,6 +491,8 @@ function auction:CacheRaidClasses()
     self.playerClassCache = newCache
 end
 
+-- Цветовой код |cffRRGGBB для класса игрока, по кэшу из CacheRaidClasses;
+-- белый, если класс неизвестен (игрок вне кэша, например, не в рейде).
 function auction:GetClassColor(playerName)
     if not playerName then return "|cffffffff" end
     local class = self.playerClassCache[playerName]
@@ -403,6 +510,7 @@ function auction:GetClassColor(playerName)
     return "|cffffffff"
 end
 
+-- Имя игрока с префиксом цвета класса — то, что реально подставляется в строки таблицы.
 function auction:FormatColoredName(playerName)
     return self:GetClassColor(playerName) .. playerName
 end
@@ -416,6 +524,10 @@ function auction:GetConfiguredItemName(bossName, itemID)
     return bossItems and bossItems[itemID] or nil
 end
 
+-- ⚠ ЗАТЕНЕНА одноимённой функцией в ui.lua (грузится позже по .toc — та
+-- версия и работает по факту). Эта — мёртвый код, реализации к тому же
+-- РАЗНЫЕ (эта не кэширует иконку, ui.lua-версия кэширует). Не редактировать
+-- эту копию рассчитывая на эффект — правки нужны в ui.lua:GetCachedItemName.
 function auction:GetCachedItemName(itemID, bossName)
     local configuredName = self:GetConfiguredItemName(bossName or self.selectedBoss, itemID)
     if configuredName and configuredName ~= "" then return configuredName end
@@ -429,16 +541,20 @@ function auction:GetCachedItemName(itemID, bossName)
     return "item:" .. itemID
 end
 
+-- Полностью сбрасывает кэш чужого EP (playerEPCache/playerEPCacheTime).
 function auction:ClearPlayerEPCache()
     self.playerEPCache = {}
     self.playerEPCacheTime = {}
 end
 
+-- Кладёт значение EP игрока в кэш с текущей меткой времени.
 function auction:SetCachedPlayerEP(playerName, ep)
     self.playerEPCache[playerName] = ep
     self.playerEPCacheTime[playerName] = GetTime()
 end
 
+-- Значение EP из кэша, если ему не больше 300 сек (5 мин), иначе nil —
+-- чтобы не показывать совсем протухшие данные по чужому EP.
 function auction:GetCachedPlayerEP(playerName)
     local ep = self.playerEPCache[playerName]
     if ep and (GetTime() - (self.playerEPCacheTime[playerName] or 0)) < 300 then
@@ -447,6 +563,8 @@ function auction:GetCachedPlayerEP(playerName)
     return nil
 end
 
+-- Максимально допустимая ставка сейчас: весь мой EP для main-спека,
+-- или EP * offspecMultiplier (округлено вниз) для офф-спека.
 function auction:GetMaxBidAmount(isOffspec)
     local currentEP = self.myEP or 0
     if isOffspec then
@@ -455,6 +573,7 @@ function auction:GetMaxBidAmount(isOffspec)
     return currentEP
 end
 
+-- Проигрывает звук уведомления о перебитой ставке, если звук включён в настройках.
 function auction:PlayOutbidSound()
     if self.db and self.db.general and self.db.general.soundEnabled then
         local soundFile = self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav"
@@ -462,6 +581,10 @@ function auction:PlayOutbidSound()
     end
 end
 
+-- Перестраивает self.sortedBids[boss][itemID] — копию ставок по этому
+-- предмету, отсортированную по убыванию суммы. Отдельная от self.bids
+-- таблица, чтобы не сортировать на каждую перерисовку строки таблицы —
+-- вызывается один раз после любого изменения ставок.
 function auction:UpdateSortedBids(bossName, itemID)
     self.sortedBids[bossName] = self.sortedBids[bossName] or {}
     local bids = self.bids[bossName] and self.bids[bossName][itemID]
@@ -477,6 +600,9 @@ function auction:UpdateSortedBids(bossName, itemID)
     end
 end
 
+-- Пересчитывает maxBidCache/myBidCache (максимальная ставка и МОЯ ставка
+-- по этому предмету) — быстрый доступ для UI без прохода по всему списку
+-- ставок на каждый кадр/рефреш.
 function auction:UpdateBidCaches(bossName, itemID)
     local bids = self.bids[bossName] and self.bids[bossName][itemID]
     local key = bossName .. ":" .. itemID
@@ -508,6 +634,11 @@ function auction:GetVersionKey(bossName, itemID)
     return tostring(bossName) .. ":" .. tostring(itemID)
 end
 
+-- Приводит таблицу версий (полученную из SavedVariables или по сети) к
+-- единому формату ключей "boss:itemID". Нужна для обратной совместимости:
+-- в старых сохранениях/сообщениях ключом мог быть просто bossName (версия
+-- на всего босса разом) — тогда она разворачивается на все itemID этого
+-- босса из auction.bosses.
 function auction:NormalizeVersionTable(versionTable)
     local normalized = {}
     if type(versionTable) ~= "table" then
@@ -530,11 +661,14 @@ function auction:NormalizeVersionTable(versionTable)
     return normalized
 end
 
+-- Текущая версия данных (dataVersions) по предмету, 0 если ещё не было ставок.
 function auction:GetDataVersion(bossName, itemID)
     local key = self:GetVersionKey(bossName, itemID)
     return (key and self.dataVersions[key]) or 0
 end
 
+-- Увеличивает dataVersions на 1 (вызывается ЛМ при каждом изменении
+-- ставок по предмету) и возвращает новое значение.
 function auction:IncrementDataVersion(bossName, itemID)
     local key = self:GetVersionKey(bossName, itemID)
     if not key then return 0 end
@@ -542,11 +676,13 @@ function auction:IncrementDataVersion(bossName, itemID)
     return self.dataVersions[key]
 end
 
+-- Версия, которую я последним применил из SYNC (lastVersions), 0 если ещё не применял.
 function auction:GetLastVersion(bossName, itemID)
     local key = self:GetVersionKey(bossName, itemID)
     return (key and self.lastVersions[key]) or 0
 end
 
+-- Запоминает применённую версию SYNC для предмета (игнорирует version <= 0).
 function auction:SetLastVersion(bossName, itemID, version)
     local key = self:GetVersionKey(bossName, itemID)
     if key and version and version > 0 then
@@ -554,6 +690,8 @@ function auction:SetLastVersion(bossName, itemID, version)
     end
 end
 
+-- Сброс lastVersions/флагов получения данных при смене ЛМ (мой прогресс
+-- синхронизации со старым лутером больше не актуален).
 function auction:ResetVersionsForNewLM()
     self.lastVersions = {}
     self.receivedItems = {}
@@ -562,6 +700,8 @@ function auction:ResetVersionsForNewLM()
     self:Debug("Сброшены версии ставок для нового Loot Master")
 end
 
+-- Полный сброс данных версий и lastLM при выходе из группы/рейда (больше
+-- не с кем сверяться) — с немедленным SaveData, если аддон уже загружен.
 function auction:ResetVersionsOnGroupExit()
     self.dataVersions = {}
     self.lastVersions = {}
@@ -575,6 +715,9 @@ function auction:ResetVersionsOnGroupExit()
     end
 end
 
+-- Полный пересчёт sortedBids/maxBidCache/myBidCache по всем боссам и
+-- предметам сразу. Вызывается один раз после загрузки SavedVariables
+-- (когда self.bids только что восстановлен и все кэши-производные пустые).
 function auction:RebuildBidData()
     wipe(self.sortedBids)
     wipe(self.maxBidCache)
@@ -587,6 +730,10 @@ function auction:RebuildBidData()
     end
 end
 
+-- EP произвольного игрока (не обязательно себя): для себя — сразу
+-- self.myEP, для остальных — сначала кэш (если не forceRefresh), иначе
+-- тот же перебор API EPGP-аддона, что и в epgp.lua (продублирован тут,
+-- т.к. epgp.lua умеет получать только СВОЙ EP). Результат кэшируется.
 function auction:GetPlayerEP(playerName, forceRefresh)
     if not playerName or playerName == "" then
         return 0
@@ -646,6 +793,8 @@ function auction:GetPlayerEP(playerName, forceRefresh)
     return resolvedEP
 end
 
+-- Принудительно обновляет кэш EP (GetPlayerEP с forceRefresh=true) для
+-- себя и всех, кто сейчас в рейде/группе.
 function auction:RefreshPlayerEPCache()
     self:ClearPlayerEPCache()
 
@@ -671,6 +820,9 @@ function auction:RefreshPlayerEPCache()
     end
 end
 
+-- Строковый "отпечаток" текущего состава рейда (отсортированные имена
+-- через запятую), "solo" вне рейда. Используется, чтобы заметить смену
+-- состава без сравнения по одному имени.
 function auction:GetRaidKey()
     if not IsInRaid() then return "solo" end
     local names = {}
@@ -699,6 +851,8 @@ function auction:IsLootMaster()
     return false
 end
 
+-- Прогревает клиентский кэш предметов (GetItemInfo) по всем боссам сразу,
+-- чтобы к моменту открытия таблицы иконки/названия уже были готовы.
 function auction:PrecacheItems()
     for boss, itemList in pairs(self.bosses) do
         for _, itemID in ipairs(itemList) do
@@ -707,19 +861,24 @@ function auction:PrecacheItems()
     end
 end
 
+-- Загружает настройки при старте (MergeDefaults поверх сохранённых),
+-- плюс миграция старого дефолтного minBid=1000 → 100 и защита минимальных
+-- размеров окна. Вызывается один раз из events.lua при ADDON_LOADED.
 function auction:LoadSettings()
     self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
     if self.db.general.minBid == 1000 then
         self.db.general.minBid = 100
     end
     self.db.window.width = math.max(650, self.db.window.width or 650)
-    self.db.window.height = math.max(515, self.db.window.height or 515)
+    self.db.window.height = math.max(605, self.db.window.height or 605)
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
 end
 
+-- Кладёт auction.db в SavedVariable EPBossAuctionSettings (сама запись на
+-- диск — задача клиента WoW при выходе, не этой функции).
 function auction:SaveSettings()
     EPBossAuctionSettings = self.db
 end
@@ -743,6 +902,10 @@ function auction:RequestSaveData(delay)
     end, delay or 1)
 end
 
+-- Применяет текущие auction.db.* к уже созданным фреймам (масштаб/размер/
+-- прозрачность/блокировку перетаскивания главного окна, видимость и
+-- позицию кнопки миникарты). Вызывается после изменения настроек в
+-- options.lua, чтобы не требовать перезахода.
 function auction:ApplySettings()
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
@@ -750,7 +913,7 @@ function auction:ApplySettings()
     if self.frame then
         self.frame:SetScale(self.db.window.scale)
         self.db.window.width = math.max(650, self.db.window.width or 650)
-        self.db.window.height = math.max(515, self.db.window.height or 515)
+        self.db.window.height = math.max(605, self.db.window.height or 605)
         self.frame:SetSize(self.db.window.width, self.db.window.height)
         self.frame:SetAlpha(self.db.window.alpha)
         if self.db.window.locked then
@@ -779,6 +942,10 @@ function auction:ApplySettings()
     end
 end
 
+-- Фактическая запись всех рабочих данных (ставки/версии/явка/позиция
+-- окна/блокировка и т.д.) в соответствующие SavedVariable-глобалы. force
+-- сейчас не используется внутри (проверка на dataDirty — на вызывающей
+-- стороне, см. RequestSaveData/InitAutoSave), оставлен для читаемости.
 function auction:SaveData(force)
     if self.pendingSaveTimer then
         self:CancelTimer(self.pendingSaveTimer)
@@ -804,6 +971,8 @@ function auction:SaveData(force)
     self.lastSaveTime = GetTime()
 end
 
+-- Запускает фоновый автосейв раз в 10 сек (сохраняет, только если
+-- self.dataDirty — есть несохранённые изменения).
 function auction:InitAutoSave()
     if self.saveTimer then self:CancelTimer(self.saveTimer) end
     local function saveFunc()
@@ -815,6 +984,7 @@ function auction:InitAutoSave()
     self.saveTimer = self:ScheduleTimer(saveFunc, 10)
 end
 
+-- Запоминает текущую позицию главного окна (точка привязки + смещение) в auction.db.window.
 function auction:SaveWindowPosition()
     if not self.frame then return end
     local point, _, relativePoint, x, y = self.frame:GetPoint()
@@ -824,12 +994,15 @@ function auction:SaveWindowPosition()
     self.db.window.y = y or 0
 end
 
+-- Возвращает ANCHOR_-константу для GameTooltip:SetOwner по настройке
+-- db.table.tooltipAnchor (по умолчанию — у курсора).
 function auction:GetTooltipAnchor()
     local anchor = self.db and self.db.table and self.db.table.tooltipAnchor or "CURSOR"
     if anchor == "CURSOR" then return "ANCHOR_CURSOR" end
     return "ANCHOR_" .. anchor
 end
 
+-- Устанавливает масштаб главного окна, зажимая между minScale/maxScale.
 function auction:SetWindowScale(scale)
     scale = math.max(self.minScale, math.min(self.maxScale, scale))
     if self.frame then
@@ -839,6 +1012,9 @@ function auction:SetWindowScale(scale)
     end
 end
 
+-- Раз в 5 минут (сама себя перепланирует через ScheduleTimer) очищает
+-- outbidNotified/outbidThrottle — чтобы повторная ставка на тот же предмет
+-- через долгое время снова могла вызвать уведомление о перебитии.
 function auction:CleanOutbidNotified()
     self.outbidNotified = {}
     self.outbidThrottle = {}
@@ -850,23 +1026,30 @@ function auction:CleanOutbidNotified()
     end
 end
 
+-- Слэш-команда /epbazoom+: увеличить масштаб окна на один шаг.
 function auction:ZoomIn()
     self:SetWindowScale(self.windowScale + self.scaleStep)
 end
 
+-- Слэш-команда /epbazoom-: уменьшить масштаб окна на один шаг.
 function auction:ZoomOut()
     self:SetWindowScale(self.windowScale - self.scaleStep)
 end
 
+-- Слэш-команда /epbazoomreset: вернуть масштаб окна к 100%.
 function auction:ResetZoom()
     self:SetWindowScale(1.0)
 end
 
+-- Слэш-команда /epbasave: сохранить прямо сейчас и написать об этом в чат.
 function auction:ForceSave()
     self:SaveData()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Данные сохранены")
 end
 
+-- ⚠ ЗАТЕНЕНА одноимённой функцией в ui.lua (грузится позже по .toc — та
+-- версия и работает по факту). Тут код идентичен, так что поведения это
+-- не меняет, но правки всё равно нужно делать в обеих копиях или удалить эту.
 function auction:UpdateScrollFrameSize()
     if not self.frame or not self.scrollFrame then return end
     self.scrollFrame:SetPoint("TOPLEFT", self.leftPanel, "TOPRIGHT", 10, 0)
@@ -877,6 +1060,9 @@ function auction:UpdateScrollFrameSize()
     end
 end
 
+-- Отложенная (0.1 сек) перерисовка таблицы предметов с debounce — несколько
+-- быстрых изменений подряд (например, серия входящих SYNC) схлопываются в
+-- один вызов RefreshTable вместо перерисовки на каждое.
 function auction:RequestRefresh()
     if self.refreshTimer then
         self:CancelTimer(self.refreshTimer)

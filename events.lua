@@ -49,9 +49,11 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
 
             if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then
                 auction.selectedBoss = EPBossAuctionSavedSelectedBoss
+                auction.selectedInstance = auction.bossToInstance[auction.selectedBoss]
                 auction:Debug("Восстановлен босс: "..auction.selectedBoss)
             else
                 auction.selectedBoss = nil
+                auction.selectedInstance = nil
             end
 
             if auction.selectedBoss and EPBossAuctionSavedSelectedItem then
@@ -161,6 +163,8 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                 auction:UpdateLMButtonsState()
                 return
             end
+            -- Я стал/остаюсь ЛМ — если это смена (lastLM был другим), объявляю
+            -- себя в рейд и планирую полную пересинхронизацию через 2 сек.
             if auction:IsLootMaster() then
                 if auction.lastLM ~= playerName then
                     auction.lastLM = playerName
@@ -178,6 +182,9 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                     end, 2)
                 end
             else
+                -- Я не ЛМ — определяю текущего через GetLootMethod у раид-ростера
+                -- (не по сети). Если ЛМ реально сменился — сбрасываю версии и
+                -- заново запрашиваю данные (CHECK_VERSION/HELLO) через 1 сек.
                 local currentLM = nil
                 local method, partyIndex, raidIndex = GetLootMethod()
                 if method == "master" and raidIndex then
@@ -220,12 +227,16 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end
         end, 2)
 
+    -- Финальное сохранение перед выходом — подстраховка на случай, если
+    -- автосейв (InitAutoSave, раз в 10 сек) не успел сработать.
     elseif event == "PLAYER_LOGOUT" then
         if auction.fullyLoaded then
             auction:SaveData()
             auction:Debug("Сохранение при выходе")
         end
 
+    -- Внешний EPGP-аддон сам сообщил об изменении данных — не ждём следующего
+    -- цикла периодического опроса (epgp.lua StartEPUpdates), обновляемся сразу.
     elseif event == "EPGP_UPDATE" or event == "EPGP_DATA_CHANGED" then
         if auction.fullyLoaded then
             auction:Debug("Получено обновление от EPGP")

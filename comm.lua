@@ -47,6 +47,9 @@ local function GetSafeItemInfo(itemID)
     return "предмет "..tostring(itemID)
 end
 
+-- Отправляет message адресно текущему ЛМ (WHISPER), если он известен
+-- (self.lastLM) и это не я сам; иначе — веерно в RAID (на случай, если ЛМ
+-- ещё не определён). Возвращает true/false — ушло ли адресно или веерно.
 function auction:SendToLootMaster(message)
     if not message or message == "" then return false end
 
@@ -60,6 +63,11 @@ function auction:SendToLootMaster(message)
     return false
 end
 
+-- Главная точка входа в сетевую логику при входе в мир (вызывается из
+-- events.lua). Через 2 сек (даём раид-ростеру подгрузиться): если я ЛМ и
+-- есть ставки — рассылаю SyncAllToRaid, если ставок нет — просто "я
+-- лутер"; если я не ЛМ — запрашиваю данные у лутера. В любом случае —
+-- обновляю свой EP и рассылаю версию аддона в гильдию.
 function auction:HandleWorldEnter()
     self:Debug("=== ОБРАБОТКА ВХОДА В МИР ===")
     self:Debug("fullyLoaded = "..tostring(self.fullyLoaded))
@@ -85,6 +93,9 @@ function auction:HandleWorldEnter()
             if bidCount > 0 then
                 if self.selectedBoss then
                     self:Debug("Восстанавливаем выбранного босса: "..self.selectedBoss)
+                    if self.instanceDropdown and self.selectedInstance then
+                        UIDropDownMenu_SetText(self.instanceDropdown, self.selectedInstance)
+                    end
                     if self.bossDropdown then
                         UIDropDownMenu_SetText(self.bossDropdown, self.selectedBoss)
                     end
@@ -117,6 +128,7 @@ function auction:BroadcastMyVersion()
     SendAddonMessage(self.prefix, "MY_VERSION;"..self.version, "GUILD")
 end
 
+-- Приём чужой версии аддона (в комнате уже есть отдельный заголовок про MY_VERSION выше).
 function auction:Handle_MY_VERSION(rest, sender)
     local remoteVersion = rest
     if not remoteVersion or remoteVersion == "" then return end
@@ -143,6 +155,9 @@ function auction:AnnounceToRaid(message)
     SendChatMessage("[EPBA] "..message, channel)
 end
 
+-- Полная рассылка ВСЕХ имеющихся ставок по всем боссам в рейд (только
+-- ЛМ). Растягивает отправку по времени (0.3 сек между предметами), чтобы
+-- не забить канал разом, и в конце шлёт SYNC_COMPLETE.
 function auction:SyncAllToRaid()
     if not self:IsLootMaster() then 
         self:Debug("Не лутер, синхронизация отменена")
@@ -183,10 +198,15 @@ function auction:SyncAllToRaid()
     end
 end
 
+-- Тонкая обёртка над QueueSync (force сейчас не используется, оставлена для совместимости вызовов).
 function auction:SendSync(bossName, itemID, force)
     self:QueueSync(bossName, itemID)
 end
 
+-- Ставит предмет в очередь на рассылку SYNC с debounce 0.2 сек
+-- (FlushSyncQueue) — если ставки на один и тот же предмет меняются
+-- несколько раз подряд (например, серия отмен/переставок), в сеть уйдёт
+-- один SYNC, а не по одному на каждое изменение.
 function auction:QueueSync(bossName, itemID)
     self.syncQueue = self.syncQueue or {}
     local key = bossName .. ":" .. itemID
@@ -198,6 +218,7 @@ function auction:QueueSync(bossName, itemID)
     end
 end
 
+-- Отправляет SendSyncImmediate по всем предметам, накопленным в очереди QueueSync, и очищает её.
 function auction:FlushSyncQueue()
     for key in pairs(self.syncQueue) do
         local bossName, itemID = key:match("([^:]+):(.+)")
@@ -209,6 +230,10 @@ function auction:FlushSyncQueue()
     self.syncTimer = nil
 end
 
+-- Немедленно (без debounce) рассылает SYNC по одному предмету в RAID:
+-- увеличивает dataVersion, собирает все ставки в строку вида
+-- "игрок:сумма:офф-спек,...". Не сохраняет данные сама — это на таймере
+-- автосейва (см. core.lua InitAutoSave).
 function auction:SendSyncImmediate(bossName, itemID)
     if not bossName or not itemID then return end
     local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
@@ -229,6 +254,10 @@ function auction:SendSyncImmediate(bossName, itemID)
     -- Сохранение данных теперь только по таймеру, не здесь
 end
 
+-- Персональная (WHISPER) отправка всех ставок по одному боссу
+-- конкретному игроку — ответ ЛМ на HELLO. В отличие от
+-- SendSyncImmediate не увеличивает dataVersion (это просто пересылка уже
+-- существующих данных, а не новое изменение).
 function auction:SendAllBidsForBoss(bossName, targetPlayer)
     if not bossName or not targetPlayer then return false end
     local bossBids = self.bids[bossName]
@@ -259,6 +288,10 @@ function auction:SendAllBidsForBoss(bossName, targetPlayer)
     return false
 end
 
+-- Запрос своих данных у текущего ЛМ (не-ЛМ вызывает при входе в мир и
+-- при обнаружении нового ЛМ): шлёт LM_REQUEST + CHECK_VERSION + HELLO
+-- (с именем выбранного босса, если есть). Через 8 сек проверяет по
+-- флагам receivedSync/receivedAck, дошёл ли ответ — только для Debug-лога.
 function auction:RequestDataFromLM()
     if self:IsLootMaster() then 
         self:Debug("Я лутер, запрос игнорируется")
@@ -292,6 +325,7 @@ function auction:BroadcastSignup(bossName, category, playerName, state)
     SendAddonMessage(self.prefix, msg, "RAID")
 end
 
+-- Приём чужой явки — просто применяет присланное состояние (ApplySignup), без проверки прав отправителя (явка не требует роли ЛМ).
 function auction:Handle_SIGNUP(rest, sender)
     local bossName, category, playerName, stateStr = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
     if not (bossName and category and playerName and stateStr) then
@@ -398,6 +432,8 @@ function auction:Handle_BID(rest, sender)
     self:Debug("Ставка обработана, отправлен SYNC")
 end
 
+-- Приём полных данных по предмету от ЛМ (см. подробный разбор "or
+-- senderIsLM" чуть ниже, у самой проверки версии).
 function auction:Handle_SYNC(rest, sender)
     local parts = { strsplit(";", rest) }
     local bossName = parts[1]
@@ -499,6 +535,7 @@ function auction:Handle_HELLO(rest, sender)
     SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
 end
 
+-- Подтверждение от ЛМ, что мой HELLO дошёл — выставляет self.receivedAck (только для Debug-диагностики зависшей синхронизации).
 function auction:Handle_HELLO_ACK(rest, sender)
     self.receivedAck = true
     self:Debug("Получено подтверждение HELLO_ACK от "..sender)
@@ -517,6 +554,7 @@ function auction:Handle_LM(rest, sender)
     end
 end
 
+-- Кто-то спрашивает "кто лутер?" (WHISPER мне) — если это я, отвечаю LM_RESPONSE.
 function auction:Handle_LM_REQUEST(rest, sender)
     self:Debug("Получен LM_REQUEST от "..sender)
     if self:IsLootMaster() then
@@ -525,6 +563,7 @@ function auction:Handle_LM_REQUEST(rest, sender)
     end
 end
 
+-- Ответ на мой LM_REQUEST — sender и есть ЛМ, запоминаем как self.lastLM (та же логика доверия, что и в Handle_LM).
 function auction:Handle_LM_RESPONSE(rest, sender)
     local lmName = rest
     self.lastLM = lmName ~= "" and lmName or sender
@@ -547,6 +586,7 @@ function auction:Handle_CHECK_VERSION(rest, sender)
     end
 end
 
+-- Ответ ЛМ на мой CHECK_VERSION — список версий данных по предметам, кладёт их в self.dataVersions через NormalizeVersionTable.
 function auction:Handle_VERSIONS(rest, sender)
     self:Debug("Получены версии от лутера: "..rest)
     local needUpdate = false
@@ -571,6 +611,7 @@ function auction:Handle_VERSIONS(rest, sender)
     end
 end
 
+-- Подтверждение от ЛМ, что моя ставка принята — печатает в чат подтверждение игроку.
 function auction:Handle_BIDOK(rest, sender)
     local amount, playerName, bossName, itemID = rest:match("([^;]+);([^;]+);([^;]+);([^;]+)")
     if not amount then amount = rest end
@@ -582,11 +623,16 @@ function auction:Handle_BIDOK(rest, sender)
     end
 end
 
+-- Сигнал "синхронизация от ЛМ завершена" — просто финальный Debug-лог/флаг, данные уже применены по ходу отдельных SYNC.
 function auction:Handle_SYNC_COMPLETE(rest, sender)
     self.receivedSync = true
     self:Debug("Синхронизация завершена")
 end
 
+-- Применяет очистку ставок+явки по боссу, ПРИШЕДШУЮ ИЗВНЕ (Handle_END/
+-- Handle_END_ALL) — в отличие от ClearBossLocal в ui.lua (которым сам ЛМ
+-- инициирует очистку), эта версия не увеличивает dataVersion, только
+-- зеркалит уже принятое решение ЛМ.
 function auction:ClearBossLocal_Remote(bossName)
     self.bids[bossName] = {}
     self.signups[bossName] = nil
@@ -605,6 +651,7 @@ function auction:ClearBossLocal_Remote(bossName)
     end
 end
 
+-- Приём очистки ставок по одному боссу (rest = имя босса) — от ЛМ, без проверки отправителя.
 function auction:Handle_END(rest, sender)
     local bossName = rest
     self:ClearBossLocal_Remote(bossName)
@@ -615,6 +662,7 @@ function auction:Handle_END(rest, sender)
     self:RequestSaveData()
   end
 
+-- Приём очистки ставок по всем боссам сразу — от ЛМ, без проверки отправителя.
 function auction:Handle_END_ALL(rest, sender)
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal_Remote(bossName)
@@ -626,6 +674,7 @@ function auction:Handle_END_ALL(rest, sender)
     self:RequestSaveData()
 end
 
+-- Приём блокировки/разблокировки ставок от ЛМ (rest = "true"/"false") — обновляет self.bidsLocked и чекбокс в UI.
 function auction:Handle_LOCK(rest, sender)
     self:Debug("LOCK получен, rest='"..tostring(rest).."'")
     local cleanRest = rest:gsub("%s+", "")
@@ -638,6 +687,7 @@ function auction:Handle_LOCK(rest, sender)
     self:SetBidsLocked(state)
 end
 
+-- Приём нового коэффициента офф-спека от ЛМ — обновляет self.offspecMultiplier и пересчитывает отображаемый максимум ставки.
 function auction:Handle_OFFSPEC_MULT(rest, sender)
     local multiplier = tonumber(rest)
     if multiplier then
@@ -651,6 +701,7 @@ function auction:Handle_OFFSPEC_MULT(rest, sender)
     end
 end
 
+-- Ответ от ЛМ на мою попытку сделать ставку во время блокировки — просто печатает предупреждение в чат.
 function auction:Handle_LOCKED(rest, sender)
     if not self:IsLootMaster() then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")

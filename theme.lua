@@ -32,6 +32,11 @@ auction.theme = {
     },
 }
 
+-- Пробует по очереди несколько шрифтов (свой символьный → системный →
+-- запасной) на fontString, пока один не применится успешно (SetFont
+-- возвращает true). Нужен потому что не все шрифты содержат символы
+-- ✓/▼ — если ни один не подошёл, вызывающий код сам падает на текстовый
+-- фолбэк ("x"/"v", см. SkinCheckbox/SkinDropdown).
 function auction:TrySetSymbolFont(fontString, size)
     if not fontString then return false end
     local candidates = {
@@ -51,6 +56,9 @@ function auction:TrySetSymbolFont(fontString, size)
     return false
 end
 
+-- Скрывает все текстуры фрейма (обходит frame:GetRegions()), не трогая
+-- шрифтовые строки и другие типы регионов. Первый шаг перед покраской
+-- почти любого стандартного элемента Blizzard в SkinXxx-функциях ниже.
 function auction:HideDefaultTextures(frame)
     if not frame then return end
     for _, region in ipairs({ frame:GetRegions() }) do
@@ -62,6 +70,9 @@ function auction:HideDefaultTextures(frame)
     end
 end
 
+-- Красит произвольный фрейм под тёмную панель аддона (фон + рамка через
+-- backdrop). Используется для крупных контейнеров: главное окно, окно
+-- "Что нового?" и т.п.
 function auction:SkinPanel(frame)
     if not frame then return end
     frame:SetBackdrop({
@@ -75,6 +86,10 @@ function auction:SkinPanel(frame)
     frame:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
 end
 
+-- Красит стандартную кнопку Blizzard под тему: убирает штатные текстуры,
+-- ставит однотонный backdrop-фон и вешает HookScript на
+-- Enter/Leave/Enable/Disable для смены цвета по состоянию. Идемпотентна
+-- (флаг _epbaSkinned не даёт перекрасить/задвоить хуки повторно).
 function auction:SkinButton(button)
     if not button or button._epbaSkinned then return end
     local c = self.theme.colors
@@ -115,6 +130,7 @@ function auction:SkinButton(button)
     button._epbaSkinned = true
 end
 
+-- Красит EditBox (поле ввода): тёмный фон, рамка золотится при фокусе.
 function auction:SkinInput(editBox)
     if not editBox or editBox._epbaSkinned then return end
     local c = self.theme.colors
@@ -137,6 +153,9 @@ function auction:SkinInput(editBox)
 end
 
 
+-- Красит CheckButton: убирает штатные текстуры, рисует свою галочку
+-- (текстовый символ, не текстура) поверх backdrop-квадрата, которая
+-- показывается/прячется через RefreshState по OnClick/OnShow.
 function auction:SkinCheckbox(checkbox)
     if not checkbox or checkbox._epbaSkinned then return end
     local c = self.theme.colors
@@ -195,6 +214,9 @@ function auction:SkinCheckbox(checkbox)
     checkbox._epbaSkinned = true
 end
 
+-- Красит стандартный UIDropDownMenu Blizzard: прячет его 3-частную
+-- текстуру (Left/Middle/Right), перекрашивает встроенную кнопку-стрелку
+-- через SkinButton и рисует поверх неё свой символ ▼/v.
 function auction:SkinDropdown(dropdown)
     if not dropdown or dropdown._epbaSkinned then return end
     local c = self.theme.colors
@@ -250,6 +272,8 @@ function auction:SkinDropdown(dropdown)
     dropdown._epbaSkinned = true
 end
 
+-- Красит вертикальный скроллбар (ScrollUpButton/ScrollDownButton через
+-- SkinButton, ползунок — заливка акцентным цветом).
 function auction:SkinScrollBar(scrollBar)
     if not scrollBar or scrollBar._epbaSkinned then return end
     local c = self.theme.colors

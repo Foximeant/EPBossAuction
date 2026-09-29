@@ -23,6 +23,10 @@ local auction = EPBossAuction
 -- таблиц), в обычной работе аддона не вызывается.
 -- ============================================================
 
+-- Точка входа для получения своего EP: находит установленный EPGP-аддон,
+-- при наличии метода Update() дёргает его принудительное обновление,
+-- затем через 1 сек (даём EPGP время пересчитаться) вызывает DoUpdateMyEP.
+-- Если EPGP-аддон вообще не найден — сразу пишет об этом в текст ЕП в окне.
 function auction:UpdateMyEP()
     self.myEP = 0
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
@@ -45,6 +49,9 @@ function auction:UpdateMyEP()
     end, 1)
 end
 
+-- Фактическое получение EP: перебирает 3 способа по очереди (см. шапку
+-- файла), пишет результат в self.myEP и обновляет текст в окне, если оно
+-- открыто. Вызывается только из UpdateMyEP (после задержки в 1 сек).
 function auction:DoUpdateMyEP(epgpTable, playerName)
     if epgpTable.GetEPGP then
         self:Debug("Используем GetEPGP...")
@@ -108,6 +115,9 @@ function auction:DoUpdateMyEP(epgpTable, playerName)
     end
 end
 
+-- Запускает периодический опрос EP (каждые self.epUpdateInterval секунд,
+-- задаётся в core.lua) через CheckAndUpdateEP. Пересоздаёт таймер, если
+-- вызвана повторно (например, при относоге аддона) — предыдущий отменяется.
 function auction:StartEPUpdates()
     if self.epUpdateTimer then
         self:CancelTimer(self.epUpdateTimer)
@@ -120,6 +130,11 @@ function auction:StartEPUpdates()
     self:Debug("Запущено периодическое обновление EP (интервал "..self.epUpdateInterval.." сек)")
 end
 
+-- Троттлинг для периодического обновления (вызывается таймером из
+-- StartEPUpdates): не даёт запустить ForceEPUpdate чаще раза в 2 сек и не
+-- запускает второй параллельный запрос, пока предыдущий не завершился
+-- (self.epUpdatePending). При успехе обновляет отображение EP и перепроверяет
+-- текущую введённую ставку против нового лимита.
 function auction:CheckAndUpdateEP()
     if self.epUpdatePending then return end
     self.epUpdatePending = true
@@ -140,15 +155,18 @@ function auction:CheckAndUpdateEP()
     end)
 end
 
+-- Перерисовывает текст "Ваш ЕП" и поле ставки, подсвечивая их красным,
+-- если введённая сейчас ставка превышает текущий максимально допустимый
+-- лимит (self:GetMaxBidAmount). Ничего не делает, если окно закрыто.
 function auction:UpdateEPDisplay()
     if self.frame and self.frame:IsShown() and self.myEPText then
         self.myEPText:SetText("Ваш ЕП: "..self:FormatNumber(self.myEP))
         self:UpdateMaxBidDisplay()
-        
+
         local currentBid = tonumber(self.bidBox:GetText()) or 0
         local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
         local maxBid = self:GetMaxBidAmount(isOffspec)
-        
+
         if currentBid > 0 and currentBid > maxBid then
             self.myEPText:SetTextColor(1, 0, 0)
             self.bidBox:SetTextColor(1, 0, 0)
@@ -159,6 +177,9 @@ function auction:UpdateEPDisplay()
     end
 end
 
+-- Заглушка-проверка: сейчас ничего не делает (подсветка уже покрыта в
+-- UpdateEPDisplay), оставлена как точка расширения, если понадобится
+-- отдельное поведение именно при обновлении EP (а не при вводе ставки).
 function auction:CheckCurrentBidAgainstEP()
     local currentBid = tonumber(self.bidBox:GetText()) or 0
     if currentBid > 0 and currentBid > self.myEP then
@@ -166,6 +187,11 @@ function auction:CheckCurrentBidAgainstEP()
     end
 end
 
+-- Немедленное (не по таймеру) обновление EP с колбэком callback(success,
+-- newEP) по завершении. Защищено от повторного запуска флагом
+-- self.isUpdatingEP, пока предыдущий вызов не завершился. Использует ту же
+-- логику перебора API, что и DoUpdateMyEP, но продублированную инлайново
+-- (исторически) и с колбэком вместо прямой записи в UI.
 function auction:ForceEPUpdate(callback)
     if self.isUpdatingEP then
         self:Debug("ForceEPUpdate уже выполняется, пропускаем")
@@ -173,7 +199,7 @@ function auction:ForceEPUpdate(callback)
         return
     end
     self.isUpdatingEP = true
-    
+
     self:Debug("Принудительное обновление EP...")
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
     if not epgpTable then
@@ -210,11 +236,11 @@ function auction:ForceEPUpdate(callback)
         end
         auction.myEP = newEP
         auction.lastEPUpdate = GetTime()
-        
+
         auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
-        
+
         auction:RefreshPlayerEPCache()
-        
+
         if auction.frame and auction.frame:IsShown() then
             auction.myEPText:SetText("Ваш ЕП: "..auction:FormatNumber(newEP))
             auction:UpdateMaxBidDisplay()
@@ -226,6 +252,11 @@ function auction:ForceEPUpdate(callback)
     end, 0.5)
 end
 
+-- Отладочная команда (/epgpfind): сканирует все глобальные переменные в
+-- поисках таблиц, чьё имя похоже на EPGP-аддон, и печатает в чат, какие
+-- методы (GetEPGP/GetEP/db.profile.players) у них есть. Полезно, когда на
+-- сервере стоит незнакомая версия EPGP и непонятно, через какой метод
+-- этот файл должен получать EP — не вызывается в обычной работе аддона.
 function auction:FindEPGP()
     self:Debug("=== ПОИСК EPGP АДДОНА ===")
     local found = false

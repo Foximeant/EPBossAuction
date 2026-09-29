@@ -143,9 +143,46 @@ function auction:CreateUI()
     self.leftPanel = leftPanel
     self:SkinPanel(leftPanel)
 
-    -- 1. Выбор босса
+    -- 0. Выбор подземелья
+    local instanceLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    instanceLabel:SetPoint("TOP", leftPanel, "TOP", 0, -10)
+    instanceLabel:SetJustifyH("CENTER")
+    instanceLabel:SetText("Подземелье:")
+    local instanceDropdown = CreateFrame("Frame", "EPInstanceDropdown", leftPanel, "UIDropDownMenuTemplate")
+    instanceDropdown:SetPoint("TOP", instanceLabel, "BOTTOM", 0, -6)
+    UIDropDownMenu_SetWidth(instanceDropdown, 116)
+    UIDropDownMenu_SetText(instanceDropdown, "Выбрать подземелье")
+    UIDropDownMenu_Initialize(instanceDropdown, function(selfDD, level)
+        for _, instanceName in ipairs(auction.instanceOrder) do
+            local inst = instanceName
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = inst
+            info.func = function()
+                auction.selectedInstance = inst
+                auction.selectedBoss = nil
+                auction.selectedItem = nil
+                UIDropDownMenu_SetText(instanceDropdown, inst)
+                UIDropDownMenu_SetText(auction.bossDropdown, "Выбрать босса")
+                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+                if auction.bossDropdown then
+                    UIDropDownMenu_Refresh(auction.bossDropdown)
+                end
+                if auction.itemDropdown then
+                    UIDropDownMenu_Refresh(auction.itemDropdown)
+                end
+                auction:RequestRefresh()
+                auction:RefreshSignupButtons()
+            end
+            info.checked = (auction.selectedInstance == inst)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    self.instanceDropdown = instanceDropdown
+    self:SkinDropdown(instanceDropdown)
+
+    -- 1. Выбор босса (список зависит от выбранного подземелья)
     local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bossLabel:SetPoint("TOP", leftPanel, "TOP", 0, -10)
+    bossLabel:SetPoint("TOP", instanceDropdown, "BOTTOM", 0, -15)
     bossLabel:SetJustifyH("CENTER")
     bossLabel:SetText("Босс:")
     local dropdown = CreateFrame("Frame", "EPBossDropdown", leftPanel, "UIDropDownMenuTemplate")
@@ -153,7 +190,10 @@ function auction:CreateUI()
     UIDropDownMenu_SetWidth(dropdown, 116)
     UIDropDownMenu_SetText(dropdown, "Выбрать босса")
     UIDropDownMenu_Initialize(dropdown, function(selfDD, level)
-        for _, bossName in ipairs(auction.bossOrder) do
+        if not auction.selectedInstance then return end
+        local bosses = auction.instances[auction.selectedInstance]
+        if not bosses then return end
+        for _, bossName in ipairs(bosses) do
             local boss = bossName
             local info = UIDropDownMenu_CreateInfo()
             info.text = boss
@@ -205,6 +245,17 @@ function auction:CreateUI()
     end)
     self.itemDropdown = itemDrop
     self:SkinDropdown(itemDrop)
+
+    -- Визуально скрыт: выбор предмета происходит кликом по строке в
+    -- таблице (см. leftClick в CreateRowTemplate), дропдаун дублирует
+    -- этот выбор и не нужен. Код НЕ удалён специально: auction.itemDropdown
+    -- используется в других местах (клик по строке зовёт
+    -- UIDropDownMenu_SetText(auction.itemDropdown, ...) для синхронизации
+    -- текста), плюс на него заякорен bidLabel ниже — удаление сломает и то,
+    -- и другое. Чтобы вернуть видимость обратно — просто убрать эти две
+    -- строки (и itemLabel:Hide() тоже).
+    itemLabel:Hide()
+    itemDrop:Hide()
 
     -- 3. Поле ввода ставки
     local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -444,7 +495,7 @@ function auction:CreateUI()
     self.sizer = sizer
 
     frame:SetResizable(true)
-    frame:SetMinResize(650, 515)
+    frame:SetMinResize(650, 605)
     frame:SetMaxResize(1200, 900)
 
     frame:SetScript("OnSizeChanged", function()
@@ -668,6 +719,8 @@ function auction:GetCachedItemInfo(itemID, bossName)
     return configuredName or name, icon
 end
 
+-- Обёртка над GetCachedItemInfo, отбрасывающая иконку — там, где нужно
+-- только имя (тултип, текст строки без иконки).
 function auction:GetCachedItemName(itemID, bossName)
     local name = self:GetCachedItemInfo(itemID, bossName)
     return name or ("item:"..tostring(itemID))
