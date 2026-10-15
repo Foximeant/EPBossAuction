@@ -140,8 +140,40 @@ function auction:Handle_MY_VERSION(rest, sender)
             if updateURL and updateURL ~= "" then
                 DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ссылка: "..updateURL)
             end
+            -- Помимо чата — ещё и маленькое окно-напоминание (StaticPopup), чтобы
+            -- не потерялось среди остального чата во время рейда. Ссылка — в
+            -- копируемом поле (WoW не умеет открывать браузер из Lua).
+            self:ShowNewVersionPopup(remoteVersion, updateURL)
         end
     end
+end
+
+-- Небольшое окно-уведомление о новой версии (вызывается из Handle_MY_VERSION,
+-- не чаще раза за более новую версию — троттлинг там же, через
+-- self.updateNoticeShown). Ссылка в копируемом поле: WoW не даёт открыть
+-- браузер из аддона, поэтому просто выделяем текст для Ctrl+C.
+function auction:ShowNewVersionPopup(remoteVersion, updateURL)
+    local hasURL = updateURL and updateURL ~= ""
+    StaticPopupDialogs["EPBA_NEW_VERSION"] = {
+        text = "Доступна новая версия EPBossAuction:\n|cffffd200%s|r (у вас сейчас %s)"
+            ..(hasURL and "\n\nСсылка на обновление:" or ""),
+        button1 = "Понятно",
+        hasEditBox = hasURL or nil,
+        editBoxWidth = 350,
+        OnShow = function(popup)
+            if hasURL and popup.editBox then
+                popup.editBox:SetText(updateURL)
+                popup.editBox:HighlightText()
+                popup.editBox:SetFocus()
+            end
+        end,
+        EditBoxOnEscapePressed = function(popup) popup:GetParent():Hide() end,
+        EditBoxOnEnterPressed = function(popup) popup:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("EPBA_NEW_VERSION", remoteVersion, self.version)
 end
 
 -- Анонс в рейд-варн (или в рейд-чат, если нет прав на варн) — только если включено в настройках
