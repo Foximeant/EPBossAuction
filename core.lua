@@ -55,6 +55,7 @@ auction.changelog = {
     ["3.1.7"] = {
     "Изменено кол-во токенов на боссах",
     "Окно с уведомлением о новой версии и ссылкой на GitHub",
+    },
 }
 auction.debug = true
 auction.fullyLoaded = false
