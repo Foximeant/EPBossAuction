@@ -686,6 +686,9 @@ end
 -- Приём очистки ставок по одному боссу (rest = имя босса) — от ЛМ, без проверки отправителя.
 function auction:Handle_END(rest, sender)
     local bossName = rest
+    -- Снимок состава для вкладки Attendance (только у ЛМ/офицеров) — до
+    -- очистки, т.к. она стирает явку "Хочу отдохнуть" этого босса.
+    self:RecordAttendance(bossName, sender)
     self:ClearBossLocal_Remote(bossName)
     if self.selectedBoss == bossName then
         self:RequestRefresh()
@@ -694,8 +697,13 @@ function auction:Handle_END(rest, sender)
     self:RequestSaveData()
   end
 
--- Приём очистки ставок по всем боссам сразу — от ЛМ, без проверки отправителя.
+-- Приём очистки ставок по всем боссам сразу — от ЛМ, без проверки отправителя
+-- (проверка отправителя есть только в RecordAttendance).
 function auction:Handle_END_ALL(rest, sender)
+    -- rest = босс, по которому ЛМ только что раздавал лут ("END_ALL;<босс>").
+    -- Пусто у старых версий аддона и если у ЛМ босс не был выбран — тогда
+    -- килл записывается без босса. Снимок — до очистки явки (см. Handle_END).
+    self:RecordAttendance((rest and rest ~= "") and rest or nil, sender)
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal_Remote(bossName)
     end

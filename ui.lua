@@ -196,7 +196,15 @@ function auction:CreateUI()
         for _, bossName in ipairs(bosses) do
             local boss = bossName
             local info = UIDropDownMenu_CreateInfo()
-            info.text = boss
+            -- Боссы без заведённых предметов помечаем серой пометкой в списке.
+            -- Само имя (boss) остаётся чистым ключом auction.bosses — иначе
+            -- выбор босса не находит его предметы и сбрасывается (RefreshTable).
+            local bossItems = auction.bosses[boss]
+            if bossItems and #bossItems == 0 then
+                info.text = boss.." |cff888888(не заполнено)|r"
+            else
+                info.text = boss
+            end
             info.func = function()
                 auction.selectedBoss = boss
                 auction.selectedItem = nil
@@ -381,7 +389,7 @@ function auction:CreateUI()
                 text = "Очистить ставки по боссу\n\""..bossName.."\"?",
                 button1 = "Да", button2 = "Отмена",
                 OnAccept = function()
-                    auction:EndAuctionLocal()
+                    auction:EndAuctionLocal(bossName)
                     SendAddonMessage(auction.prefix, "END;"..bossName, "RAID")
                     auction:AnnounceToRaid("Ставки по \""..bossName.."\" очищены")
                 end,
@@ -389,12 +397,16 @@ function auction:CreateUI()
             }
             StaticPopup_Show("EPBA_CONFIRM_CLEAR_BOSS")
         else
+            -- Босс, по которому сейчас раздавали лут, запоминаем ДО подтверждения:
+            -- он нужен вкладке Attendance (кого записать на какой килл) и уходит
+            -- остальным в END_ALL, чтобы офицеры записали тот же босс.
+            local killedBoss = auction.selectedBoss
             StaticPopupDialogs["EPBA_CONFIRM_CLEAR_ALL"] = {
                 text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса)",
                 button1 = "Да, все", button2 = "Отмена",
                 OnAccept = function()
-                    auction:EndAuctionAllLocal()
-                    SendAddonMessage(auction.prefix, "END_ALL", "RAID")
+                    auction:EndAuctionAllLocal(killedBoss)
+                    SendAddonMessage(auction.prefix, "END_ALL;"..(killedBoss or ""), "RAID")
                     auction:AnnounceToRaid("Ставки по всем боссам очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
@@ -582,7 +594,11 @@ function auction:CreateUI()
         SendAddonMessage(auction.prefix, "OFFSPEC_MULT;" .. multiplier, "RAID")
     end
 
+    -- Вкладки "Ставки"/"Attendance" и панель посещаемости (attendance.lua)
+    self:CreateAttendanceUI(frame)
+
     frame:SetScript("OnShow", function()
+        auction:UpdateMainTabs()
         auction:ForceClickable()
         auction:UpdateLMButtonsState()
         auction:ForceEPUpdate()
@@ -1241,6 +1257,22 @@ function auction:RefreshTable()
     self.content:SetHeight(rowHeight * #visibleItems)
     self.content:SetWidth(availableWidth)
 
+    -- Заглушка для боссов без заведённых предметов (например, новые боссы,
+    -- которым ещё не проставили ID лута) — без неё таблица выглядит как
+    -- будто аддон сломался, а не "предметов пока нет".
+    if not self.emptyBossText then
+        local text = self.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        text:SetPoint("TOP", self.content, "TOP", 0, -20)
+        text:SetTextColor(0.6, 0.6, 0.6)
+        self.emptyBossText = text
+    end
+    if #items == 0 then
+        self.emptyBossText:SetText("Предметы для этого босса ещё не добавлены")
+        self.emptyBossText:Show()
+    else
+        self.emptyBossText:Hide()
+    end
+
     -- Обновляем выпадающий список предметов
     if self.itemDropdown then
         UIDropDownMenu_Refresh(self.itemDropdown)
@@ -1438,9 +1470,14 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
 end
 
 -- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
-function auction:EndAuctionLocal()
-    if not self.selectedBoss then return end
-    self:ClearBossLocal(self.selectedBoss)
+-- bossName необязателен: по умолчанию берётся выбранный босс. Перед очисткой
+-- делается снимок состава рейда для вкладки Attendance (attendance.lua) —
+-- это нужно успеть до ClearBossLocal, который стирает явку "Хочу отдохнуть".
+function auction:EndAuctionLocal(bossName)
+    bossName = bossName or self.selectedBoss
+    if not bossName then return end
+    self:RecordAttendance(bossName)
+    self:ClearBossLocal(bossName)
     self:RequestRefresh()
     self:RefreshSignupButtons()
     self:RequestSaveData()
@@ -1460,7 +1497,10 @@ function auction:ClearBossLocal(bossName)
 end
 
 -- "Очистить таблицу", ЛКМ — сразу все боссы (после подтверждающего StaticPopup в обработчике кнопки).
-function auction:EndAuctionAllLocal()
+-- killedBoss необязателен: босс, по которому раздавали лут (для вкладки
+-- Attendance), по умолчанию — выбранный сейчас. Снимок делается ДО очистки явки.
+function auction:EndAuctionAllLocal(killedBoss)
+    self:RecordAttendance(killedBoss or self.selectedBoss)
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal(bossName)
     end

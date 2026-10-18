@@ -20,13 +20,14 @@ local auction = EPBossAuction
 --   theme.lua   — цвета/скин интерфейса
 --   options.lua — панель настроек
 --   minimap.lua — кнопка на миникарте
+--   attendance.lua — вкладка Attendance (посещаемость; только ЛМ и офицеры)
 -- ============================================================
 
 -- ======================
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.1.9"
+auction.version = "3.2.0"
 
 -- Список изменений по версиям для окна "Что нового?"
 auction.changelog = {
@@ -62,6 +63,10 @@ auction.changelog = {
     ["3.1.9"] = {
     "Исправлено 44 lua ошибки",
     },
+    ["3.2.0"] = {
+        "Новая вкладка Attendance(тестовая версия): при «Очистить таблицу» сохраняется состав рейда, во вкладке — посещаемость по последним киллам и процент за период",
+        "Боссы без предметов помечаются в списке «(не заполнено)»,
+    },
 }
 auction.debug = true
 auction.fullyLoaded = false
@@ -86,7 +91,7 @@ auction.bosses = {
     ["Зорт"] = {97753, 97754, 97755, 97756, 97757, 97760, 97761, 97762, 97763, 97767, 97768, 97769},
     ["Матушка Шахраз"] = {102229, 104267, 156267, 156284, 156276, 156257, 156265, 156258, 156260, 156259, 156266, 156262, 156264, 31101},
     ["Совет Иллидари"] = {102223, 156277, 156278, 156274, 156282, 156280, 102226, 156261, 102222, 156281, 102227, 156263, 156275, 31098},
-    ["Иллидан Ярость Бури"] = {102228, 156268, 156269, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089},
+    ["Иллидан Ярость Бури"] = {102228, 156268, 156285, 156286, 156287, 156288, 156289, 156290, 156291, 156292, 156293, 156294, 156295, 156296, 156297, 31089},
 
     -- Новые боссы (Бронзовое святилище, Ульдуар 25 героич.) — предметы ещё
     -- не заведены, список пуст. Наполнить, когда появятся ID предметов.
@@ -203,8 +208,8 @@ auction.instances = {
         "Зорт",
     },
     ["Бронзовое святилище"] = {
-        "Импорус(не заполнено)",
-        "Исказитель времени Элонус(не заполнено)",
+        "Импорус",
+        "Исказитель времени Элонус",
         "Мурозонд",
     },
     ["Ульдуар 25 (героический)"] = {
@@ -340,7 +345,7 @@ auction.defaults = {
     window = {
         scale = 1.0,
         width = 650,
-        height = 515,
+        height = 605,
         point = "CENTER",
         relativePoint = "CENTER",
         x = 0,
@@ -880,7 +885,7 @@ function auction:LoadSettings()
         self.db.general.minBid = 100
     end
     self.db.window.width = math.max(650, self.db.window.width or 650)
-    self.db.window.height = math.max(515, self.db.window.height or 515)
+    self.db.window.height = math.max(605, self.db.window.height or 605)
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
@@ -923,7 +928,7 @@ function auction:ApplySettings()
     if self.frame then
         self.frame:SetScale(self.db.window.scale)
         self.db.window.width = math.max(650, self.db.window.width or 650)
-        self.db.window.height = math.max(515, self.db.window.height or 515)
+        self.db.window.height = math.max(605, self.db.window.height or 605)
         self.frame:SetSize(self.db.window.width, self.db.window.height)
         self.frame:SetAlpha(self.db.window.alpha)
         if self.db.window.locked then
@@ -968,6 +973,7 @@ function auction:SaveData(force)
     EPBossAuctionSavedBids = self.bids
     EPBossAuctionSavedVersions = self.dataVersions
     EPBossAuctionSavedSignups = self.signups
+    EPBossAuctionSavedAttendance = self.attendance
     EPBossAuctionSavedTime = GetTime()
     EPBossAuctionSavedLM = UnitName("player")
     EPBossAuctionSavedSelectedBoss = self.selectedBoss
