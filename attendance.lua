@@ -7,24 +7,31 @@ local auction = EPBossAuction
 -- боссов и какой процент киллов за выбранный период посетил каждый.
 --
 -- Откуда берутся данные (так решено владельцем аддона):
---   • запись ("снимок") делается в момент "Очистить таблицу" — это и есть
---     момент "босс убит, лут роздан". В снимок попадает: время, босс,
+--   • запись ("снимок") делается ТОЛЬКО при ПКМ по "Очистить таблицу" (очистка
+--     одного босса) — это и есть момент "босс убит, лут роздан". ЛКМ (очистка
+--     всех боссов) посещаемость не пишет. Босс берётся тот, что очищается (он
+--     передаётся в сообщении END), и обязателен: без известного босса запись
+--     не создаётся. В снимок попадает: время, босс,
 --     подземелье, все, кто сейчас в рейд-группе (имя → класс), и те из них,
 --     кто был отмечен в явке на этого босса как "Хочу отдохнуть".
 --   • записывают только ЛМ и офицеры (см. CanRecordAttendance), каждый на
---     своём клиенте: сообщения END/END_ALL приходят всему рейду, поэтому
+--     своём клиенте: сообщение END приходит всему рейду, поэтому
 --     офицер получает те же события, что и ЛМ, и отдельной синхронизации
 --     истории между игроками НЕТ (у каждого офицера своя копия — только за
 --     те киллы, при которых он сам был в рейде с загруженным аддоном).
 --   • обычные рейдеры ничего не хранят и вкладку не видят.
 --
 -- Структура одной записи (auction.attendance — список, по возрастанию времени):
---   { t = <unix-время>, boss = "Имя босса" или nil, instance = "Подземелье" или nil,
+--   { t = <unix-время>, boss = "Имя босса" (у записей до 3.2.1 мог быть nil),
+--     instance = "Подземелье" или nil,
 --     players = { ["Имя"] = "CLASSTOKEN", ... },
 --     rested  = { ["Имя"] = true, ... } }        -- подмножество players
 --
 -- Хранится в SavedVariable EPBossAuctionSavedAttendance (events.lua грузит,
 -- core.lua:SaveData сохраняет). Лимит — ATTENDANCE_MAX_RECORDS последних записей.
+--
+-- На вкладке можно отфильтровать таблицу по боссу (выпадающий список "Босс"):
+-- тогда колонки, проценты и счётчик считаются только по киллам этого босса.
 --
 -- В файле три части:
 --   1) доступ и запись (CanRecordAttendance, RecordAttendance);
@@ -50,6 +57,8 @@ auction.ATTENDANCE_PERIODS = {
 auction.attendancePeriodIndex = 2
 -- Сами записи; events.lua при загрузке заменяет на сохранённые.
 auction.attendance = auction.attendance or {}
+-- Фильтр по боссу на вкладке: имя босса или nil ("Все боссы"). Только на время сессии.
+auction.attendanceBossFilter = nil
 
 -- ======================
 -- 1. Доступ и запись
@@ -95,10 +104,10 @@ function auction:HasAttendanceAccess()
     return self.attendance ~= nil and #self.attendance > 0
 end
 
--- Делает снимок состава рейда. Вызывается в моменты очистки таблицы:
---   • у ЛМ — из EndAuctionLocal/EndAuctionAllLocal (ui.lua), ДО очистки явки;
---   • у остальных — из Handle_END/Handle_END_ALL (comm.lua), с sender = отправитель.
--- bossName — босс, по которому раздавали лут (nil, если неизвестен).
+-- Делает снимок состава рейда. Вызывается ТОЛЬКО при ПКМ-очистке одного босса:
+--   • у ЛМ — из EndAuctionLocal (ui.lua), ДО очистки явки;
+--   • у остальных — из Handle_END (comm.lua), с sender = отправитель.
+-- bossName — очищаемый босс; обязателен (без известного босса запись не создаётся).
 -- sender — только для сетевого пути: принимаем событие лишь от текущего ЛМ
 -- (self.lastLM) или от себя, чтобы посторонний сообщением END не мог засорить историю.
 function auction:RecordAttendance(bossName, sender)
@@ -111,7 +120,10 @@ function auction:RecordAttendance(bossName, sender)
         return
     end
 
-    if bossName and not self.bosses[bossName] then bossName = nil end
+    if not bossName or not self.bosses[bossName] then
+        self:Debug("Attendance: босс не определён, килл не записываю")
+        return
+    end
     self.attendance = self.attendance or {}
 
     local now = time()
@@ -166,6 +178,28 @@ function auction:DeleteAttendanceRecord(rec)
     if self.RefreshAttendance then self:RefreshAttendance() end
 end
 
+-- Полностью очищает историю посещаемости на ЭТОМ клиенте (кнопка "Очистить"
+-- на вкладке). Копии у других офицеров не затрагиваются — синхронизации нет.
+function auction:ClearAttendance()
+    self.attendance = {}
+    self:RequestSaveData()
+    if self.UpdateMainTabs then self:UpdateMainTabs() end
+    if self.RefreshAttendance then self:RefreshAttendance() end
+end
+
+-- Подтверждение очистки всей истории (StaticPopup, как и остальные подтверждения).
+function auction:ConfirmClearAttendance()
+    local count = #(self.attendance or {})
+    if count == 0 then return end
+    StaticPopupDialogs["EPBA_CLEAR_ATTENDANCE"] = {
+        text = "Удалить ВСЮ историю посещаемости (записей: "..count..")?\nЭто нельзя отменить.",
+        button1 = "Удалить", button2 = "Отмена",
+        OnAccept = function() auction:ClearAttendance() end,
+        timeout = 0, whileDead = true, hideOnEscape = true,
+    }
+    StaticPopup_Show("EPBA_CLEAR_ATTENDANCE")
+end
+
 -- ======================
 -- 2. Подсчёт (чистая функция, без WoW API)
 -- ======================
@@ -174,7 +208,8 @@ end
 --   records     — записи (как в auction.attendance);
 --   now         — текущее время (unix);
 --   periodDays  — период в днях, 0/nil = все записи;
---   maxColumns  — сколько последних киллов вывести колонками.
+--   maxColumns  — сколько последних киллов вывести колонками;
+--   bossFilter  — необязательно: учитывать только киллы этого босса.
 -- Возвращает { total = число киллов за период, columns = последние записи
 -- (по возрастанию времени, не больше maxColumns), players = список игроков }.
 -- У каждого игрока: name, class, attended (в скольких киллах был в рейде),
@@ -182,12 +217,12 @@ end
 -- cells[i] = "P" (в рейде) / "R" (в рейде, но "хочу отдохнуть") / nil (не было)
 -- для i-й колонки. Процент считается по КИЛЛАМ, а не по дням: опоздавший
 -- или ушедший раньше не получает "полный день".
-function auction:BuildAttendanceReport(records, now, periodDays, maxColumns)
+function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bossFilter)
     local cutoff = (periodDays and periodDays > 0) and (now - periodDays * 86400) or nil
 
     local inPeriod = {}
     for _, rec in ipairs(records) do
-        if not cutoff or rec.t >= cutoff then
+        if (not cutoff or rec.t >= cutoff) and (not bossFilter or rec.boss == bossFilter) then
             inPeriod[#inPeriod + 1] = rec
         end
     end
@@ -231,6 +266,43 @@ function auction:BuildAttendanceReport(records, now, periodDays, maxColumns)
     end)
 
     return { total = total, columns = columns, players = players }
+end
+
+-- Боссы для выпадающего списка фильтра: те, у кого есть хотя бы один килл за
+-- период (periodDays, 0/nil = всё время). Возвращает список { boss, count },
+-- упорядоченный как в аддоне: по подземельям (instanceOrder) и внутри них по
+-- порядку боссов; боссы, которых нет в instances (переименованные/удалённые),
+-- идут в конце по алфавиту. Записи без босса (старые) в список не попадают.
+function auction:BuildAttendanceBossList(records, now, periodDays)
+    local cutoff = (periodDays and periodDays > 0) and (now - periodDays * 86400) or nil
+
+    local counts = {}
+    for _, rec in ipairs(records) do
+        if rec.boss and (not cutoff or rec.t >= cutoff) then
+            counts[rec.boss] = (counts[rec.boss] or 0) + 1
+        end
+    end
+
+    local orderIndex, n = {}, 0
+    for _, instanceName in ipairs(self.instanceOrder or {}) do
+        for _, bossName in ipairs((self.instances or {})[instanceName] or {}) do
+            n = n + 1
+            orderIndex[bossName] = n
+        end
+    end
+
+    local list = {}
+    for boss, count in pairs(counts) do
+        list[#list + 1] = { boss = boss, count = count }
+    end
+    table.sort(list, function(a, b)
+        local ia, ib = orderIndex[a.boss], orderIndex[b.boss]
+        if ia and ib then return ia < ib end
+        if ia then return true end
+        if ib then return false end
+        return a.boss < b.boss
+    end)
+    return list
 end
 
 -- ======================
@@ -387,6 +459,49 @@ function auction:CreateAttendancePanel(frame)
     end)
     self.attendancePeriodBtn = periodBtn
 
+    -- Кнопка "Очистить" — удаляет всю историю (с подтверждением)
+    local clearBtn = CreateFrame("Button", nil, panel)
+    clearBtn:SetSize(90, 22)
+    clearBtn:SetPoint("LEFT", periodBtn, "RIGHT", 6, 0)
+    clearBtn:SetText("Очистить")
+    clearBtn:SetNormalFontObject(GameFontNormal)
+    self:SkinButton(clearBtn)
+    clearBtn:SetScript("OnClick", function() auction:ConfirmClearAttendance() end)
+    self.attendanceClearBtn = clearBtn
+
+    -- Фильтр по боссу: "Все боссы" или конкретный босс из записей. Список
+    -- строится при каждом открытии (Initialize вызывается заново), с числом
+    -- киллов за выбранный период.
+    local dropdown = CreateFrame("Frame", "EPBossAuctionAttendanceBossDropdown", panel, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("LEFT", clearBtn, "RIGHT", 6, 0)
+    UIDropDownMenu_SetWidth(dropdown, 130)
+    UIDropDownMenu_SetText(dropdown, "Все боссы")
+    UIDropDownMenu_Initialize(dropdown, function()
+        local period = auction.ATTENDANCE_PERIODS[auction.attendancePeriodIndex]
+        local allInfo = UIDropDownMenu_CreateInfo()
+        allInfo.text = "Все боссы"
+        allInfo.checked = (auction.attendanceBossFilter == nil)
+        allInfo.func = function()
+            auction.attendanceBossFilter = nil
+            auction:RefreshAttendance()
+        end
+        UIDropDownMenu_AddButton(allInfo)
+        for _, item in ipairs(auction:BuildAttendanceBossList(auction.attendance or {}, time(), period.days)) do
+            local boss = item.boss
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = boss.." |cff888888("..item.count..")|r"
+            info.checked = (auction.attendanceBossFilter == boss)
+            info.func = function()
+                auction.attendanceBossFilter = boss
+                auction:RefreshAttendance()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    dropdown:SetHeight(24)
+    self:SkinDropdown(dropdown)
+    self.attendanceBossDropdown = dropdown
+
     local info = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     info:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -11)
     info:SetJustifyH("RIGHT")
@@ -535,6 +650,9 @@ function auction:ShowAttendancePlayerTooltip(owner, entry)
     GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
     GameTooltip:SetText(entry.name)
     GameTooltip:AddLine("Был в рейде: "..entry.attended.." из "..entry.total.." ("..entry.pct.."%)", 1, 1, 1)
+    if self.attendanceBossFilter then
+        GameTooltip:AddLine("Босс: "..self.attendanceBossFilter, 0.7, 0.7, 0.7)
+    end
     if entry.rested > 0 then
         GameTooltip:AddLine("из них «хочу отдохнуть»: "..entry.rested, 0.9, 0.75, 0.2)
     end
@@ -562,9 +680,25 @@ function auction:RefreshAttendance()
     local period = self.ATTENDANCE_PERIODS[self.attendancePeriodIndex]
     self.attendancePeriodBtn:SetText("Период: "..period.label)
 
-    local report = self:BuildAttendanceReport(self.attendance or {}, time(), period.days, self.ATTENDANCE_COLUMNS)
+    -- Если выбранного в фильтре босса больше нет ни в одной записи (удалили/очистили) — сбрасываем фильтр
+    if self.attendanceBossFilter then
+        local found = false
+        for _, rec in ipairs(self.attendance or {}) do
+            if rec.boss == self.attendanceBossFilter then found = true break end
+        end
+        if not found then self.attendanceBossFilter = nil end
+    end
+    UIDropDownMenu_SetText(self.attendanceBossDropdown, self.attendanceBossFilter or "Все боссы")
+
+    local report = self:BuildAttendanceReport(self.attendance or {}, time(), period.days, self.ATTENDANCE_COLUMNS, self.attendanceBossFilter)
     self.attendanceReport = report
-    self.attendanceInfo:SetText("Киллов за период: "..report.total)
+    self.attendanceInfo:SetText("Киллов: "..report.total)
+    -- "Очистить" доступна, только если есть что очищать
+    if #(self.attendance or {}) > 0 then
+        self.attendanceClearBtn:Enable()
+    else
+        self.attendanceClearBtn:Disable()
+    end
 
     for i = 1, self.ATTENDANCE_COLUMNS do
         local hb = self.attendanceHeaderButtons[i]
@@ -619,8 +753,11 @@ function auction:RefreshAttendance()
     end
     self.attendanceContent:SetHeight(math.max(1, count * ROW_HEIGHT))
 
-    if report.total == 0 then
-        self.attendanceEmpty:SetText("За этот период записей нет.\nСостав рейда сохраняется при «Очистить таблицу»\n(только когда вы в рейде и вы ЛМ или офицер).")
+    if report.total == 0 and self.attendanceBossFilter then
+        self.attendanceEmpty:SetText("За этот период нет киллов босса «"..self.attendanceBossFilter.."».\nВыберите другой период или «Все боссы».")
+        self.attendanceEmpty:Show()
+    elseif report.total == 0 then
+        self.attendanceEmpty:SetText("За этот период записей нет.\nКилл записывается при ПКМ по «Очистить таблицу»\n(очистка одного босса; вы в рейде и вы ЛМ или офицер).")
         self.attendanceEmpty:Show()
     else
         self.attendanceEmpty:Hide()

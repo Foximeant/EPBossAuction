@@ -385,8 +385,10 @@ function auction:CreateUI()
         if clickButton == "RightButton" then
             if not auction.selectedBoss then return end
             local bossName = auction.selectedBoss
+            -- В рейде ПКМ ещё и записывает килл этого босса в Attendance — говорим об этом заранее
+            local attendanceNote = IsInRaid() and "\n\nВ Attendance будет записан килл этого босса" or ""
             StaticPopupDialogs["EPBA_CONFIRM_CLEAR_BOSS"] = {
-                text = "Очистить ставки по боссу\n\""..bossName.."\"?",
+                text = "Очистить ставки по боссу\n\""..bossName.."\"?"..attendanceNote,
                 button1 = "Да", button2 = "Отмена",
                 OnAccept = function()
                     auction:EndAuctionLocal(bossName)
@@ -397,16 +399,12 @@ function auction:CreateUI()
             }
             StaticPopup_Show("EPBA_CONFIRM_CLEAR_BOSS")
         else
-            -- Босс, по которому сейчас раздавали лут, запоминаем ДО подтверждения:
-            -- он нужен вкладке Attendance (кого записать на какой килл) и уходит
-            -- остальным в END_ALL, чтобы офицеры записали тот же босс.
-            local killedBoss = auction.selectedBoss
             StaticPopupDialogs["EPBA_CONFIRM_CLEAR_ALL"] = {
-                text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса)",
+                text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса и записать килл в Attendance)",
                 button1 = "Да, все", button2 = "Отмена",
                 OnAccept = function()
-                    auction:EndAuctionAllLocal(killedBoss)
-                    SendAddonMessage(auction.prefix, "END_ALL;"..(killedBoss or ""), "RAID")
+                    auction:EndAuctionAllLocal()
+                    SendAddonMessage(auction.prefix, "END_ALL", "RAID")
                     auction:AnnounceToRaid("Ставки по всем боссам очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
@@ -420,6 +418,9 @@ function auction:CreateUI()
         GameTooltip:SetOwner(endButton, auction:GetTooltipAnchor())
         GameTooltip:SetText("ЛКМ — очистить всех боссов")
         GameTooltip:AddLine("ПКМ — очистить только текущего босса", 0.8, 0.8, 0.8)
+        if auction:CanRecordAttendance() then
+            GameTooltip:AddLine("ПКМ также записывает килл этого босса в Attendance; ЛКМ посещаемость не пишет", 0.6, 0.8, 1, true)
+        end
         GameTooltip:Show()
     end)
     endButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1470,9 +1471,10 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
 end
 
 -- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
--- bossName необязателен: по умолчанию берётся выбранный босс. Перед очисткой
--- делается снимок состава рейда для вкладки Attendance (attendance.lua) —
--- это нужно успеть до ClearBossLocal, который стирает явку "Хочу отдохнуть".
+-- bossName необязателен: по умолчанию берётся выбранный босс. Именно ПКМ
+-- (очистка одного босса) фиксирует килл в Attendance (attendance.lua): босс
+-- известен точно. Снимок делается ДО ClearBossLocal, который стирает явку
+-- "Хочу отдохнуть" (а она попадает в снимок).
 function auction:EndAuctionLocal(bossName)
     bossName = bossName or self.selectedBoss
     if not bossName then return end
@@ -1497,10 +1499,9 @@ function auction:ClearBossLocal(bossName)
 end
 
 -- "Очистить таблицу", ЛКМ — сразу все боссы (после подтверждающего StaticPopup в обработчике кнопки).
--- killedBoss необязателен: босс, по которому раздавали лут (для вкладки
--- Attendance), по умолчанию — выбранный сейчас. Снимок делается ДО очистки явки.
-function auction:EndAuctionAllLocal(killedBoss)
-    self:RecordAttendance(killedBoss or self.selectedBoss)
+-- Посещаемость (Attendance) здесь НЕ записывается: ЛКМ — "очистить всё" без
+-- привязки к конкретному киллу, килл фиксирует ПКМ (EndAuctionLocal).
+function auction:EndAuctionAllLocal()
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal(bossName)
     end
