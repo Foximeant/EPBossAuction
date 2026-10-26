@@ -19,6 +19,8 @@ local auction = EPBossAuction
 -- мейна), EP берётся у мейна, а не у самого твинка — так у альтов
 -- показывается тот же банк EP, что и у основного персонажа.
 --
+-- GetMainName(имя) — мейн игрока (для вкладки Attendance, учёт по мейнам).
+--
 -- FindEPGP() — отладочная функция (сканирует _G в поисках подходящих
 -- таблиц), в обычной работе аддона не вызывается.
 -- ============================================================
@@ -288,4 +290,39 @@ function auction:FindEPGP()
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r EPGP аддон не найден!")
     end
     self:Debug("========================")
+end
+
+-- Мейн игрока по данным EPGP-аддона: если playerName — твинк, возвращает имя
+-- его мейна, иначе nil (в том числе когда EPGP-аддона нет). Нужен вкладке
+-- Attendance (attendance.lua), чтобы считать посещаемость по мейнам. Использует
+-- те же два способа, что и получение EP: поле "main" в ответе GetEPGP и
+-- db.profile.players[имя].main. Ответ кэшируется на 5 минут (в том числе
+-- "не твинк"), ошибки EPGP-аддона не пробрасываются (pcall).
+function auction:GetMainName(playerName)
+    if not playerName or playerName == "" then return nil end
+
+    self.mainNameCache = self.mainNameCache or {}
+    local now = GetTime()
+    local cached = self.mainNameCache[playerName]
+    if cached and now - cached.t < 300 then
+        return cached.main or nil
+    end
+
+    local main
+    local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
+    if epgpTable then
+        if epgpTable.GetEPGP then
+            local ok, _, _, m = pcall(function() return epgpTable:GetEPGP(playerName) end)
+            if ok and type(m) == "string" and m ~= "" and m ~= playerName then main = m end
+        end
+        if not main and epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
+            local data = epgpTable.db.profile.players[playerName]
+            if data and type(data.main) == "string" and data.main ~= "" and data.main ~= playerName then
+                main = data.main
+            end
+        end
+    end
+
+    self.mainNameCache[playerName] = { main = main or false, t = now }
+    return main
 end

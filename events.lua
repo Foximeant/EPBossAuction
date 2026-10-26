@@ -47,6 +47,13 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.signups = EPBossAuctionSavedSignups or {}
             -- История посещаемости (вкладка Attendance, attendance.lua)
             auction.attendance = (type(EPBossAuctionSavedAttendance) == "table") and EPBossAuctionSavedAttendance or {}
+            -- Метки удалений/очистки для синхронизации посещаемости (attendance.lua)
+            auction.attendanceMeta = { clearedBefore = 0, deleted = {} }
+            if type(EPBossAuctionSavedAttendanceMeta) == "table" then
+                local meta = EPBossAuctionSavedAttendanceMeta
+                auction.attendanceMeta.clearedBefore = tonumber(meta.clearedBefore) or 0
+                if type(meta.deleted) == "table" then auction.attendanceMeta.deleted = meta.deleted end
+            end
             auction:RebuildBidData()
 
             if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then

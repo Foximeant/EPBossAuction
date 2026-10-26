@@ -20,14 +20,16 @@ local auction = EPBossAuction
 --   theme.lua   — цвета/скин интерфейса
 --   options.lua — панель настроек
 --   minimap.lua — кнопка на миникарте
---   attendance.lua — вкладка Attendance (посещаемость; только ЛМ и офицеры)
+--   attendance.lua — посещаемость (только для тех, кто может редактировать офицерскую заметку): данные и подсчёт
+--   attendance_sync.lua — синхронизация истории посещаемости между офицерами
+--   attendance_ui.lua — вкладка Attendance в главном окне
 -- ============================================================
 
 -- ======================
 -- Настройки и переменные
 -- ======================
 auction.prefix = "EPBAUC"
-auction.version = "3.2.1"
+auction.version = "3.3.1"
 
 -- Список изменений по версиям для окна "Что нового?"
 auction.changelog = {
@@ -71,6 +73,18 @@ auction.changelog = {
         "Attendance: на вкладке появилась кнопка «Очистить» (удаляет всю историю на вашем клиенте)",
         "Attendance: килл записывается при ПКМ по «Очистить таблицу» (очистка одного босса, босс попадает в запись); ЛКМ (все боссы) посещаемость не пишет",
         "Attendance: выпадающий список «Босс» — таблица и проценты по киллам выбранного босса",
+    },
+    ["3.3.0"] = {
+        "Attendance: кнопка «Записать килл» — ручная запись килла выбранного босса (если очистки не было или с босса ничего не упало)",
+        "Attendance: учёт по мейнам (чекбокс «По мейнам», нужен EPGP-аддон): твинки считаются вместе с мейном",
+        "Attendance: синхронизация истории между офицерами (кнопка «Синхронизировать» и автоматически при входе в игру)",
+        "Attendance: виды «Боссы» и «Дни» — сводка по боссам и по рейд-дням",
+        "Attendance: кнопка «Отчёт» — текст таблицы для копирования (Discord, Excel)",
+        "В тултипе ставок у тех, у кого есть доступ к Attendance, показывается посещаемость игрока за 30 дней",
+    },
+    ["3.3.1"] = {
+        "Attendance: при ПКМ по «Очистить таблицу» после подтверждения спрашивает, записывать ли килл (снимок рейда); «Не записывать» действует и на офицеров",
+        "Attendance: вкладка, запись и синхронизация доступны только тем, кто может редактировать офицерскую заметку гильдии",
     },
 }
 auction.debug = true
@@ -346,6 +360,10 @@ auction.defaults = {
         strata = "MEDIUM",
         tooltip = true,
         position = { angle = 0 },
+    },
+    -- Вкладка Attendance (attendance_ui.lua)
+    attendance = {
+        byMain = true,   -- считать посещаемость по мейнам (твинки вместе с мейном)
     },
     window = {
         scale = 1.0,
@@ -979,6 +997,7 @@ function auction:SaveData(force)
     EPBossAuctionSavedVersions = self.dataVersions
     EPBossAuctionSavedSignups = self.signups
     EPBossAuctionSavedAttendance = self.attendance
+    EPBossAuctionSavedAttendanceMeta = self.attendanceMeta
     EPBossAuctionSavedTime = GetTime()
     EPBossAuctionSavedLM = UnitName("player")
     EPBossAuctionSavedSelectedBoss = self.selectedBoss
