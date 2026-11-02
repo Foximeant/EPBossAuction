@@ -356,6 +356,15 @@ MergeDefaults(EPBossAuctionSettings, auction.defaults)` — то есть **пр
 - **Высота окна по умолчанию — 605** (`auction.defaults.window.height` и две
   проверки `math.max(605, ...)` в `core.lua`): при меньшей высоте низ левой
   панели (с дропдауном подземелья и кнопками явки) может обрезаться.
+- **Выпадающие списки `UIDropDownMenuTemplate` сами меняют высоту рамки.**
+  `UIDropDownMenu_Initialize` вызывается при каждом открытии списка и ставит рамке 32 px.
+  Если нужна другая высота (в тулбаре Attendance — 22), её надо возвращать: см.
+  `LockDropdownHeight` в `attendance_ui.lua` (в функции построения пунктов и по
+  `OnSizeChanged`). Ширина рамки при этом = `UIDropDownMenu_SetWidth` + 50.
+- **Галочка `SkinCheckbox` не следит за `SetChecked`.** Она рисует свой значок и
+  обновляет его только по клику и показу. После программной установки состояния
+  вызывайте `box._epbaRefresh(box)` (см. `SetCheckboxChecked` в `attendance_ui.lua`).
+  Свои обработчики клика вешайте через `HookScript`, а не `SetScript`.
 - **Порядок файлов в `.toc` важен** — `core.lua` должен грузиться первым
   (создаёт `auction`), `events.lua` — последним (вешает обработчик событий,
   которому нужны уже существующие функции из всех остальных файлов).

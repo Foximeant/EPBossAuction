@@ -48,6 +48,11 @@ local SUMMARY_LAYOUT = {
 local VIEW_ORDER = { "players", "bosses", "days" }
 local VIEW_LABELS = { players = "Игроки", bosses = "Боссы", days = "Дни" }
 
+-- Высота выпадающих списков тулбара (как у кнопок). UIDropDownMenu_Initialize
+-- сама ставит рамке 32 px при КАЖДОМ открытии списка, поэтому высоту приходится
+-- возвращать: в функции построения пунктов и по событию смены размера.
+local DROPDOWN_HEIGHT = 22
+
 -- Цвета ячеек и процента.
 local COLOR_PRESENT = { 0.30, 0.90, 0.30 }
 local COLOR_RESTED  = { 0.90, 0.75, 0.20 }
@@ -187,7 +192,8 @@ local function MakeButton(self, parent, text, width, x, y, onClick)
     return btn
 end
 
--- Выпадающий список в стиле остальных списков аддона. Initialize и SkinDropdown
+-- Выпадающий список в стиле остальных списков аддона. Ширина рамки = innerWidth + 50
+-- (так считает UIDropDownMenu_SetWidth). Initialize, LockDropdownHeight и SkinDropdown
 -- вызывает вызывающий код (после того, как задана функция построения пунктов).
 local function MakeDropdown(parent, name, innerWidth, x, y, text)
     local dropdown = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
@@ -195,6 +201,27 @@ local function MakeDropdown(parent, name, innerWidth, x, y, text)
     UIDropDownMenu_SetWidth(dropdown, innerWidth)
     UIDropDownMenu_SetText(dropdown, text)
     return dropdown
+end
+
+-- Фиксирует высоту выпадающего списка: ставит DROPDOWN_HEIGHT сейчас и возвращает её
+-- каждый раз, когда Blizzard меняет размер рамки (открытие списка).
+local function LockDropdownHeight(dropdown)
+    dropdown:SetHeight(DROPDOWN_HEIGHT)
+    if not dropdown._epbaHeightLocked then
+        dropdown._epbaHeightLocked = true
+        dropdown:HookScript("OnSizeChanged", function(box, _, height)
+            if height and math.abs(height - DROPDOWN_HEIGHT) > 0.5 then
+                box:SetHeight(DROPDOWN_HEIGHT)
+            end
+        end)
+    end
+end
+
+-- Ставит состояние чекбокса и обновляет галочку SkinCheckbox (на SetChecked она
+-- сама не реагирует).
+local function SetCheckboxChecked(box, state)
+    box:SetChecked(state and true or false)
+    if box._epbaRefresh then box._epbaRefresh(box) end
 end
 
 -- Строит панель: тулбар (два ряда), шапки таблицы, прокручиваемый список,
@@ -253,6 +280,7 @@ function auction:CreateAttendanceToolbar(panel)
     -- Список строится при каждом открытии, поэтому всегда актуален.
     local bossDropdown = MakeDropdown(panel, "EPBossAuctionAttendanceBossDropdown", 130, 288, -5, "Все боссы")
     UIDropDownMenu_Initialize(bossDropdown, function()
+        LockDropdownHeight(bossDropdown)
         local period = auction.ATTENDANCE_PERIODS[auction.attendancePeriodIndex]
         local allInfo = UIDropDownMenu_CreateInfo()
         allInfo.text = "Все боссы"
@@ -274,7 +302,7 @@ function auction:CreateAttendanceToolbar(panel)
             UIDropDownMenu_AddButton(info)
         end
     end)
-    bossDropdown:SetHeight(22)
+    LockDropdownHeight(bossDropdown)
     self:SkinDropdown(bossDropdown)
     self.attendanceBossDropdown = bossDropdown
 
@@ -288,6 +316,7 @@ function auction:CreateAttendanceToolbar(panel)
     -- "Записать килл": двухуровневое меню Подземелье → Босс; выбор босса запрашивает подтверждение
     local recordDropdown = MakeDropdown(panel, "EPBossAuctionAttendanceRecordDropdown", 125, 6, -33, "Записать килл ...")
     UIDropDownMenu_Initialize(recordDropdown, function(_, level)
+        LockDropdownHeight(recordDropdown)
         level = level or 1
         if level == 1 then
             for _, instanceName in ipairs(auction.instanceOrder) do
@@ -312,7 +341,7 @@ function auction:CreateAttendanceToolbar(panel)
             end
         end
     end)
-    recordDropdown:SetHeight(22)
+    LockDropdownHeight(recordDropdown)
     self:SkinDropdown(recordDropdown)
     self.attendanceRecordDropdown = recordDropdown
 
@@ -332,13 +361,18 @@ function auction:CreateAttendanceToolbar(panel)
     check.text = _G["EPBossAuctionAttendanceByMainCheckText"]
     check.text:SetText(" По мейнам")
     self:SkinCheckbox(check)
-    check:SetScript("OnClick", function(button)
+    -- HookScript, а не SetScript: так сохраняются и стандартный звук галочки, и
+    -- обновление галочки SkinCheckbox
+    check:HookScript("OnClick", function(button)
+        local state = button:GetChecked() and true or false
+        SetCheckboxChecked(button, state)
         auction.db.attendance = auction.db.attendance or {}
-        auction.db.attendance.byMain = button:GetChecked() and true or false
+        auction.db.attendance.byMain = state
         auction:SaveSettings()
         auction.attendanceRevision = (auction.attendanceRevision or 0) + 1
         auction:RefreshAttendance()
     end)
+    SetCheckboxChecked(check, self:IsAttendanceByMain())
     self.attendanceByMainCheck = check
 end
 
@@ -628,7 +662,7 @@ function auction:RefreshAttendance()
 
     self.attendancePeriodBtn:SetText("Период: "..period.label)
     self.attendanceViewBtn:SetText("Вид: "..VIEW_LABELS[view])
-    self.attendanceByMainCheck:SetChecked(self:IsAttendanceByMain())
+    SetCheckboxChecked(self.attendanceByMainCheck, self:IsAttendanceByMain())
 
     -- "Очистить" доступна, только если есть что очищать
     if #(self.attendance or {}) > 0 then

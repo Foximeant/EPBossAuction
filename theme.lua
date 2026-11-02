@@ -200,6 +200,9 @@ function auction:SkinCheckbox(checkbox)
         end
     end
 
+    -- Галочка реагирует только на клик/показ; после программного SetChecked
+    -- (например, при открытии вкладки) её нужно обновить вручную: box._epbaRefresh(box)
+    checkbox._epbaRefresh = RefreshState
     checkbox:HookScript("OnClick", RefreshState)
     checkbox:HookScript("OnShow", RefreshState)
     checkbox:HookScript("OnDisable", function(box)
