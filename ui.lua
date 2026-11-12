@@ -388,16 +388,17 @@ function auction:CreateUI()
             StaticPopupDialogs["EPBA_CONFIRM_CLEAR_BOSS"] = {
                 text = "Очистить ставки по боссу\n\""..bossName.."\"?",
                 button1 = "Да", button2 = "Отмена",
-                -- дальше (в рейде, если есть права) спросит, записывать ли килл в Attendance
                 OnAccept = function()
-                    auction:ClearBossWithAttendanceChoice(bossName)
+                    auction:EndAuctionLocal(bossName)
+                    SendAddonMessage(auction.prefix, "END;"..bossName, "RAID")
+                    auction:AnnounceToRaid("Ставки по \""..bossName.."\" очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
             }
             StaticPopup_Show("EPBA_CONFIRM_CLEAR_BOSS")
         else
             StaticPopupDialogs["EPBA_CONFIRM_CLEAR_ALL"] = {
-                text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса; спросит, записывать ли килл в Attendance)",
+                text = "Очистить ставки по ВСЕМ боссам?\nЭто затронет всех в рейде.\n\n(ПКМ по кнопке — очистить только текущего босса)",
                 button1 = "Да, все", button2 = "Отмена",
                 OnAccept = function()
                     auction:EndAuctionAllLocal()
@@ -415,9 +416,6 @@ function auction:CreateUI()
         GameTooltip:SetOwner(endButton, auction:GetTooltipAnchor())
         GameTooltip:SetText("ЛКМ — очистить всех боссов")
         GameTooltip:AddLine("ПКМ — очистить только текущего босса", 0.8, 0.8, 0.8)
-        if auction:CanRecordAttendance() then
-            GameTooltip:AddLine("ПКМ спросит, записать ли килл этого босса в Attendance; ЛКМ посещаемость не пишет", 0.6, 0.8, 1, true)
-        end
         GameTooltip:Show()
     end)
     endButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1472,8 +1470,7 @@ end
 
 -- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
 -- bossName необязателен: по умолчанию берётся выбранный босс. Посещаемость
--- (Attendance) здесь не пишется: решение, записывать ли килл, принимает ЛМ в
--- FinishBossClear (снимок нужно сделать ДО этой очистки, она стирает явку).
+-- (Attendance) здесь не пишется: килл записывают вручную на вкладке Attendance.
 function auction:EndAuctionLocal(bossName)
     bossName = bossName or self.selectedBoss
     if not bossName then return end
@@ -1496,26 +1493,8 @@ function auction:ClearBossLocal(bossName)
     end
 end
 
--- Завершает ПКМ-очистку одного босса (зовётся из окон подтверждения). record:
--- true — записать килл в Attendance, false — не записывать, nil — посещаемость
--- не при чём (вне рейда или нет прав). Порядок важен: снимок — ДО очистки (она
--- стирает явку "Хочу отдохнуть"), решение "не записывать" — ДО сообщения END
--- (офицеры должны получить ATT_SKIP раньше, чем END).
-function auction:FinishBossClear(bossName, record)
-    if record == true then
-        self.attSkip = nil
-        self:RecordAttendance(bossName)
-    elseif record == false then
-        self:SkipNextAttendance(bossName)
-    end
-    self:EndAuctionLocal(bossName)
-    SendAddonMessage(self.prefix, "END;"..bossName, "RAID")
-    self:AnnounceToRaid("Ставки по \""..bossName.."\" очищены")
-end
-
 -- "Очистить таблицу", ЛКМ — сразу все боссы (после подтверждающего StaticPopup в обработчике кнопки).
--- Посещаемость (Attendance) здесь НЕ записывается: ЛКМ — "очистить всё" без
--- привязки к конкретному киллу, килл фиксирует ПКМ (EndAuctionLocal).
+-- Посещаемость (Attendance) здесь не пишется.
 function auction:EndAuctionAllLocal()
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal(bossName)

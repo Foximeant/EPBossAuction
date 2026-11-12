@@ -726,7 +726,7 @@ function auction:RefreshAttendance()
         self.attendanceEmpty:SetText("За этот период нет киллов босса «"..self.attendanceBossFilter.."».\nВыберите другой период или «Все боссы».")
         self.attendanceEmpty:Show()
     elseif isEmpty then
-        self.attendanceEmpty:SetText("За этот период записей нет.\nКилл записывается при ПКМ по «Очистить таблицу»\n(ответ «Записать») или кнопкой «Записать килл».")
+        self.attendanceEmpty:SetText("За этот период записей нет.\nКилл записывается вручную: список «Записать килл ...» в левом верхнем углу вкладки (нужно быть в рейде).")
         self.attendanceEmpty:Show()
     else
         self.attendanceEmpty:Hide()

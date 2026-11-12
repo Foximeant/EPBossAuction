@@ -13,21 +13,16 @@ local auction = EPBossAuction
 --   attendance_ui.lua    — вкладки главного окна, панель, окно с текстом отчёта.
 --
 -- Откуда берутся данные (так решено для тестов):
---   • запись ("снимок") делается при ПКМ по "Очистить таблицу" (очистка одного
---     босса) — это момент "босс убит, лут роздан". После подтверждения очистки ЛМ
---     каждый раз спрашивают, записывать ли килл (ClearBossWithAttendanceChoice);
---     ответ "не записывать" действует и на офицеров (сообщение ATT_SKIP). ЛКМ
---     (очистка всех боссов) посещаемость не пишет. Если килл не сопровождался
---     очисткой (например, с босса ничего не упало), его можно записать вручную
---     кнопкой "Записать килл".
+--   • запись ("снимок") делается ТОЛЬКО вручную: выпадающий список "Записать килл" на
+--     вкладке (подземелье → босс, с подтверждением). Очистка таблицы (ПКМ и ЛКМ)
+--     посещаемость не пишет.
 --   • в снимок попадает: время, босс, подземелье, все, кто сейчас в рейд-группе
 --     (имя → класс), те из них, кто отмечен в явке на этого босса как "Хочу
 --     отдохнуть", и мейны твинков (если стоит EPGP-аддон, см. GetMainName в epgp.lua).
 --   • вкладку видит и посещаемость записывает только тот, кто может РЕДАКТИРОВАТЬ
 --     офицерскую заметку гильдии (см. CanRecordAttendance — единственное место
---     правила), каждый на своём клиенте: сообщение END приходит всему рейду,
---     поэтому такой офицер получает те же события, что и ЛМ. Пропуски в истории
---     (офицера не было в рейде) закрывает синхронизация (attendance_sync.lua).
+--     правила). У каждого такого офицера история своя; общую картину собирает
+--     синхронизация (attendance_sync.lua).
 --   • остальные ничего не хранят и вкладку не видят.
 --
 -- Структура одной записи (auction.attendance — список, по возрастанию времени):
@@ -233,72 +228,6 @@ function auction:AddAttendanceRecord(bossName, manual)
     self:InsertAttendanceRecord(rec)
     self:AttendanceChanged()
     return true, count
-end
-
--- Автоматическая запись при ПКМ-очистке одного босса. Вызывается:
---   • у ЛМ — из EndAuctionLocal (ui.lua), ДО очистки явки;
---   • у остальных — из Handle_END (comm.lua), с sender = отправитель.
--- bossName — очищаемый босс; обязателен. sender — только для сетевого пути:
--- принимаем событие лишь от текущего ЛМ (self.lastLM) или от себя, чтобы
--- посторонний сообщением END не мог засорить историю.
-function auction:RecordAttendance(bossName, sender)
-    if not self:CanRecordAttendance() then return false end
-
-    local me = UnitName("player")
-    if sender and StripRealm(sender) ~= me and StripRealm(sender) ~= StripRealm(self.lastLM) then
-        self:Debug("Attendance: сообщение от "..tostring(sender).." не от ЛМ, пропускаю")
-        return false
-    end
-
-    -- ЛМ ответил "не записывать" (ATT_SKIP перед END, у самого ЛМ — SkipNextAttendance):
-    -- решение действует 15 секунд и расходуется первой же попыткой записи этого босса
-    local skip = self.attSkip
-    if skip and skip.boss == bossName then
-        self.attSkip = nil
-        if GetTime() - skip.t < 15 then
-            self:Debug("Attendance: ЛМ решил не записывать килл "..tostring(bossName))
-            return false
-        end
-    end
-
-    local ok, info = self:AddAttendanceRecord(bossName, false)
-    self:Debug("Attendance: "..(ok and ("записан килл "..tostring(bossName)) or ("не записано: "..tostring(info))))
-    return ok
-end
-
--- Запоминает решение ЛМ "килл не записывать" для ближайшего END по этому боссу:
--- у себя (иначе эхо собственного END всё равно записало бы килл) и у офицеров
--- (сообщение ATT_SKIP, его нужно отправить ПЕРЕД END).
-function auction:SkipNextAttendance(bossName)
-    self.attSkip = { boss = bossName, t = GetTime() }
-    SendAddonMessage(self.prefix, "ATT_SKIP;"..bossName, "RAID")
-end
-
--- ATT_SKIP от ЛМ: запоминаем, что ближайшую запись этого босса делать не нужно.
--- Принимаем только от текущего ЛМ (или от себя).
-function auction:Handle_ATT_SKIP(rest, sender)
-    local me = UnitName("player")
-    if StripRealm(sender) ~= me and StripRealm(sender) ~= StripRealm(self.lastLM) then return end
-    self.attSkip = { boss = rest, t = GetTime() }
-end
-
--- ПКМ "Очистить таблицу", шаг 2 (после подтверждения самой очистки): если мы в
--- рейде и можем записывать посещаемость — спрашивает, делать ли снимок рейда по
--- этому килле. "Записать" — снимок и очистка; "Не записывать" или Esc — очистка
--- без снимка (саму очистку ЛМ уже подтвердил). Очистку выполняет FinishBossClear (ui.lua).
-function auction:ClearBossWithAttendanceChoice(bossName)
-    if not (IsInRaid() and self:CanRecordAttendance()) then
-        self:FinishBossClear(bossName, nil)
-        return
-    end
-    StaticPopupDialogs["EPBA_ATTENDANCE_SNAPSHOT"] = {
-        text = "Записать килл «"..bossName.."» в Attendance?\nВ рейде сейчас: "..GetNumRaidMembers().." чел.\n\n«Не записывать» или Esc — очистить ставки без записи.",
-        button1 = "Записать", button2 = "Не записывать",
-        OnAccept = function() auction:FinishBossClear(bossName, true) end,
-        OnCancel = function() auction:FinishBossClear(bossName, false) end,
-        timeout = 0, whileDead = true, hideOnEscape = true,
-    }
-    StaticPopup_Show("EPBA_ATTENDANCE_SNAPSHOT")
 end
 
 -- Ручная запись килла (кнопка "Записать килл" на вкладке): тот же снимок, но по

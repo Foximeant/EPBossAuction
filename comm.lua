@@ -33,11 +33,10 @@ local auction = EPBossAuction
 --   SYNC_COMPLETE   рейд/игрок ← ЛМ      "синхронизация завершена"
 --   LOCK            рейд ← ЛМ            блокировка/разблокировка ставок
 --   LOCKED          игрок ← ЛМ           "ставки сейчас заблокированы"
---   END             рейд ← ЛМ            очистка ставок по одному боссу (по решению ЛМ — ещё и запись килла в Attendance)
+--   END             рейд ← ЛМ            очистка ставок по одному боссу
 --   END_ALL         рейд ← ЛМ            очистка ставок по всем боссам
 --   SIGNUP          рейд ← любой         явка на босса (хочу бить/отдохнуть/валик)
 --   MY_VERSION      гильдия ← любой      версия аддона (для уведомления об обновлении)
---   ATT_SKIP        рейд ← ЛМ            "килл этого босса в Attendance не записывать" (перед END)
 --   ATT_REQ/ATT_REC/ATT_DONE  синхронизация истории посещаемости между офицерами,
 --                   см. attendance_sync.lua
 --   OFFSPEC_MULT    рейд ← ЛМ            новый коэффициент офф-спека
@@ -687,15 +686,9 @@ function auction:ClearBossLocal_Remote(bossName)
     end
 end
 
--- Приём очистки ставок по одному боссу (rest = имя босса) — от ЛМ, без проверки
--- отправителя (проверка отправителя есть только в RecordAttendance).
+-- Приём очистки ставок по одному боссу (rest = имя босса) — от ЛМ, без проверки отправителя.
 function auction:Handle_END(rest, sender)
     local bossName = rest
-    -- Килл для вкладки Attendance (пишут те, у кого есть доступ к вкладке, и только
-    -- если ЛМ не прислал перед этим ATT_SKIP — "не записывать"): END — это ПКМ
-    -- "очистить одного босса", босс известен точно. Снимок — до очистки, т.к.
-    -- она стирает явку "Хочу отдохнуть" этого босса.
-    self:RecordAttendance(bossName, sender)
     self:ClearBossLocal_Remote(bossName)
     if self.selectedBoss == bossName then
         self:RequestRefresh()
@@ -706,8 +699,6 @@ function auction:Handle_END(rest, sender)
 
 -- Приём очистки ставок по всем боссам сразу — от ЛМ, без проверки отправителя.
 function auction:Handle_END_ALL(rest, sender)
-    -- Посещаемость здесь не пишем: END_ALL — это ЛКМ "очистить всё" без
-    -- привязки к киллу; килл в Attendance фиксирует только END (см. Handle_END).
     for bossName in pairs(self.bosses) do
         self:ClearBossLocal_Remote(bossName)
     end
