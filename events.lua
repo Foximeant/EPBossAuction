@@ -45,6 +45,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.dataVersions = auction:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
             auction.lastVersions = {}
             auction.signups = EPBossAuctionSavedSignups or {}
+            auction:PurgeObsoleteSignups() -- убираем категории, которых больше нет (напр. "валик")
             -- История посещаемости (вкладка Attendance, attendance.lua)
             auction.attendance = (type(EPBossAuctionSavedAttendance) == "table") and EPBossAuctionSavedAttendance or {}
             -- Метки удалений/очистки для синхронизации посещаемости (attendance.lua)

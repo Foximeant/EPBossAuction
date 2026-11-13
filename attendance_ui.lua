@@ -57,6 +57,7 @@ local DROPDOWN_HEIGHT = 22
 local COLOR_PRESENT = { 0.30, 0.90, 0.30 }
 local COLOR_RESTED  = { 0.90, 0.75, 0.20 }
 local COLOR_ABSENT  = { 0.40, 0.40, 0.40 }
+local COLOR_BEFORE  = { 0.25, 0.25, 0.25 }
 
 -- Цвет процента посещаемости: зелёный от 80, жёлтый от 50, иначе красный.
 local function PercentColor(pct)
@@ -608,6 +609,9 @@ function auction:ShowAttendancePlayerTooltip(owner, entry)
     GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
     GameTooltip:SetText(entry.name)
     GameTooltip:AddLine("Был в рейде: "..entry.attended.." из "..entry.total.." ("..entry.pct.."%)", 1, 1, 1)
+    if entry.firstT and entry.firstT > 0 then
+        GameTooltip:AddLine("Считается с "..date("%d.%m.%Y", entry.firstT).." (первое появление)", 0.7, 0.7, 0.7)
+    end
     if entry.rested > 0 then
         GameTooltip:AddLine("из них «хочу отдохнуть»: "..entry.rested, 0.9, 0.75, 0.2)
     end
@@ -785,6 +789,10 @@ function auction:RefreshAttendancePlayers(period, now, resolver)
             elseif state == "R" then
                 cell:SetTextColor(COLOR_RESTED[1], COLOR_RESTED[2], COLOR_RESTED[3])
                 cell:SetText("О")
+            elseif state == "N" then
+                -- килл был до первого появления игрока: не пропуск и не в проценте
+                cell:SetTextColor(COLOR_BEFORE[1], COLOR_BEFORE[2], COLOR_BEFORE[3])
+                cell:SetText("")
             else
                 cell:SetTextColor(COLOR_ABSENT[1], COLOR_ABSENT[2], COLOR_ABSENT[3])
                 cell:SetText("-")

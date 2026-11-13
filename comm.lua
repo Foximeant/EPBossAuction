@@ -35,7 +35,7 @@ local auction = EPBossAuction
 --   LOCKED          игрок ← ЛМ           "ставки сейчас заблокированы"
 --   END             рейд ← ЛМ            очистка ставок по одному боссу
 --   END_ALL         рейд ← ЛМ            очистка ставок по всем боссам
---   SIGNUP          рейд ← любой         явка на босса (хочу бить/отдохнуть/валик)
+--   SIGNUP          рейд ← любой         явка на босса (хочу бить/отдохнуть)
 --   MY_VERSION      гильдия ← любой      версия аддона (для уведомления об обновлении)
 --   ATT_REQ/ATT_REC/ATT_DONE  синхронизация истории посещаемости между офицерами,
 --                   см. attendance_sync.lua
@@ -353,7 +353,7 @@ function auction:RequestDataFromLM()
 end
 
 -- ======================
--- Явка на босса (хочу бить / отдохнуть / валик)
+-- Явка на босса (хочу бить / отдохнуть)
 -- ======================
 function auction:BroadcastSignup(bossName, category, playerName, state)
     local msg = "SIGNUP;"..bossName..";"..category..";"..playerName..";"..(state and "1" or "0")

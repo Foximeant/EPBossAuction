@@ -407,13 +407,20 @@ end
 --   resolveMain — необязательно: функция (имя, запись) → мейн или nil; если
 --                 задана, твинки считаются вместе со своим мейном.
 -- Возвращает { total = число киллов за период, columns = последние записи
--- (по возрастанию времени, не больше maxColumns), players = список игроков }.
+-- (по возрастанию времени, не больше maxColumns), players = список игроков,
+-- firstSeen = { [имя] = время первого появления в истории } }.
 -- У каждого игрока: name (при подсчёте по мейнам — имя мейна), class, attended
 -- (в скольких киллах был в рейде), rested (из них отмечен "хочу отдохнуть"),
--- total, pct (0..100, округлено), cells[i] = "P" (в рейде) / "R" (в рейде, но
--- "хочу отдохнуть") / nil (не было) для i-й колонки, charList — список
--- персонажей, если их больше одного. Процент считается по КИЛЛАМ, а не по дням:
--- опоздавший или ушедший раньше не получает "полный день".
+-- total (сколько киллов периода было с его первого появления — знаменатель
+-- процента), firstT (время первого появления), pct (0..100, округлено),
+-- cells[i] = "P" (в рейде) / "R" (в рейде, но "хочу отдохнуть") / "N" (килл был
+-- ДО первого появления игрока — в процент не входит) / nil (не было) для i-й
+-- колонки, charList — список персонажей, если их больше одного.
+-- Процент считается по КИЛЛАМ, а не по дням: опоздавший или ушедший раньше не
+-- получает "полный день". Новый игрок получает процент только по киллам с
+-- момента, когда он впервые появился в истории (по всей истории, а не только по
+-- периоду/боссу из фильтра; при подсчёте по мейнам — по самому раннему
+-- появлению любого из его персонажей).
 function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bossFilter, resolveMain)
     local inPeriod = FilterRecords(records, now, periodDays, bossFilter)
 
@@ -422,6 +429,15 @@ function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bos
     local columns = {}
     for i = firstColumn, total do
         columns[#columns + 1] = inPeriod[i]
+    end
+
+    -- Первое появление каждой "личности" по ВСЕЙ истории (без фильтров периода и босса).
+    local firstSeen = {}
+    for _, rec in ipairs(records) do
+        for id in pairs(ResolveIdentities(rec, resolveMain)) do
+            local t = firstSeen[id]
+            if not t or rec.t < t then firstSeen[id] = rec.t end
+        end
     end
 
     local byName = {}
@@ -445,8 +461,18 @@ function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bos
 
     local players = {}
     for _, entry in pairs(byName) do
-        entry.total = total
-        entry.pct = total > 0 and math.floor(entry.attended * 100 / total + 0.5) or 0
+        -- Знаменатель: только киллы периода, начиная с первого появления игрока.
+        local first = firstSeen[entry.name] or 0
+        local startIndex = total + 1
+        for index, rec in ipairs(inPeriod) do
+            if rec.t >= first then startIndex = index break end
+        end
+        entry.firstT = first
+        entry.total = total - startIndex + 1
+        for c = 1, #columns do
+            if firstColumn + c - 1 < startIndex then entry.cells[c] = "N" end
+        end
+        entry.pct = entry.total > 0 and math.floor(entry.attended * 100 / entry.total + 0.5) or 0
         local names = {}
         for charName in pairs(entry.chars) do names[#names + 1] = charName end
         if #names > 1 or (names[1] and names[1] ~= entry.name) then
@@ -463,7 +489,7 @@ function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bos
         return a.name < b.name
     end)
 
-    return { total = total, columns = columns, players = players }
+    return { total = total, columns = columns, players = players, firstSeen = firstSeen }
 end
 
 -- Боссы для выпадающего списка фильтра: те, у кого есть хотя бы один килл за
@@ -573,7 +599,8 @@ end
 
 -- Процент посещаемости игрока за ATTENDANCE_TOOLTIP_DAYS дней — для тултипа
 -- ставок (ShowBidsTooltip в ui.lua). Возвращает число 0..100 или nil, если
--- истории нет или нет доступа. Результат кэшируется до изменения истории,
+-- истории нет, нет доступа или игрока ещё ни разу не было в истории. Процент
+-- считается от первого появления игрока (см. BuildAttendanceReport). Результат кэшируется до изменения истории,
 -- смены режима "по мейнам" или 60 секунд.
 function auction:GetAttendancePercentFor(playerName)
     if not playerName or not self:HasAttendanceAccess() then return nil end
@@ -587,7 +614,7 @@ function auction:GetAttendancePercentFor(playerName)
         local report = self:BuildAttendanceReport(self.attendance, now, self.ATTENDANCE_TOOLTIP_DAYS, 0, nil, resolver)
         local pct = {}
         for _, entry in ipairs(report.players) do pct[entry.name] = entry.pct end
-        cache = { rev = self.attendanceRevision, byMain = byMain, t = now, total = report.total, pct = pct, resolver = resolver }
+        cache = { rev = self.attendanceRevision, byMain = byMain, t = now, total = report.total, pct = pct, firstSeen = report.firstSeen, resolver = resolver }
         self.attendancePctCache = cache
     end
 
@@ -597,7 +624,11 @@ function auction:GetAttendancePercentFor(playerName)
         local main = cache.resolver(playerName, nil)
         if main then id = main end
     end
-    return cache.pct[id] or 0
+    if cache.pct[id] then return cache.pct[id] end
+    -- Игрок бывал раньше, но за период его не было: 0%. Игрока нет в истории вообще
+    -- (новичок) — процента нет, тултип его не показывает.
+    if cache.firstSeen[id] then return 0 end
+    return nil
 end
 
 -- ======================

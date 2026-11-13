@@ -435,7 +435,7 @@ function auction:CreateUI()
     maxBidText:SetTextColor(0.7, 0.7, 0.7)
     auction.maxBidText = maxBidText
 
-    -- 10. Явка на босса (хочу бить / хочу отдохнуть / хочу валик)
+    -- 10. Явка на босса (хочу бить / хочу отдохнуть)
     self:CreateSignupButtons(leftPanel, maxBidText)
 
     -- ======================
@@ -739,9 +739,9 @@ function auction:GetCachedItemName(itemID, bossName)
 end
 
 -- ======================
--- Явка на босса (хочу бить / хочу отдохнуть / хочу валик)
+-- Явка на босса (хочу бить / хочу отдохнуть)
 -- ======================
--- Создаёт 3 кнопки явки (по auction.SIGNUP_CATEGORIES) под указанным
+-- Создаёт кнопки явки (по auction.SIGNUP_CATEGORIES) под указанным
 -- якорем, каждая — со своим ручным скином (см. комментарий про SkinButton
 -- в theme.lua), обработчиком клика (ToggleSignup) и тултипом со списком
 -- отметившихся.
