@@ -40,6 +40,7 @@ local auction = EPBossAuction
 --   ATT_REQ/ATT_REC/ATT_DONE  синхронизация истории посещаемости между офицерами,
 --                   см. attendance_sync.lua
 --   OFFSPEC_MULT    рейд ← ЛМ            новый коэффициент офф-спека
+--   RES/RES_END/RES_ONE/RESERVED/RES_UPD/RES_REQ/RES_REC/RES_DONE  резерв предметов, см. reserve.lua
 -- ============================================================
 
 local function GetSafeItemInfo(itemID)
@@ -119,6 +120,7 @@ function auction:HandleWorldEnter()
         self:UpdateMyEP()
         self:BroadcastMyVersion()
         self:ScheduleAttendanceAutoSync()   -- один раз за сессию, через 25 сек (attendance_sync.lua)
+        self:ScheduleReserveAutoSync()      -- то же для резерва, через 30 сек (reserve.lua)
     end, 2)
 
     self:Debug("===============================")
@@ -411,6 +413,13 @@ function auction:Handle_BID(rest, sender)
     itemID = tonumber(itemID)
     amount = tonumber(amount)
     local isOffspecBool = (isOffspec == "true")
+
+    -- Резерв: на предмет, проданный заранее, ставки не принимаются (снять свою ставку, amount = 0, можно).
+    if amount and amount > 0 and self:IsReserved(bossName, itemID) then
+        self:Debug("Ставка от "..playerName.." на зарезервированный предмет "..itemID.." отклонена")
+        SendAddonMessage(self.prefix, "RESERVED;"..bossName..";"..itemID, "WHISPER", sender)
+        return
+    end
     
     self:Debug("Обработка BID: "..playerName.." "..amount.." на "..bossName.." "..itemID.." (офф-спек: "..tostring(isOffspecBool)..")")
     if amount == 0 then
@@ -566,6 +575,7 @@ function auction:Handle_HELLO(rest, sender)
             end
         end
     end
+    self:QueueReserveBroadcast()   -- новому/переподключившемуся игроку нужен список резерва (одна рассылка на всех)
     SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
     SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
 end

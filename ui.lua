@@ -897,6 +897,10 @@ function auction:CreateRowTemplate()
             auction:RefreshTable()
             return
         end
+        if auction.selectedBoss and auction:IsReserved(auction.selectedBoss, row.itemID) then
+            auction:ReserveClickNotice()
+            return
+        end
         auction.selectedItem = row.itemID
         UIDropDownMenu_SetText(auction.itemDropdown, auction:GetCachedItemName(row.itemID))
         auction:HighlightSelectedRow(row.itemID)
@@ -906,6 +910,7 @@ function auction:CreateRowTemplate()
         if not row.itemID then return end
         GameTooltip:SetOwner(leftClick, auction:GetTooltipAnchor())
         GameTooltip:SetHyperlink("item:"..row.itemID)
+        auction:AppendReserveTooltip(row.itemID)
         GameTooltip:Show()
         if row.itemID ~= auction.selectedItem then
             row.bg:SetTexture(auction.db.table.hoverRowColor[1], auction.db.table.hoverRowColor[2], auction.db.table.hoverRowColor[3], auction.db.table.hoverRowColor[4])
@@ -931,6 +936,10 @@ function auction:CreateRowTemplate()
                 UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
             end
             auction:RefreshTable()
+            return
+        end
+        if auction.selectedBoss and auction:IsReserved(auction.selectedBoss, row.itemID) then
+            auction:ReserveClickNotice()
             return
         end
         auction.selectedItem = row.itemID
@@ -1115,6 +1124,7 @@ function auction:RenderItemRow(row, itemID, index, metrics)
 
     row.bidsStr:SetText(topText)
     row.bidsStr:SetFont(GameFontNormal:GetFont(), metrics.bidFontSize)
+    self:ApplyReserveMark(row, self.selectedBoss, itemID)
     row.bidsStr:ClearAllPoints()
     row.bidsStr:SetPoint("LEFT", row, "LEFT", metrics.itemWidth + 10, 0)
     row.bidsStr:SetWidth(math.max(10, metrics.availableWidth - metrics.itemWidth - 16))
@@ -1185,6 +1195,12 @@ end
 -- того, хватает ли ему EP на собственную ставку. Вызывается по наведению
 -- на правую зону строки (rightClick в CreateRowTemplate).
 function auction:ShowBidsTooltip(itemID)
+    if self.selectedBoss and self:IsReserved(self.selectedBoss, itemID) then
+        GameTooltip:AddLine("Предмет зарезервирован", 1, 0.5, 0.2)
+        GameTooltip:AddLine("Ставки на него закрыты.", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+        return
+    end
     local bids = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
     if #bids == 0 then
         GameTooltip:SetText("Нет ставок")
@@ -1346,6 +1362,7 @@ function auction:RefreshTable()
         end
         row.bidsStr:SetText(topText)
         row.bidsStr:SetFont(GameFontNormal:GetFont(), bidFontSize)
+        self:ApplyReserveMark(row, self.selectedBoss, itemID)
         row.bidsStr:ClearAllPoints()
         row.bidsStr:SetPoint("LEFT", row, "LEFT", itemWidth + 10, 0)
         row.bidsStr:SetWidth(math.max(10, availableWidth - itemWidth - 16))
@@ -1425,6 +1442,10 @@ function auction:SendBidLocal()
     if not self.selectedBoss or not self.selectedItem then return end
     local amount = tonumber(self.bidBox:GetText())
     if not amount or amount < 0 then return end
+    if amount > 0 and self:IsReserved(self.selectedBoss, self.selectedItem) then
+        self:ReserveClickNotice()
+        return
+    end
     if amount ~= 0 and amount < self.db.general.minBid then
         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.db.general.minBid.." EP (0 = отмена ставки)")
         return

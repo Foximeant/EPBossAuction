@@ -707,6 +707,8 @@ function auction:ResetVersionsForNewLM()
     self.receivedItems = {}
     self.receivedSync = false
     self.receivedAck = false
+    self.reservePublic = {}     -- публичный резерв прислал прошлый ЛМ; новый пришлёт свой
+    self.reservePending = {}
     self:Debug("Сброшены версии ставок для нового Loot Master")
 end
 
@@ -719,6 +721,8 @@ function auction:ResetVersionsOnGroupExit()
     self.receivedItems = {}
     self.receivedSync = false
     self.receivedAck = false
+    self.reservePublic = {}
+    self.reservePending = {}
     self:Debug("Сброшены версии ставок после выхода из группы/рейда")
     if self.fullyLoaded then
         self:SaveData()
@@ -970,6 +974,7 @@ function auction:SaveData(force)
     EPBossAuctionSavedSignups = self.signups
     EPBossAuctionSavedAttendance = self.attendance
     EPBossAuctionSavedAttendanceMeta = self.attendanceMeta
+    EPBossAuctionSavedReserves = self.reserves
     EPBossAuctionSavedTime = GetTime()
     EPBossAuctionSavedLM = UnitName("player")
     EPBossAuctionSavedSelectedBoss = self.selectedBoss

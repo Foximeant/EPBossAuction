@@ -113,6 +113,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction:RebuildBidData()
         end
         auction:ApplySettings()
+        auction:LoadReserves()   -- резерв предметов (reserve.lua), не зависит от наличия сохранённых ставок
         auction:InitAutoSave()
         auction:StartEPUpdates()
         auction:CreateMinimapButton()
@@ -183,6 +184,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                         auction:RefreshTable()
                     end
                     SendAddonMessage(auction.prefix, "LM", "RAID")
+                    auction:OnBecameLootMaster()   -- резерв: подтянуть правки офицеров и разослать список в рейд
                     if auction.syncAllTimer then
                         auction:CancelTimer(auction.syncAllTimer)
                     end

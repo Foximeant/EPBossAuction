@@ -82,6 +82,7 @@ end
 function auction:CreateAttendanceUI(frame)
     self:CreateMainTabs(frame)
     self:CreateAttendancePanel(frame)
+    self:CreateReservePanel(frame)    -- вкладка «Резерв» (reserve_ui.lua)
     self.activeTab = "bids"
     self:UpdateMainTabs()
 end
@@ -95,6 +96,7 @@ function auction:CreateMainTabs(frame)
     local defs = {
         { key = "bids",       label = "Ставки" },
         { key = "attendance", label = "Attendance" },
+        { key = "reserve",    label = "Резерв" },
     }
     local previous
     for i, def in ipairs(defs) do
@@ -134,7 +136,7 @@ function auction:UpdateMainTabs()
     local c = self.theme.colors
     local hasAccess = self:HasAttendanceAccess()
 
-    if not hasAccess and self.activeTab == "attendance" then
+    if not hasAccess and self.activeTab ~= "bids" then
         self:ShowMainTab("bids")
         return
     end
@@ -155,24 +157,33 @@ function auction:UpdateMainTabs()
     end
 end
 
--- Переключает содержимое окна: "bids" (левая панель + таблица ставок) или
--- "attendance" (одна панель на всю ширину). На Attendance без доступа не пускает.
+-- Переключает содержимое окна: "bids" (левая панель + таблица ставок), "attendance"
+-- или "reserve" (одна панель на всю ширину). Без доступа на Attendance/Резерв не пускает.
 function auction:ShowMainTab(tab)
-    if tab == "attendance" and not self:HasAttendanceAccess() then tab = "bids" end
+    if (tab == "attendance" or tab == "reserve") and not self:HasAttendanceAccess() then tab = "bids" end
     self.activeTab = tab
 
-    if tab == "attendance" then
-        self.leftPanel:Hide()
-        self.scrollFrame:Hide()
-        if self.scrollBG then self.scrollBG:Hide() end
-        self.attendancePanel:Show()
-        self:RefreshAttendance()
-    else
+    if tab == "bids" then
         self.attendancePanel:Hide()
+        if self.reservePanel then self.reservePanel:Hide() end
         self.leftPanel:Show()
         self.scrollFrame:Show()
         if self.scrollBG then self.scrollBG:Show() end
         if self.selectedBoss then self:RequestRefresh() end
+    else
+        self.leftPanel:Hide()
+        self.scrollFrame:Hide()
+        if self.scrollBG then self.scrollBG:Hide() end
+        if tab == "attendance" then
+            if self.reservePanel then self.reservePanel:Hide() end
+            self.attendancePanel:Show()
+            self:RefreshAttendance()
+        else
+            self.attendancePanel:Hide()
+            self.reservePanel:Show()
+            if not self.reserveBoss then self.reserveBoss = self.selectedBoss end
+            self:RefreshReserve()
+        end
     end
     self:UpdateMainTabs()
 end
@@ -224,6 +235,15 @@ local function SetCheckboxChecked(box, state)
     box:SetChecked(state and true or false)
     if box._epbaRefresh then box._epbaRefresh(box) end
 end
+
+-- Хелперы стиля для других вкладок (reserve_ui.lua строит панель из тех же деталей).
+auction.uiHelpers = {
+    MakeButton = MakeButton,
+    MakeDropdown = MakeDropdown,
+    LockDropdownHeight = LockDropdownHeight,
+    Truncate = Truncate,
+    SetCheckboxChecked = SetCheckboxChecked,
+}
 
 -- Строит панель: тулбар (два ряда), шапки таблицы, прокручиваемый список,
 -- пустое состояние и легенду. Панель занимает область левой панели + таблицы ставок.
