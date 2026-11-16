@@ -23,6 +23,7 @@ f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("PLAYER_LOGOUT")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("EPGP_UPDATE")
 f:RegisterEvent("EPGP_DATA_CHANGED")
 
@@ -118,6 +119,19 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:StartEPUpdates()
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
+
+        -- Справка: новому пользователю (нет EPBossAuctionSavedLastSeenVersion — аддон
+        -- ставят впервые) показываем автоматически один раз. Тем, кто обновился с
+        -- прошлой версии, не навязываем (у них свой экран "Что нового?"; справка
+        -- доступна по кнопке "?" и /epba help). Проверка — до записи LastSeenVersion ниже.
+        if not EPBossAuctionSavedHelpSeen then
+            EPBossAuctionSavedHelpSeen = true
+            if not EPBossAuctionSavedLastSeenVersion then
+                auction:ScheduleTimer(function()
+                    auction:ShowHelpWindow()
+                end, 3)
+            end
+        end
 
         -- "Что нового?": показываем, если аддон обновился с прошлого входа
         if EPBossAuctionSavedLastSeenVersion and auction:CompareVersions(auction.version, EPBossAuctionSavedLastSeenVersion) > 0 then
@@ -245,6 +259,12 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         if auction.fullyLoaded then
             auction:SaveData()
             auction:Debug("Сохранение при выходе")
+        end
+
+    -- Вышли из боя — показываем отложенное уведомление о новой версии (comm.lua)
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if auction.fullyLoaded then
+            auction:FlushPendingUpdatePopup()
         end
 
     -- Внешний EPGP-аддон сам сообщил об изменении данных — не ждём следующего

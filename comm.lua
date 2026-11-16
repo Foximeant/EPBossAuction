@@ -130,6 +130,10 @@ end
 -- Только гильдия (не рейд/группа) — это гильдейский аддон.
 function auction:BroadcastMyVersion()
     if not IsInGuild() then return end
+    -- Один раз за сессию: HandleWorldEnter вызывается на каждом загрузочном
+    -- экране (зона/инст), а гильдии достаточно узнать версию при входе.
+    if self.versionBroadcasted then return end
+    self.versionBroadcasted = true
     SendAddonMessage(self.prefix, "MY_VERSION;"..self.version, "GUILD")
 end
 
@@ -158,6 +162,24 @@ end
 -- self.updateNoticeShown). Ссылка в копируемом поле: WoW не даёт открыть
 -- браузер из аддона, поэтому просто выделяем текст для Ctrl+C.
 function auction:ShowNewVersionPopup(remoteVersion, updateURL)
+    -- Окно — один раз на версию навсегда (между сессиями и /reload):
+    -- последняя показанная версия лежит в SavedVariables. Чат-уведомление
+    -- (Handle_MY_VERSION) от этого не зависит и приходит раз за сессию.
+    local saved = EPBossAuctionSavedUpdateNoticeVersion
+    if saved and self:CompareVersions(remoteVersion, saved) <= 0 then
+        self.pendingUpdatePopup = nil
+        return
+    end
+    -- В бою окно не показываем: у попапа с полем ввода фокус клавиатуры уходит
+    -- в EditBox, и персонаж перестаёт двигаться/кастовать. Откладываем до
+    -- выхода из боя (PLAYER_REGEN_ENABLED -> FlushPendingUpdatePopup). Если
+    -- за время боя придёт версия новее, она заменит отложенную.
+    if InCombatLockdown() or UnitAffectingCombat("player") then
+        self.pendingUpdatePopup = { version = remoteVersion, url = updateURL }
+        return
+    end
+    self.pendingUpdatePopup = nil
+    EPBossAuctionSavedUpdateNoticeVersion = remoteVersion
     local hasURL = updateURL and updateURL ~= ""
     StaticPopupDialogs["EPBA_NEW_VERSION"] = {
         text = "Доступна новая версия EPBossAuction:\n|cffffd200%s|r (у вас сейчас %s)"
@@ -179,6 +201,21 @@ function auction:ShowNewVersionPopup(remoteVersion, updateURL)
         hideOnEscape = true,
     }
     StaticPopup_Show("EPBA_NEW_VERSION", remoteVersion, self.version)
+end
+
+-- Показывает отложенное (из-за боя) уведомление о новой версии. Вызывается
+-- из events.lua по PLAYER_REGEN_ENABLED; небольшая задержка, чтобы окно не
+-- выскочило в момент лута/сбора после килла. Если бой начался снова —
+-- ShowNewVersionPopup сам отложит его заново.
+function auction:FlushPendingUpdatePopup()
+    if not self.pendingUpdatePopup or self.updatePopupTimer then return end
+    self.updatePopupTimer = self:ScheduleTimer(function()
+        self.updatePopupTimer = nil
+        local pending = self.pendingUpdatePopup
+        if pending then
+            self:ShowNewVersionPopup(pending.version, pending.url)
+        end
+    end, 3)
 end
 
 -- Анонс в рейд-варн (или в рейд-чат, если нет прав на варн) — только если включено в настройках

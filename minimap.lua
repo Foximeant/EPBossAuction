@@ -77,6 +77,7 @@ function auction:CreateMinimapButton()
             else
                 GameTooltip:AddLine("Вы не Loot Master", 0.7, 0.7, 0.7)
             end
+            GameTooltip:AddLine("Проблемы: /epba bug", 0.5, 0.5, 0.5)
             GameTooltip:Show()
         end)
         button:SetScript("OnLeave", function()

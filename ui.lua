@@ -84,7 +84,7 @@ function auction:CreateUI()
 
     -- Заголовок окна
     local title = frame:CreateFontString("EPBossAuctionTitle", "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -12)
+    title:SetPoint("TOP", 0, -5)
     title:SetText("EPBA "..self.version)
 
     -- Кнопка закрытия
@@ -99,7 +99,7 @@ function auction:CreateUI()
 
     -- Кнопка настроек
     local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
-    optionsBtn:SetSize(90, 22)
+    optionsBtn:SetSize(76, 22)
     optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -8, 0)
     optionsBtn:SetText("Настройки")
     optionsBtn:SetNormalFontObject(GameFontNormal)
@@ -125,6 +125,64 @@ function auction:CreateUI()
         GameTooltip:Hide()
     end)
     self.optionsBtn = optionsBtn
+
+    -- Кнопка "?" (справка) — между "Настройки" и "Нашли баг?"
+    local helpBtn = CreateFrame("Button", "EPBossAuctionHelpButton", frame)
+    helpBtn:SetSize(22, 22)
+    helpBtn:SetPoint("TOPRIGHT", optionsBtn, "TOPLEFT", -8, 0)
+    helpBtn:SetText("?")
+    helpBtn:SetNormalFontObject(GameFontNormalLarge)
+    self:SkinButton(helpBtn)
+    helpBtn:SetScript("OnClick", function()
+        auction:ShowHelpWindow()
+    end)
+    helpBtn:SetScript("OnEnter", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            helpBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+        end
+        GameTooltip:SetOwner(helpBtn, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Справка")
+        GameTooltip:AddLine("Как пользоваться аддоном (/epba help)", 0.5, 1, 0.5)
+        GameTooltip:Show()
+    end)
+    helpBtn:SetScript("OnLeave", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            helpBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+        end
+        GameTooltip:Hide()
+    end)
+    self.helpBtn = helpBtn
+
+    -- Кнопка "Нашли баг?" — окно с контактами (contacts.lua), слева от "?"
+    local bugBtn = CreateFrame("Button", "EPBossAuctionBugButton", frame)
+    bugBtn:SetSize(112, 22)
+    bugBtn:SetPoint("TOPRIGHT", helpBtn, "TOPLEFT", -8, 0)
+    bugBtn:SetText("Нашли баг?")
+    bugBtn:SetNormalFontObject(GameFontNormal)
+    self:SkinButton(bugBtn)
+    bugBtn:SetScript("OnClick", function()
+        auction:ShowContactsWindow()
+    end)
+    bugBtn:SetScript("OnEnter", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            bugBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+        end
+        GameTooltip:SetOwner(bugBtn, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Нашли баг?")
+        GameTooltip:AddLine("Контакты для сообщений об ошибках и предложений", 0.5, 1, 0.5)
+        GameTooltip:Show()
+    end)
+    bugBtn:SetScript("OnLeave", function()
+        local c = auction.theme and auction.theme.colors
+        if c then
+            bugBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+        end
+        GameTooltip:Hide()
+    end)
+    self.bugBtn = bugBtn
 
     -- ======================
     -- ЛЕВАЯ ПАНЕЛЬ УПРАВЛЕНИЯ
@@ -538,7 +596,15 @@ function auction:CreateUI()
 
     -- Slash команды
     SLASH_EPBA1 = "/epba"
-    SlashCmdList["EPBA"] = function()
+    SlashCmdList["EPBA"] = function(msg)
+        msg = strlower(strtrim(msg or ""))
+        if msg == "bug" then
+            auction:ShowContactsWindow()
+            return
+        elseif msg == "help" then
+            auction:ShowHelpWindow()
+            return
+        end
         if frame:IsShown() then frame:Hide() else frame:Show(); auction:ForceEPUpdate() end
     end
     SLASH_EPGP_FIND1 = "/epgpfind"

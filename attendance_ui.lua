@@ -101,7 +101,7 @@ function auction:CreateMainTabs(frame)
     local previous
     for i, def in ipairs(defs) do
         local tab = CreateFrame("Button", nil, frame)
-        tab:SetSize(92, 22)
+        tab:SetSize(74, 22)
         if previous then
             tab:SetPoint("LEFT", previous, "RIGHT", 4, 0)
         else
