@@ -3,7 +3,8 @@ local auction = EPBossAuction
 -- ============================================================
 -- attendance_ui.lua — вкладка Attendance: интерфейс
 -- ============================================================
--- Что здесь: вкладки главного окна ("Ставки" / "Attendance"), панель вкладки
+-- Что здесь: вкладки главного окна (квадратные кнопки с иконками слева от окна:
+-- "Ставки" / "Attendance" / "Резерв"), панель вкладки
 -- Attendance, окно с текстом отчёта. Данные и подсчёт — в attendance.lua,
 -- сеть — в attendance_sync.lua.
 --
@@ -87,25 +88,37 @@ function auction:CreateAttendanceUI(frame)
     self:UpdateMainTabs()
 end
 
--- Две вкладки в левом верхнем углу заголовка окна. Скин свой (не SkinButton):
--- активная вкладка подсвечивается акцентным цветом, а общий OnLeave-хук
--- SkinButton сбрасывал бы эту подсветку (та же причина, что у кнопок явки).
+-- Три квадратные вкладки слева от главного окна (иконка на всю кнопку,
+-- название — в тултипе). Вкладки — дочерние рамки главного окна, поэтому
+-- двигаются, масштабируются и прячутся вместе с ним. Активная вкладка
+-- красится в цвет панели, получает золотую полоску слева и "заплатку"
+-- поверх левой рамки окна — выглядит как продолжение окна. Неактивные
+-- темнее, с обесцвеченной иконкой. Скин свой (не SkinButton): общий
+-- OnLeave-хук SkinButton сбрасывал бы подсветку активной вкладки
+-- (та же причина, что у кнопок явки).
+local TAB_SIZE = 36        -- сторона квадрата
+local TAB_GAP = 4          -- промежуток между вкладками
+local TAB_TOP_OFFSET = 16  -- отступ первой вкладки от верха окна
+local TAB_ICON_INSET = 3   -- отступ иконки от рамки кнопки
+local TAB_FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+local TAB_DEFS = {
+    { key = "bids",       label = "Ставки",     icon = "Interface\\Icons\\INV_Misc_Coin_01" },
+    { key = "attendance", label = "Attendance", icon = "Interface\\Icons\\INV_Misc_Note_01" },
+    { key = "reserve",    label = "Резерв",     icon = "Interface\\Icons\\INV_Misc_Key_03" },
+}
+
 function auction:CreateMainTabs(frame)
     local c = self.theme.colors
     self.mainTabs = {}
-    local defs = {
-        { key = "bids",       label = "Ставки" },
-        { key = "attendance", label = "Attendance" },
-        { key = "reserve",    label = "Резерв" },
-    }
     local previous
-    for i, def in ipairs(defs) do
+    for i, def in ipairs(TAB_DEFS) do
         local tab = CreateFrame("Button", nil, frame)
-        tab:SetSize(74, 22)
+        tab:SetSize(TAB_SIZE, TAB_SIZE)
         if previous then
-            tab:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+            tab:SetPoint("TOP", previous, "BOTTOM", 0, -TAB_GAP)
         else
-            tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -10)
+            tab:SetPoint("TOPRIGHT", frame, "TOPLEFT", 0, -TAB_TOP_OFFSET)
         end
         tab:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -113,16 +126,47 @@ function auction:CreateMainTabs(frame)
             edgeSize = 1,
             insets = { left = 1, right = 1, top = 1, bottom = 1 }
         })
-        tab:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
-        tab.text = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        tab.text:SetPoint("CENTER", tab, "CENTER", 0, 0)
-        tab.text:SetText(def.label)
+
+        -- Иконка на всю кнопку (с небольшим отступом от рамки, края иконки обрезаны)
+        tab.icon = tab:CreateTexture(nil, "ARTWORK")
+        tab.icon:SetPoint("TOPLEFT", TAB_ICON_INSET, -TAB_ICON_INSET)
+        tab.icon:SetPoint("BOTTOMRIGHT", -TAB_ICON_INSET, TAB_ICON_INSET)
+        tab.icon:SetTexture(def.icon)
+        if not tab.icon:GetTexture() then   -- на сервере нет такой иконки
+            tab.icon:SetTexture(TAB_FALLBACK_ICON)
+        end
+        tab.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+        -- Золотая полоска слева — только у активной вкладки
+        tab.accent = tab:CreateTexture(nil, "OVERLAY")
+        tab.accent:SetTexture(c.accent[1], c.accent[2], c.accent[3], 1)
+        tab.accent:SetPoint("TOPLEFT", 1, -1)
+        tab.accent:SetPoint("BOTTOMLEFT", 1, 1)
+        tab.accent:SetWidth(2)
+
+        -- "Заплатка" цвета панели поверх правой рамки вкладки и левой рамки
+        -- окна: у активной вкладки шва между ней и окном не видно
+        tab.cover = tab:CreateTexture(nil, "OVERLAY")
+        tab.cover:SetTexture(c.panel[1], c.panel[2], c.panel[3], 1)
+        tab.cover:SetPoint("TOPRIGHT", tab, "TOPRIGHT", 1, -1)
+        tab.cover:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 1, 1)
+        tab.cover:SetWidth(3)
+
         tab.key = def.key
+        tab.label = def.label
         tab:SetScript("OnClick", function() auction:ShowMainTab(def.key) end)
-        tab:SetScript("OnEnter", function()
-            tab:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+        tab:SetScript("OnEnter", function(self)
+            self.hover = true
+            auction:UpdateMainTabs()
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:SetText(self.label, 1, 1, 1)
+            GameTooltip:Show()
         end)
-        tab:SetScript("OnLeave", function() auction:UpdateMainTabs() end)
+        tab:SetScript("OnLeave", function(self)
+            self.hover = false
+            GameTooltip:Hide()
+            auction:UpdateMainTabs()
+        end)
         self.mainTabs[i] = tab
         previous = tab
     end
@@ -142,17 +186,31 @@ function auction:UpdateMainTabs()
     end
 
     for _, tab in ipairs(self.mainTabs) do
-        if hasAccess then
+        if not hasAccess then
+            tab:Hide()
+        else
             tab:Show()
             if tab.key == self.activeTab then
-                tab:SetBackdropColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
-                tab.text:SetTextColor(0, 0, 0)
+                tab:SetBackdropColor(c.panel[1], c.panel[2], c.panel[3], 1)
+                tab:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+                tab.icon:SetDesaturated(false)
+                tab.icon:SetAlpha(1)
+                tab.accent:Show()
+                tab.cover:Show()
             else
-                tab:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
-                tab.text:SetTextColor(1, 1, 1)
+                tab:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], 1)
+                if tab.hover then
+                    tab:SetBackdropBorderColor(c.accent[1], c.accent[2], c.accent[3], 1)
+                    tab.icon:SetDesaturated(false)
+                    tab.icon:SetAlpha(1)
+                else
+                    tab:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
+                    tab.icon:SetDesaturated(true)
+                    tab.icon:SetAlpha(0.6)
+                end
+                tab.accent:Hide()
+                tab.cover:Hide()
             end
-        else
-            tab:Hide()
         end
     end
 end
