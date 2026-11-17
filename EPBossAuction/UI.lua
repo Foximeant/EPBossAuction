@@ -201,46 +201,11 @@ function auction:CreateUI()
     self.leftPanel = leftPanel
     self:SkinPanel(leftPanel)
 
-    -- 0. Выбор подземелья
-    local instanceLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    instanceLabel:SetPoint("TOP", leftPanel, "TOP", 0, -10)
-    instanceLabel:SetJustifyH("CENTER")
-    instanceLabel:SetText("Подземелье:")
-    local instanceDropdown = CreateFrame("Frame", "EPInstanceDropdown", leftPanel, "UIDropDownMenuTemplate")
-    instanceDropdown:SetPoint("TOP", instanceLabel, "BOTTOM", 0, -6)
-    UIDropDownMenu_SetWidth(instanceDropdown, 116)
-    UIDropDownMenu_SetText(instanceDropdown, "Выбрать подземелье")
-    UIDropDownMenu_Initialize(instanceDropdown, function(selfDD, level)
-        for _, instanceName in ipairs(auction.instanceOrder) do
-            local inst = instanceName
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = inst
-            info.func = function()
-                auction.selectedInstance = inst
-                auction.selectedBoss = nil
-                auction.selectedItem = nil
-                UIDropDownMenu_SetText(instanceDropdown, inst)
-                UIDropDownMenu_SetText(auction.bossDropdown, "Выбрать босса")
-                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
-                if auction.bossDropdown then
-                    UIDropDownMenu_Refresh(auction.bossDropdown)
-                end
-                if auction.itemDropdown then
-                    UIDropDownMenu_Refresh(auction.itemDropdown)
-                end
-                auction:RequestRefresh()
-                auction:RefreshSignupButtons()
-            end
-            info.checked = (auction.selectedInstance == inst)
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-    self.instanceDropdown = instanceDropdown
-    self:SkinDropdown(instanceDropdown)
-
-    -- 1. Выбор босса (список зависит от выбранного подземелья)
+    -- 0. Выбор босса: одно двухуровневое меню Подземелье → Босс
+    -- (как на вкладках Attendance и «Резерв»). Подземелье — пункт первого
+    -- уровня со стрелкой, боссы выбранного подземелья — второй уровень.
     local bossLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bossLabel:SetPoint("TOP", instanceDropdown, "BOTTOM", 0, -15)
+    bossLabel:SetPoint("TOP", leftPanel, "TOP", 0, -10)
     bossLabel:SetJustifyH("CENTER")
     bossLabel:SetText("Босс:")
     local dropdown = CreateFrame("Frame", "EPBossDropdown", leftPanel, "UIDropDownMenuTemplate")
@@ -248,37 +213,50 @@ function auction:CreateUI()
     UIDropDownMenu_SetWidth(dropdown, 116)
     UIDropDownMenu_SetText(dropdown, "Выбрать босса")
     UIDropDownMenu_Initialize(dropdown, function(selfDD, level)
-        if not auction.selectedInstance then return end
-        local bosses = auction.instances[auction.selectedInstance]
-        if not bosses then return end
-        for _, bossName in ipairs(bosses) do
-            local boss = bossName
-            local info = UIDropDownMenu_CreateInfo()
-            -- Боссы без заведённых предметов помечаем серой пометкой в списке.
-            -- Само имя (boss) остаётся чистым ключом auction.bosses — иначе
-            -- выбор босса не находит его предметы и сбрасывается (RefreshTable).
-            local bossItems = auction.bosses[boss]
-            if bossItems and #bossItems == 0 then
-                info.text = boss.." |cff888888(не заполнено)|r"
-            else
-                info.text = boss
+        level = level or 1
+        if level == 1 then
+            for _, instanceName in ipairs(auction.instanceOrder) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = instanceName
+                info.value = instanceName
+                info.hasArrow = true
+                info.notCheckable = true
+                UIDropDownMenu_AddButton(info, 1)
             end
-            info.func = function()
-                auction.selectedBoss = boss
-                auction.selectedItem = nil
-                UIDropDownMenu_SetText(dropdown, boss)
-                UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
-                if auction.itemDropdown then
-                    UIDropDownMenu_Refresh(auction.itemDropdown)
+        else
+            local instanceName = UIDROPDOWNMENU_MENU_VALUE
+            for _, bossName in ipairs(auction.instances[instanceName] or {}) do
+                local boss = bossName
+                local info = UIDropDownMenu_CreateInfo()
+                -- Боссы без заведённых предметов помечаем серой пометкой в списке.
+                -- Само имя (boss) остаётся чистым ключом auction.bosses — иначе
+                -- выбор босса не находит его предметы и сбрасывается (RefreshTable).
+                local bossItems = auction.bosses[boss]
+                if bossItems and #bossItems == 0 then
+                    info.text = boss.." |cff888888(не заполнено)|r"
+                else
+                    info.text = boss
                 end
-                auction:RequestRefresh()
-                auction:RefreshSignupButtons()
+                info.func = function()
+                    CloseDropDownMenus()
+                    auction.selectedInstance = instanceName
+                    auction.selectedBoss = boss
+                    auction.selectedItem = nil
+                    auction:UpdateBossDropdownText()
+                    if auction.itemDropdown then
+                        UIDropDownMenu_SetText(auction.itemDropdown, "Выбрать предмет")
+                        UIDropDownMenu_Refresh(auction.itemDropdown)
+                    end
+                    auction:RequestRefresh()
+                    auction:RefreshSignupButtons()
+                end
+                info.checked = (auction.selectedBoss == boss)
+                UIDropDownMenu_AddButton(info, 2)
             end
-            info.checked = (auction.selectedBoss == boss)
-            UIDropDownMenu_AddButton(info)
         end
     end)
     self.bossDropdown = dropdown
+    self.instanceDropdown = nil -- отдельного списка подземелий больше нет
     self:SkinDropdown(dropdown)
 
     -- 2. Выбор предмета
@@ -317,15 +295,16 @@ function auction:CreateUI()
     -- этот выбор и не нужен. Код НЕ удалён специально: auction.itemDropdown
     -- используется в других местах (клик по строке зовёт
     -- UIDropDownMenu_SetText(auction.itemDropdown, ...) для синхронизации
-    -- текста), плюс на него заякорен bidLabel ниже — удаление сломает и то,
-    -- и другое. Чтобы вернуть видимость обратно — просто убрать эти две
-    -- строки (и itemLabel:Hide() тоже).
+    -- текста, reserve.lua делает то же). На раскладку он не влияет:
+    -- bidLabel заякорен на выпадающий список босса, а не на него.
+    -- Чтобы вернуть видимость, уберите две строки ниже и заякорите
+    -- bidLabel обратно на itemDrop.
     itemLabel:Hide()
     itemDrop:Hide()
 
     -- 3. Поле ввода ставки
     local bidLabel = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bidLabel:SetPoint("TOP", itemDrop, "BOTTOM", 0, -15)
+    bidLabel:SetPoint("TOP", dropdown, "BOTTOM", 0, -15)
     bidLabel:SetJustifyH("CENTER")
     bidLabel:SetText("Сумма ставки:")
     local editBox = CreateFrame("EditBox", "EPBidEditBox", leftPanel, "InputBoxTemplate")
@@ -1779,4 +1758,12 @@ function auction:ShowWhatsNewWindow()
     frame.body:SetHeight(frame.body.text:GetStringHeight() + 10)
 
     frame:Show()
+end
+
+-- Подпись в выпадающем списке босса: имя выбранного босса или подсказка.
+-- Зовётся при выборе, при восстановлении сохранённого босса (events.lua)
+-- и когда ЛМ подтягивает данные (comm.lua).
+function auction:UpdateBossDropdownText()
+    if not self.bossDropdown then return end
+    UIDropDownMenu_SetText(self.bossDropdown, self.selectedBoss or "Выбрать босса")
 end

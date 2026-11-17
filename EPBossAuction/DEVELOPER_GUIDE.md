@@ -90,7 +90,7 @@ Loot Master видит список ставок по каждому предм�
 поправлять.
 
 `auction.instances[instanceName]` — группировка боссов по подземельям (для
-дропдауна "Подземелье" → "Босс"). `auction.bossToInstance[bossName]` — обратный
+двухуровневого меню "Подземелье" → "Босс"). `auction.bossToInstance[bossName]` — обратный
 индекс, нужен только для восстановления выбора при входе (`events.lua`).
 Важно: сами данные (ставки/явка/версии/сеть) как хранились, так и хранятся по
 `bossName`, подземелье в эти ключи не подмешивается — оно чисто для UI-группировки,
@@ -201,7 +201,7 @@ if version > lastVersion or senderIsLM then
 ## UI
 
 - `auction:CreateUI()` (`ui.lua`) строит главное окно один раз при загрузке:
-  слева — панель управления (дропдауны босса/предмета, поле ставки, кнопки
+  слева — панель управления (меню босса, поле ставки, кнопки
   ЛМ, кнопки явки), справа — `ScrollFrame` с таблицей предметов текущего
   босса.
 - Строки таблицы — через пул (`auction.rowPool`), не пересоздаются на каждый
@@ -209,12 +209,20 @@ if version > lastVersion or senderIsLM then
 - Кнопки явки (`CreateSignupButtons`/`RefreshSignupButtons`) — **не** через
   `SkinButton` из `theme.lua`, у них свой скин прямо в `ui.lua` (иначе
   конфликтует `OnLeave`-хук из `SkinButton` с подсветкой "явка отмечена").
+- Выбор босса — одно двухуровневое меню `EPBossDropdown` (`auction.bossDropdown`):
+  первый уровень — подземелья (`auction.instanceOrder`, `hasArrow`), второй — боссы
+  подземелья из `UIDROPDOWNMENU_MENU_VALUE` (так же сделано в Attendance и «Резерве»).
+  При выборе босса ставятся `selectedInstance`/`selectedBoss`, сбрасывается
+  `selectedItem`. Подпись меню обновляет `auction:UpdateBossDropdownText()` (в конце
+  `ui.lua`; её зовут выбор босса, восстановление при входе в `events.lua` и
+  `comm.lua`). Отдельного списка подземелий нет: `auction.instanceDropdown` всегда `nil`.
 - Дропдаун "Предмет" (`itemDropdown`) визуально скрыт (`:Hide()` сразу после
   создания) — выбор предмета происходит кликом по строке таблицы, дропдаун
   дублировал этот выбор. Код не удалён: на `auction.itemDropdown` завязаны
-  вызовы `UIDropDownMenu_SetText` из обработчика клика по строке, и на сам
-  фрейм заякорен `bidLabel` ("Сумма ставки:") ниже — удаление сломало бы оба
-  места. Чтобы вернуть видимость — убрать `itemLabel:Hide()`/`itemDrop:Hide()`.
+  вызовы `UIDropDownMenu_SetText` из обработчика клика по строке и из
+  `reserve.lua`. На раскладку он не влияет: `bidLabel` ("Сумма ставки:")
+  заякорен на меню босса, а не на него. Чтобы вернуть видимость — убрать
+  `itemLabel:Hide()`/`itemDrop:Hide()` и заякорить `bidLabel` обратно на `itemDrop`.
 - Окно "Что нового?" (`ShowWhatsNewWindow`, самый низ `ui.lua`) строится один
   раз лениво (`auction.whatsNewFrame`), берёт текст из `auction.changelog`
   (`changelog.lua`) через `GetChangelogVersions()`.
@@ -468,7 +476,7 @@ MergeDefaults(EPBossAuctionSettings, auction.defaults)` — то есть **пр
   (`ui.lua`, по пустому списку в `auction.bosses`).
 - **Высота окна по умолчанию — 605** (`auction.defaults.window.height` и две
   проверки `math.max(605, ...)` в `core.lua`): при меньшей высоте низ левой
-  панели (с дропдауном подземелья и кнопками явки) может обрезаться.
+  панели (с кнопками ЛМ и явки) может обрезаться.
 - **Выпадающие списки `UIDropDownMenuTemplate` сами меняют высоту рамки.**
   `UIDropDownMenu_Initialize` вызывается при каждом открытии списка и ставит рамке 32 px.
   Если нужна другая высота (в тулбаре Attendance — 22), её надо возвращать: см.
