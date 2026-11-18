@@ -363,7 +363,7 @@ if version > lastVersion or senderIsLM then
 `EPBossAuctionSavedLootLog`; формат записей описан в шапке `stats.lua`:
 - выдача (`kind = "item"`): `id, t, lm, boss, itemID, winner, bid, offspec, bids, charged, chargedAmount, main`
   (пишет `LootJournalAdd` при выдаче, поля списания дописывает `LootDoCharge`);
-- массовое начисление (`kind = "mass"`): `id, t, lm, boss, amount, n` (пишет `LootDoMass`). У записей до 3.6.0 нет `id`/`kind`/`lm` —
+- массовое начисление (`kind = "mass"`): `id, t, lm, boss, amount, n` (пишет `LootDoMass`). У записей до 3.5.1 нет `id`/`kind`/`lm` —
   подсчёт на них не опирается (`kind == nil` = выдача).
 
 Виды: «Игроки» (предметов, ЕП списано, средняя ставка, офф-спек, последняя выдача), «Выдачи» (список, сначала новые), «Боссы»
