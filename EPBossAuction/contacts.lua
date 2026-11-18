@@ -10,7 +10,7 @@ local auction = EPBossAuction
 -- Открывается командой /epba bug (подсказка есть в тултипе кнопки миникарты).
 -- ============================================================
 
--- !!! ЗАПОЛНИТЬ: контакты, которые увидят игроки.
+-- Контакты, которые увидят игроки.
 auction.contacts = {
     github  = "https://github.com/Foximeant/EPBossAuction/issues",
     discord = "lieline",
