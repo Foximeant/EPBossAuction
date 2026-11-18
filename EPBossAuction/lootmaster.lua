@@ -32,7 +32,8 @@ local auction = EPBossAuction
 --     slot, itemID, link, name, icon, quantity, boss,
 --     status = "open" | "giving" | "given" | "charged",
 --     selected (выбранный победитель), winner (кому выдано), amount (сколько списать)
---   EPBossAuctionSavedLootLog — журнал выдач (для статистики), см. LootJournalAdd.
+--   EPBossAuctionSavedLootLog — журнал выдач и массовых начислений (источник вкладки
+--   «Статистика»), см. LootJournalAdd, LootJournalAddMass и stats.lua.
 --   auction.db.lootmaster — позиция окна и последняя сумма «за босса» по боссам.
 --
 -- Тест: /epbaloot test — окно с предметами выбранного босса; выдача и
@@ -46,7 +47,6 @@ local LOOT_MIN_QUALITY    = 4     -- показывать предметы не 
 local LOOT_TOP_BIDS       = 3     -- сколько верхних ставок показывать под предметом (1-3 — кнопки созданы по этому числу)
 local GIVE_TIMEOUT        = 4     -- сек: сколько ждём очистки слота после GiveMasterLoot
 local LATE_CLEAR_WINDOW   = 12    -- сек: слот очистился с опозданием после таймаута — всё равно считаем выдачей
-local LOG_MAX             = 500   -- сколько записей хранить в журнале выдач
 local MASS_REPEAT_SECONDS = 1800  -- предупреждать о повторном начислении за того же босса в течение этого времени
 
 -- Предметы, которые окно не показывает: [itemID] = true
@@ -202,20 +202,17 @@ end
 -- ======================
 function auction:LootJournalAdd(e)
     if self.lootTest then return end
-    if type(EPBossAuctionSavedLootLog) ~= "table" then EPBossAuctionSavedLootLog = {} end
-    local log = EPBossAuctionSavedLootLog
     local bids = self:GetLootBids(e)
     local b = BidOf(bids, e.winner)
     local rec = {
-        t = time(), boss = e.boss, itemID = e.itemID, winner = e.winner,
+        t = time(), kind = "item", boss = e.boss, itemID = e.itemID, winner = e.winner,
         bid = b and (tonumber(b.amount) or 0) or 0,
         offspec = (b and b.isOffspec) and true or false,
         bids = #bids,
         charged = false,
     }
-    table.insert(log, rec)
-    while #log > LOG_MAX do table.remove(log, 1) end
-    e.log = rec
+    -- id, ЛМ, обрезка журнала и обновление вкладки «Статистика» — в stats.lua
+    e.log = self:StatsAddRecord(rec)
 end
 
 -- ======================
@@ -438,6 +435,7 @@ function auction:LootDoCharge(e)
     e.status, e.chargedAmount, e.chargedMain = "charged", amount, result
     if e.log then
         e.log.charged, e.log.chargedAmount, e.log.main = true, amount, result
+        self:StatsChanged()
     end
     Say(string.format("Списано %s ЕП с %s за %s.", self:FormatNumber(amount), result, ReasonFor(e)))
     -- Ставка победителя больше не актуальна — убираем её у всех (ApplyBidChange рассылает SYNC).
@@ -471,7 +469,7 @@ function auction:LootConfirmMass()
     if last and time() - last < MASS_REPEAT_SECONDS then
         text = text..string.format("\n|cffff5555За этого босса уже начисляли %d мин. назад!|r", math.floor((time() - last) / 60))
     end
-    StaticPopup_Show("EPBA_LOOT_MASS", text, nil, { boss = boss, amount = amount })
+    StaticPopup_Show("EPBA_LOOT_MASS", text, nil, { boss = boss, amount = amount, n = n })
 end
 
 function auction:LootDoMass(data)
@@ -488,6 +486,7 @@ function auction:LootDoMass(data)
         return
     end
     self.lootMassAwarded[data.boss] = time()
+    self:LootJournalAddMass(data.boss, data.amount, data.n)   -- для статистики (stats.lua)
     Db().bossEP[data.boss] = data.amount
     Say(string.format("Рейду начислено %s ЕП за: %s.", self:FormatNumber(data.amount), data.boss))
     self:ScheduleTimer(function() auction:CheckAndUpdateEP() end, 2)
