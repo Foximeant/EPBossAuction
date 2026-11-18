@@ -363,7 +363,7 @@ if version > lastVersion or senderIsLM then
 `EPBossAuctionSavedLootLog`; формат записей описан в шапке `stats.lua`:
 - выдача (`kind = "item"`): `id, t, lm, boss, itemID, winner, bid, offspec, bids, charged, chargedAmount, main`
   (пишет `LootJournalAdd` при выдаче, поля списания дописывает `LootDoCharge`);
-- массовое начисление (`kind = "mass"`): `id, t, lm, boss, amount, n` (пишет `LootDoMass`). У записей до 3.5.1 нет `id`/`kind`/`lm` —
+- массовое начисление (`kind = "mass"`): `id, t, lm, boss, amount, n` (пишет `LootDoMass`). У записей до 3.6.0 нет `id`/`kind`/`lm` —
   подсчёт на них не опирается (`kind == nil` = выдача).
 
 Виды: «Игроки» (предметов, ЕП списано, средняя ставка, офф-спек, последняя выдача), «Выдачи» (список, сначала новые), «Боссы»
@@ -381,6 +381,8 @@ if version > lastVersion or senderIsLM then
 по событию `LOOT_OPENED`, если среди слотов есть подходящие предметы: качество не ниже `LOOT_MIN_QUALITY`
 (эпик) или предмет есть в `auction.bosses`, не ниже порога мастер-лута и не в `auction.LOOT_IGNORED_ITEMS`.
 Стандартное окно добычи не трогается — оно остаётся запасным путём. Остальным игрокам файл ничего не делает.
+
+**Снимок посещаемости.** Кнопка «Создать снимок» в шапке окна (`LootSnapshot`) вызывает `RecordAttendanceManual(lootBoss)` из `attendance.lua`: записывает состав рейда как килл выбранного босса (дубль за 5 минут блокируется, право — как у Attendance). В тестовом режиме ничего не пишет.
 
 **Записи.** Одна запись на слот (`auction.lootEntries`), а не на `itemID`: так две копии одного предмета не
 делят состояние. Статусы: `open` → `giving` → `given` → `charged`. Победитель по умолчанию — первый по ставке,

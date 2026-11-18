@@ -508,6 +508,19 @@ StaticPopupDialogs["EPBA_LOOT_MASS"] = {
     timeout = 0, whileDead = 1, hideOnEscape = 1,
 }
 
+-- Снимок посещаемости на выбранном боссе (кнопка «Создать снимок»). Записью и
+-- сообщениями о результате (нет доступа, не в рейде, дубль за 5 минут) занимается
+-- RecordAttendanceManual из attendance.lua. В тестовом режиме ничего не пишет.
+function auction:LootSnapshot()
+    local boss = self.lootBoss
+    if not boss then return end
+    if self.lootTest then
+        self:AttendanceSay("Тест: снимок посещаемости не записывается")
+        return
+    end
+    self:RecordAttendanceManual(boss)
+end
+
 -- ======================
 -- Выбор босса
 -- ======================
@@ -721,6 +734,19 @@ function auction:CreateLootWindow()
     self:SkinDropdown(dd)
     f.bossDropdown = dd
 
+    -- «Создать снимок»: записывает посещаемость на выбранном боссе (состав рейда
+    -- сейчас) в историю Attendance — то же, что «Записать килл» на вкладке Attendance.
+    f.snapBtn = MakeButton(f, 164, 24, "Создать снимок")
+    f.snapBtn:SetPoint("TOPLEFT", 338, -36)
+    f.snapBtn:SetScript("OnClick", function() auction:LootSnapshot() end)
+    f.snapBtn:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Записать посещаемость на боссе", 1, 1, 1)
+        GameTooltip:AddLine("Сохраняет текущий состав рейда как килл выбранного босса (вкладка Attendance).", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    f.snapBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     local massLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     massLabel:SetPoint("TOPLEFT", 16, -76)
     massLabel:SetText("ЕП рейду за босса:")
@@ -910,6 +936,7 @@ function auction:RefreshLootWindow()
         f.massBox:SetText(v and tostring(v) or "")
     end
     SetBtn(f.massBtn, self.lootBoss ~= nil)
+    SetBtn(f.snapBtn, self.lootBoss ~= nil)
 
     -- Строки (пул: создаются один раз, дальше переиспользуются)
     local ctx = { test = test, cands = cands, me = me, accent = self.theme.colors.accent }
