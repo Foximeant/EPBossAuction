@@ -583,6 +583,9 @@ function auction:CreateUI()
         elseif msg == "help" then
             auction:ShowHelpWindow()
             return
+        elseif msg:sub(1, 4) == "diag" then
+            auction:DiagCommand(msg:sub(5))   -- diag.lua
+            return
         end
         if frame:IsShown() then frame:Hide() else frame:Show(); auction:ForceEPUpdate() end
     end
@@ -1689,7 +1692,8 @@ function auction:ShowWhatsNewWindow()
     local c = self.theme.colors
     if not self.whatsNewFrame then
         local frame = CreateFrame("Frame", "EPBossAuctionWhatsNewFrame", UIParent)
-        frame:SetSize(420, 360)
+        -- Окно «Что нового?» в 1.5 раза больше исходного 420x360
+        frame:SetSize(630, 540)
         frame:SetPoint("CENTER")
         frame:SetFrameStrata("DIALOG")
         self:SkinPanel(frame)
@@ -1719,7 +1723,7 @@ function auction:ShowWhatsNewWindow()
         end
 
         local body = CreateFrame("Frame", nil, scrollFrame)
-        body:SetSize(420 - 16 - 34, 1) -- совпадает с отступами scrollFrame выше
+        body:SetSize(630 - 16 - 34, 1) -- ширина окна минус отступы scrollFrame выше
         scrollFrame:SetScrollChild(body)
         frame.body = body
 

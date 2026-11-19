@@ -111,10 +111,21 @@ function auction:ShowContactsWindow()
 
         local closeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         closeButton:SetSize(120, 24)
-        closeButton:SetPoint("BOTTOM", 0, 16)
+        closeButton:SetPoint("BOTTOM", 70, 16)
         closeButton:SetText("Закрыть")
         self:SkinButton(closeButton)
         closeButton:SetScript("OnClick", function() frame:Hide() end)
+
+        -- Полная диагностика (diag.lua): сводка, проверки, журнал, сеть, ошибки, опрос рейда
+        local diagButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        diagButton:SetSize(150, 24)
+        diagButton:SetPoint("BOTTOM", -70, 16)
+        diagButton:SetText("Полная диагностика")
+        self:SkinButton(diagButton)
+        diagButton:SetScript("OnClick", function()
+            frame:Hide()
+            if auction.DiagCommand then auction:DiagCommand("") end
+        end)
 
         self.contactsFrame = frame
     end

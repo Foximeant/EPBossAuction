@@ -35,6 +35,19 @@ auction.prefix = "EPBAUC"
 auction.version = GetAddOnMetadata("EPBossAuction", "Version") or "0.0.0"
 
 auction.debug = true
+
+-- Совместимость: IsInRaid/IsInGroup — имена из поздних версий клиента, в оригинальном
+-- 3.3.5 их нет, а код аддона их вызывает. Если клиент (Sirus) свои не даёт —
+-- подставляем эквиваленты через GetNumRaidMembers/GetNumPartyMembers.
+auction.apiShims = {}   -- какие функции подставлены нами (видно в диагностике)
+if type(IsInRaid) ~= "function" then
+    auction.apiShims.IsInRaid = true
+    function IsInRaid() return GetNumRaidMembers() > 0 end
+end
+if type(IsInGroup) ~= "function" then
+    auction.apiShims.IsInGroup = true
+    function IsInGroup() return GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0 end
+end
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
 
@@ -865,7 +878,9 @@ function auction:IsLootMaster()
         local name = GetRaidRosterInfo(raidIndex)
         return name == UnitName("player")
     elseif partyIndex then
-        return UnitIsGroupLeader("player")
+        -- В обычной группе (не рейде) GetLootMethod отдаёт partyIndex: 0 — мастер-лут
+        -- это я, 1..4 — участник группы. Лидер группы мастер-лутом быть не обязан.
+        return partyIndex == 0
     end
     return false
 end
