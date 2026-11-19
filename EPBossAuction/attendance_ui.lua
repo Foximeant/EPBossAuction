@@ -4,7 +4,7 @@ local auction = EPBossAuction
 -- attendance_ui.lua — вкладка Attendance: интерфейс
 -- ============================================================
 -- Что здесь: вкладки главного окна (квадратные кнопки с иконками слева от окна:
--- "Ставки" / "Attendance" / "Резерв"), панель вкладки
+-- "Ставки" / "Attendance" / "Резерв" / "Статистика"), панель вкладки
 -- Attendance, окно с текстом отчёта. Данные и подсчёт — в attendance.lua,
 -- сеть — в attendance_sync.lua.
 --
@@ -84,6 +84,7 @@ function auction:CreateAttendanceUI(frame)
     self:CreateMainTabs(frame)
     self:CreateAttendancePanel(frame)
     self:CreateReservePanel(frame)    -- вкладка «Резерв» (reserve_ui.lua)
+    self:CreateStatsPanel(frame)      -- вкладка «Статистика» (stats_ui.lua)
     self.activeTab = "bids"
     self:UpdateMainTabs()
 end
@@ -106,6 +107,7 @@ local TAB_DEFS = {
     { key = "bids",       label = "Ставки",     icon = "Interface\\Icons\\INV_Misc_Coin_01" },
     { key = "attendance", label = "Attendance", icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { key = "reserve",    label = "Резерв",     icon = "Interface\\Icons\\INV_Misc_Key_03" },
+    { key = "stats",      label = "Статистика", icon = "Interface\\Icons\\INV_Misc_Book_09" },
 }
 
 function auction:CreateMainTabs(frame)
@@ -218,12 +220,16 @@ end
 -- Переключает содержимое окна: "bids" (левая панель + таблица ставок), "attendance"
 -- или "reserve" (одна панель на всю ширину). Без доступа на Attendance/Резерв не пускает.
 function auction:ShowMainTab(tab)
-    if (tab == "attendance" or tab == "reserve") and not self:HasAttendanceAccess() then tab = "bids" end
+    if tab ~= "bids" and not self:HasAttendanceAccess() then tab = "bids" end
     self.activeTab = tab
 
+    -- Прячем панели всех остальных вкладок
+    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel }
+    for key, panel in pairs(panels) do
+        if key ~= tab and panel then panel:Hide() end
+    end
+
     if tab == "bids" then
-        self.attendancePanel:Hide()
-        if self.reservePanel then self.reservePanel:Hide() end
         self.leftPanel:Show()
         self.scrollFrame:Show()
         if self.scrollBG then self.scrollBG:Show() end
@@ -233,11 +239,12 @@ function auction:ShowMainTab(tab)
         self.scrollFrame:Hide()
         if self.scrollBG then self.scrollBG:Hide() end
         if tab == "attendance" then
-            if self.reservePanel then self.reservePanel:Hide() end
             self.attendancePanel:Show()
             self:RefreshAttendance()
+        elseif tab == "stats" then
+            self.statsPanel:Show()
+            self:RefreshStats()
         else
-            self.attendancePanel:Hide()
             self.reservePanel:Show()
             if not self.reserveBoss then self.reserveBoss = self.selectedBoss end
             self:RefreshReserve()

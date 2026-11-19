@@ -23,6 +23,7 @@ local auction = EPBossAuction
 --   attendance.lua — посещаемость (только для тех, кто может редактировать офицерскую заметку): данные и подсчёт
 --   attendance_sync.lua — синхронизация истории посещаемости между офицерами
 --   attendance_ui.lua — вкладка Attendance в главном окне
+--   stats.lua / stats_ui.lua — статистика выдач и ЕП (журнал выдач ЛМ) и её вкладка
 -- ============================================================
 
 -- ======================
@@ -34,6 +35,19 @@ auction.prefix = "EPBAUC"
 auction.version = GetAddOnMetadata("EPBossAuction", "Version") or "0.0.0"
 
 auction.debug = true
+
+-- Совместимость: IsInRaid/IsInGroup — имена из поздних версий клиента, в оригинальном
+-- 3.3.5 их нет, а код аддона их вызывает. Если клиент (Sirus) свои не даёт —
+-- подставляем эквиваленты через GetNumRaidMembers/GetNumPartyMembers.
+auction.apiShims = {}   -- какие функции подставлены нами (видно в диагностике)
+if type(IsInRaid) ~= "function" then
+    auction.apiShims.IsInRaid = true
+    function IsInRaid() return GetNumRaidMembers() > 0 end
+end
+if type(IsInGroup) ~= "function" then
+    auction.apiShims.IsInGroup = true
+    function IsInGroup() return GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0 end
+end
 auction.fullyLoaded = false
 auction.pendingWorldEnter = nil
 
@@ -336,6 +350,10 @@ auction.defaults = {
     -- Вкладка Attendance (attendance_ui.lua)
     attendance = {
         byMain = true,   -- считать посещаемость по мейнам (твинки вместе с мейном)
+    },
+    -- Вкладка «Статистика» (stats_ui.lua)
+    stats = {
+        byMain = true,   -- считать выдачи и ЕП по мейнам (твинки вместе с мейном)
     },
     window = {
         scale = 1.0,
@@ -860,7 +878,9 @@ function auction:IsLootMaster()
         local name = GetRaidRosterInfo(raidIndex)
         return name == UnitName("player")
     elseif partyIndex then
-        return UnitIsGroupLeader("player")
+        -- В обычной группе (не рейде) GetLootMethod отдаёт partyIndex: 0 — мастер-лут
+        -- это я, 1..4 — участник группы. Лидер группы мастер-лутом быть не обязан.
+        return partyIndex == 0
     end
     return false
 end

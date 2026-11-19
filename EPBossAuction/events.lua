@@ -66,6 +66,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                 auction.selectedBoss = nil
                 auction.selectedInstance = nil
             end
+            auction:UpdateBossDropdownText()
 
             if auction.selectedBoss and EPBossAuctionSavedSelectedItem then
                 local items = auction.bosses[auction.selectedBoss]

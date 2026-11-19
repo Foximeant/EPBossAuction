@@ -96,12 +96,7 @@ function auction:HandleWorldEnter()
             if bidCount > 0 then
                 if self.selectedBoss then
                     self:Debug("Восстанавливаем выбранного босса: "..self.selectedBoss)
-                    if self.instanceDropdown and self.selectedInstance then
-                        UIDropDownMenu_SetText(self.instanceDropdown, self.selectedInstance)
-                    end
-                    if self.bossDropdown then
-                        UIDropDownMenu_SetText(self.bossDropdown, self.selectedBoss)
-                    end
+                    self:UpdateBossDropdownText()
                     self:RequestRefresh()
                 end
                 self:ScheduleTimer(function()
