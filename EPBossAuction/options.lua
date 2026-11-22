@@ -70,7 +70,7 @@ function auction:CreateOptionsPanel()
     debugCheck.text:SetText("Режим отладки")
     debugCheck:SetChecked(self.db.general.debug)
     debugCheck:SetScript("OnClick", function(self)
-        auction.db.general.debug = self:GetChecked()
+        auction.db.general.debug = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
     
@@ -106,7 +106,7 @@ function auction:CreateOptionsPanel()
     confirmBidCheck.text:SetText("Подтверждать ставки")
     confirmBidCheck:SetChecked(self.db.general.confirmBid)
     confirmBidCheck:SetScript("OnClick", function(self)
-        auction.db.general.confirmBid = self:GetChecked()
+        auction.db.general.confirmBid = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
     
@@ -117,7 +117,7 @@ function auction:CreateOptionsPanel()
     soundCheck.text:SetText("Включить звук при перебитии ставки")
     soundCheck:SetChecked(self.db.general.soundEnabled)
     soundCheck:SetScript("OnClick", function(self)
-        auction.db.general.soundEnabled = self:GetChecked()
+        auction.db.general.soundEnabled = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
 
@@ -162,7 +162,7 @@ function auction:CreateOptionsPanel()
     announceCheck.text:SetText("Анонсировать в рейд-варн блокировку и очистку ставок")
     announceCheck:SetChecked(self.db.general.announceToRaid)
     announceCheck:SetScript("OnClick", function(self)
-        auction.db.general.announceToRaid = self:GetChecked()
+        auction.db.general.announceToRaid = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
 
@@ -363,7 +363,7 @@ function auction:CreateOptionsPanel()
     hideNoBidsCheck.text:SetText("Скрывать предметы без ставок")
     hideNoBidsCheck:SetChecked(self.db.table.hideNoBids == true)
     hideNoBidsCheck:SetScript("OnClick", function(self)
-        auction.db.table.hideNoBids = self:GetChecked()
+        auction.db.table.hideNoBids = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
 
@@ -490,7 +490,7 @@ function auction:CreateOptionsPanel()
     showButtonCheck.text:SetText("Показывать кнопку у миникарты")
     showButtonCheck:SetChecked(self.db.minimap.show)
     showButtonCheck:SetScript("OnClick", function(self)
-        auction.db.minimap.show = self:GetChecked()
+        auction.db.minimap.show = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
     
@@ -653,7 +653,7 @@ function auction:CreateOptionsPanel()
     lockWindowCheck.text:SetText("Заблокировать окно (запретить перемещение)")
     lockWindowCheck:SetChecked(self.db.window.locked)
     lockWindowCheck:SetScript("OnClick", function(self)
-        auction.db.window.locked = self:GetChecked()
+        auction.db.window.locked = self:GetChecked() and true or false
         auction:ApplySettings()
     end)
     

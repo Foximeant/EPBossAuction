@@ -105,7 +105,7 @@ function auction:CreateUI()
     optionsBtn:SetNormalFontObject(GameFontNormal)
     self:SkinButton(optionsBtn)
     optionsBtn:SetScript("OnClick", function()
-        InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
+        auction:OpenOptions()
     end)
     optionsBtn:SetScript("OnEnter", function()
         local c = auction.theme and auction.theme.colors
@@ -618,7 +618,7 @@ function auction:CreateUI()
     end
     SLASH_EPBA_OPTIONS1 = "/epbaoptions"
     SlashCmdList["EPBA_OPTIONS"] = function()
-        InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
+        auction:OpenOptions()
     end
     SLASH_EPBA_OFFSPEC1 = "/epbaoffspec"
     SlashCmdList["EPBA_OFFSPEC"] = function(value)
@@ -1124,7 +1124,7 @@ function auction:RenderItemRow(row, itemID, index, metrics)
     local itemName, itemIcon = self:GetCachedItemInfo(itemID)
     local hasPendingItemInfo = not itemName
     if not itemName then
-        itemName = "Р—Р°РіСЂСѓР·РєР°..."
+        itemName = "Загрузка..."
     end
 
     row.itemName:SetText(itemName)
@@ -1215,14 +1215,10 @@ function auction:RefreshRowForItem(itemID)
     local row = self:FindActiveRowByItemID(itemID)
     if not row then return false end
 
-    local index
-    for i, currentItemID in ipairs(items) do
-        if currentItemID == itemID then
-            index = i
-            break
-        end
-    end
-
+    -- Индекс берём у самой строки: RefreshTable раскладывает только видимые
+    -- предметы (без скрытых и, при hideNoBids, без пустых), и позиция в полном
+    -- списке items с ней не совпадает.
+    local index = row.index
     if not index then return false end
 
     local needsDelayedRefresh = self:RenderItemRow(row, itemID, index, self:GetTableLayoutMetrics())

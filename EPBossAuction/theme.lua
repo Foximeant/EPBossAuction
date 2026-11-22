@@ -37,20 +37,24 @@ auction.theme = {
 -- возвращает true). Нужен потому что не все шрифты содержат символы
 -- ✓/▼ — если ни один не подошёл, вызывающий код сам падает на текстовый
 -- фолбэк ("x"/"v", см. SkinCheckbox/SkinDropdown).
+-- Пробует выставить шрифт с символами ✓ ▼ ˄ ˅. Подставляем только шрифты, где
+-- глифы гарантированы (свой DejaVuSans.ttf или заданный в настройках
+-- symbolFont): стандартные шрифты клиента SetFont принимает всегда, но этих
+-- глифов в них может не быть (получились бы квадраты) — для них используется
+-- запасной текст x / v.
+-- Важно: список собирается через table.insert, а не литералом {a, b}: если
+-- первый элемент (symbolFont в настройках) равен nil, ipairs по литералу не
+-- сделал бы ни одной итерации и шрифт никогда бы не применялся.
 function auction:TrySetSymbolFont(fontString, size)
     if not fontString then return false end
-    local candidates = {
-        self.db and self.db.general and self.db.general.symbolFont,
-        self.theme and self.theme.symbols and self.theme.symbols.font,
-        STANDARD_TEXT_FONT,
-        "Fonts\\ARIALN.TTF",
-    }
+    local candidates = {}
+    local userFont = self.db and self.db.general and self.db.general.symbolFont
+    if userFont and userFont ~= "" then table.insert(candidates, userFont) end
+    local builtin = self.theme and self.theme.symbols and self.theme.symbols.font
+    if builtin and builtin ~= "" then table.insert(candidates, builtin) end
     for _, fontPath in ipairs(candidates) do
-        if fontPath and fontPath ~= "" then
-            local ok = fontString:SetFont(fontPath, size or 14, "")
-            if ok then
-                return true
-            end
+        if fontString:SetFont(fontPath, size or 14, "") then
+            return true
         end
     end
     return false
@@ -284,8 +288,19 @@ function auction:SkinScrollBar(scrollBar)
     local up = scrollBar.ScrollUpButton or _G[scrollBar:GetName() .. "ScrollUpButton"]
     local down = scrollBar.ScrollDownButton or _G[scrollBar:GetName() .. "ScrollDownButton"]
     local thumb = scrollBar.ThumbTexture or _G[scrollBar:GetName() .. "ThumbTexture"]
-    if up then self:SkinButton(up); up:SetText("˄") end
-    if down then self:SkinButton(down); down:SetText("˅") end
+    -- Стрелки полосы прокрутки рисуем шрифтом с символами (в стандартном
+    -- шрифте клиента ˄ ˅ нет); если шрифт недоступен — обычные ^ и v.
+    -- Размер шрифта стрелок: чем больше число, тем крупнее стрелка.
+    local SCROLL_ARROW_FONT_SIZE = 22
+    local function SetArrow(button, glyph, fallback)
+        button:SetText(glyph)
+        local fs = button:GetFontString()
+        if fs and not self:TrySetSymbolFont(fs, SCROLL_ARROW_FONT_SIZE) then
+            button:SetText(fallback)
+        end
+    end
+    if up then self:SkinButton(up); SetArrow(up, "˄", "^") end
+    if down then self:SkinButton(down); SetArrow(down, "˅", "v") end
     if thumb then
         thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
         thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.9)

@@ -1116,3 +1116,9 @@ function auction:RequestRefresh()
     end, 0.1)
 end
 
+-- Открывает панель настроек. В 3.3.5 первый вызов OpenToCategory в сессии
+-- открывает окно, но не выбирает нужную категорию, поэтому вызываем дважды.
+function auction:OpenOptions()
+    InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
+    InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
+end

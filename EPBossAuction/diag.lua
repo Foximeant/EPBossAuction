@@ -767,7 +767,7 @@ Check("EPGP-мост (epgp.lua)", function()
         if not ok then
             status = "fail"; lines[#lines + 1] = "GetEPGP(я) падает: "..tostring(ep)
         else
-            lines[#lines + 1] = string.format("GetEPGP(%s) → EP=%s GP=%s main=%s", me, tostring(ep), tostring(gp), tostring(main))
+            lines[#lines + 1] = string.format("GetEPGP(%s) -> EP=%s GP=%s main=%s", me, tostring(ep), tostring(gp), tostring(main))
             if ep == nil then status = "warn"; lines[#lines + 1] = "EP игрока не получен (нет в гильдии/в базе EPGP?)" end
         end
     elseif type(t.GetEP) ~= "function" and not (t.db and t.db.profile) then
@@ -995,15 +995,15 @@ function diag.BuildNet(lastN, filter)
         L[#L + 1] = string.format("  %s | %d/%d | %d/%d | %.1f/%.1f | %d | %d | %d", cmd, s.outN, s.outB, s.inN, s.inB, s.maxMs, avg, s.errs, s.unknown, s.oversize)
     end
     L[#L + 1] = ""
-    L[#L + 1] = "Последние сообщения (→ исходящее, ← входящее):"
+    L[#L + 1] = "Последние сообщения (-> исходящее, <- входящее):"
     filter = filter and filter ~= "" and strlower(filter) or nil
     local lines = {}
     for _, e in ipairs(RingList(diag.netLog)) do
         local line
         if e[3] == "out" then
-            line = string.format("%s → %s [%s%s] %dБ: %s", Clock(e[2]), e[4], e[6], e[7] ~= "" and (" "..e[7]) or "", e[5], e[8])
+            line = string.format("%s -> %s [%s%s] %dБ: %s", Clock(e[2]), e[4], e[6], e[7] ~= "" and (" "..e[7]) or "", e[5], e[8])
         else
-            line = string.format("%s ← %s от %s %dБ %.1fмс%s%s: %s", Clock(e[2]), e[4], e[7], e[5], e[9] or 0, e[10] == false and " ОШИБКА" or "", e[6] == "?" and " НЕИЗВ" or "", e[8])
+            line = string.format("%s <- %s от %s %dБ %.1fмс%s%s: %s", Clock(e[2]), e[4], e[7], e[5], e[9] or 0, e[10] == false and " ОШИБКА" or "", e[6] == "?" and " НЕИЗВ" or "", e[8])
         end
         if not filter or strlower(line):find(filter, 1, true) then lines[#lines + 1] = line end
     end
