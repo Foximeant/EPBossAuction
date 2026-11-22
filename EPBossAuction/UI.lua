@@ -1500,7 +1500,10 @@ function auction:SendBidLocal()
     end
     local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
     self:ForceEPUpdate(function(success, currentEP)
-        if not success then return end
+        if not success then
+            print("|cffff0000[EPBA]|r Не удалось получить ваш ЕП (EPGP-аддон не найден или не отвечает) — ставка не отправлена")
+            return
+        end
         local maxBid = self:GetMaxBidAmount(isOffspec)
         if amount > maxBid then
             local modeText = isOffspec and " (офф-спек)" or ""
@@ -1552,6 +1555,7 @@ end
 -- Общая часть очистки одного босса (без Refresh/Save — вызывающий сам решает, когда их дергать)
 function auction:ClearBossLocal(bossName)
     self.bids[bossName] = {}
+    self.signups = self.signups or {}
     self.signups[bossName] = nil
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do

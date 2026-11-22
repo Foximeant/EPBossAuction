@@ -112,6 +112,17 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.lastVersions = {}
             auction.windowScale = 1.0
             auction.bidsLocked = false
+            -- Остальные таблицы тоже нужны с первого запуска (раньше signups
+            -- оставался nil, и очистка таблицы ставок падала с ошибкой).
+            auction.signups = (type(EPBossAuctionSavedSignups) == "table") and EPBossAuctionSavedSignups or {}
+            auction:PurgeObsoleteSignups()
+            auction.attendance = (type(EPBossAuctionSavedAttendance) == "table") and EPBossAuctionSavedAttendance or {}
+            auction.attendanceMeta = { clearedBefore = 0, deleted = {} }
+            if type(EPBossAuctionSavedAttendanceMeta) == "table" then
+                local meta = EPBossAuctionSavedAttendanceMeta
+                auction.attendanceMeta.clearedBefore = tonumber(meta.clearedBefore) or 0
+                if type(meta.deleted) == "table" then auction.attendanceMeta.deleted = meta.deleted end
+            end
             auction:RebuildBidData()
         end
         auction:ApplySettings()

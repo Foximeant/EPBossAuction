@@ -311,16 +311,59 @@ function auction:SendSyncImmediate(bossName, itemID)
         return 
     end
     local currentVersion = self:IncrementDataVersion(bossName, itemID)
-    local bidStrs = {}
-    for _, bid in ipairs(bidsForItem) do
-        local offspecFlag = bid.isOffspec and ":1" or ":0"
-        table.insert(bidStrs, bid.player..":"..bid.amount..offspecFlag)
-    end
-    local itemName = GetSafeItemInfo(itemID)
-    local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
-    self:Debug("Отправка SYNC для босса "..bossName..": "..itemName.." ("..#bidsForItem.." ставок), версия "..currentVersion)
+    local message, sent = self:BuildSyncMessage(bossName, itemID, bidsForItem, currentVersion)
+    self:Debug("Отправка SYNC2 для босса "..bossName..": "..GetSafeItemInfo(itemID).." ("..sent.."/"..#bidsForItem.." ставок, "..#message.." байт), версия "..currentVersion)
     SendAddonMessage(self.prefix, message, "RAID")
     -- Сохранение данных теперь только по таймеру, не здесь
+end
+
+-- Компактный формат SYNC2 (вместо SYNC, который не влезал в 255 байт при
+-- кириллических никах):
+--   SYNC2;<босс>;<itemID>;<версия>;<ник>:<сумма>[*],...[;<сколько не влезло>]
+-- <босс> — номер в auction.bossOrder (короче имени); если босса там нет —
+-- само имя. "*" после суммы = офф-спек. Ставки идут по убыванию суммы;
+-- если все не помещаются в SYNC_MAX_BYTES, отправляются самые крупные, а
+-- число остальных пишется последним полем. У ЛМ остаются все ставки.
+-- Старый формат SYNC принимается (Handle_SYNC), но больше не отправляется.
+auction.SYNC_MAX_BYTES = 255   -- лимит клиента: префикс + табуляция + сообщение
+
+function auction:GetBossRef(bossName)
+    if not self._bossIndex then
+        self._bossIndex = {}
+        for i, name in ipairs(self.bossOrder or {}) do self._bossIndex[name] = i end
+    end
+    return self._bossIndex[bossName] or bossName
+end
+
+function auction:ResolveBossRef(ref)
+    local n = tonumber(ref)
+    if n then return self.bossOrder and self.bossOrder[n] end
+    return ref
+end
+
+-- Возвращает (сообщение, сколько ставок вошло).
+function auction:BuildSyncMessage(bossName, itemID, bids, version)
+    local sorted = {}
+    for _, bid in ipairs(bids) do sorted[#sorted + 1] = bid end
+    table.sort(sorted, function(a, b)
+        if a.amount ~= b.amount then return a.amount > b.amount end
+        return tostring(a.player) < tostring(b.player)
+    end)
+    local head = "SYNC2;"..self:GetBossRef(bossName)..";"..itemID..";"..version..";"
+    -- запас: префикс + табуляция + ";<число>" для счётчика невлезших
+    local budget = self.SYNC_MAX_BYTES - #self.prefix - 1 - #head - 5
+    local parts, used = {}, 0
+    for _, bid in ipairs(sorted) do
+        local str = bid.player..":"..bid.amount..(bid.isOffspec and "*" or "")
+        local cost = #str + (#parts > 0 and 1 or 0)
+        if used + cost > budget then break end
+        parts[#parts + 1] = str
+        used = used + cost
+    end
+    local message = head..table.concat(parts, ",")
+    local omitted = #sorted - #parts
+    if omitted > 0 then message = message..";"..omitted end
+    return message, #parts
 end
 
 -- Персональная (WHISPER) отправка всех ставок по одному боссу
@@ -338,13 +381,8 @@ function auction:SendAllBidsForBoss(bossName, targetPlayer)
     self:Debug("Отправка ставок для "..bossName.." игроку "..targetPlayer)
     for itemID, bidsForItem in pairs(bossBids) do
         if #bidsForItem > 0 then
-            local bidStrs = {}
-            for _, bid in ipairs(bidsForItem) do
-                local offspecFlag = bid.isOffspec and ":1" or ":0"
-                table.insert(bidStrs, bid.player..":"..bid.amount..offspecFlag)
-            end
             local currentVersion = self:GetDataVersion(bossName, itemID)
-            local message = "SYNC;"..bossName..";"..itemID..";"..table.concat(bidStrs, ",")..";"..currentVersion
+            local message = self:BuildSyncMessage(bossName, itemID, bidsForItem, currentVersion)
             SendAddonMessage(self.prefix, message, "WHISPER", targetPlayer)
             sentCount = sentCount + 1
             self:Debug("Отправлен предмет "..itemID.." ("..#bidsForItem.." ставок)")
@@ -511,6 +549,7 @@ end
 -- Приём полных данных по предмету от ЛМ (см. подробный разбор "or
 -- senderIsLM" чуть ниже, у самой проверки версии).
 function auction:Handle_SYNC(rest, sender)
+    -- Старый формат (до 3.5.2): SYNC;босс;itemID;игрок:сумма:флаг,...;версия
     local parts = { strsplit(";", rest) }
     local bossName = parts[1]
     local itemID = tonumber(parts[2])
@@ -520,7 +559,43 @@ function auction:Handle_SYNC(rest, sender)
         self:Debug("Ошибка парсинга SYNC: "..rest)
         return 
     end
-    self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender)
+    local newBids = {}
+    for bidStr in bidsPart:gmatch("([^,]+)") do
+        local p = { strsplit(":", bidStr) }
+        local amount = tonumber(p[2])
+        if p[1] and amount then
+            table.insert(newBids, {player = p[1], amount = amount, isOffspec = (p[3] == "1")})
+        end
+    end
+    self:ApplySync(bossName, itemID, newBids, version, sender)
+end
+
+-- Новый формат: SYNC2;босс;itemID;версия;игрок:сумма[*],...[;невлезло]
+function auction:Handle_SYNC2(rest, sender)
+    local parts = { strsplit(";", rest) }
+    local bossName = self:ResolveBossRef(parts[1])
+    local itemID = tonumber(parts[2])
+    local version = tonumber(parts[3]) or 0
+    local bidsPart = parts[4] or ""
+    if not bossName or not itemID then
+        self:Debug("Ошибка парсинга SYNC2: "..rest)
+        return
+    end
+    local newBids = {}
+    for bidStr in bidsPart:gmatch("([^,]+)") do
+        local player, amountStr = bidStr:match("^(.-):([%d%.]+)%*?$")
+        local amount = tonumber(amountStr)
+        if player and player ~= "" and amount then
+            table.insert(newBids, {player = player, amount = amount, isOffspec = (bidStr:sub(-1) == "*")})
+        end
+    end
+    self:ApplySync(bossName, itemID, newBids, version, sender, tonumber(parts[5]))
+end
+
+-- Применяет принятый список ставок (общая часть SYNC и SYNC2).
+-- omitted — сколько ставок отправитель не поместил в сообщение (только SYNC2).
+function auction:ApplySync(bossName, itemID, newBids, version, sender, omitted)
+    self:Debug("Получен SYNC для босса "..bossName..": "..itemID.." версия "..version.." от "..sender..(omitted and (" (ещё ставок: "..omitted..")") or ""))
     self.receivedSync = true
     local isLootMaster = self:IsLootMaster()
     local senderIsLM = (sender == self.lastLM)
@@ -544,19 +619,6 @@ function auction:Handle_SYNC(rest, sender)
         self:SetLastVersion(bossName, itemID, version)
         self.receivedItems[itemID] = true
         self.bids[bossName] = self.bids[bossName] or {}
-        local oldBids = self.bids[bossName][itemID] or {}
-        local newBids = {}
-        if bidsPart and bidsPart ~= "" then
-            for bidStr in bidsPart:gmatch("([^,]+)") do
-                local p = { strsplit(":", bidStr) }
-                local player = p[1]
-                local amount = tonumber(p[2])
-                local isOffspec = (p[3] == "1")
-                if player and amount then
-                    table.insert(newBids, {player = player, amount = amount, isOffspec = isOffspec})
-                end
-            end
-        end
         self.bids[bossName][itemID] = newBids
         self:UpdateSortedBids(bossName, itemID)
         self:UpdateBidCaches(bossName, itemID)
@@ -566,7 +628,7 @@ function auction:Handle_SYNC(rest, sender)
             end
         end
         self:CheckIfOutbid(bossName, itemID)
-        self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#(self.bids[bossName][itemID] or {}))
+        self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#newBids)
     else
         self:Debug("Игнорируем SYNC с версией "..version.." <= "..lastVersion)
     end
@@ -712,6 +774,7 @@ end
 -- зеркалит уже принятое решение ЛМ.
 function auction:ClearBossLocal_Remote(bossName)
     self.bids[bossName] = {}
+    self.signups = self.signups or {}
     self.signups[bossName] = nil
     if self.bosses[bossName] then
         for _, itemID in ipairs(self.bosses[bossName]) do

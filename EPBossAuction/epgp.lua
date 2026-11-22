@@ -195,18 +195,36 @@ end
 -- логику перебора API, что и DoUpdateMyEP, но продублированную инлайново
 -- (исторически) и с колбэком вместо прямой записи в UI.
 function auction:ForceEPUpdate(callback)
-    if self.isUpdatingEP then
-        self:Debug("ForceEPUpdate уже выполняется, пропускаем")
-        if callback then callback(false, self.myEP) end
+    -- Уже идёт обновление: не отбрасываем вызов, а ставим колбэк в очередь —
+    -- он сработает по завершении (раньше ставка при этом молча терялась).
+    -- Если флаг завис (>5 сек, например после ошибки), считаем его устаревшим.
+    if self.isUpdatingEP and (GetTime() - (self.epUpdateStarted or 0)) < 5 then
+        self:Debug("ForceEPUpdate уже выполняется, колбэк поставлен в очередь")
+        if callback then
+            self.epCallbacks = self.epCallbacks or {}
+            table.insert(self.epCallbacks, callback)
+        end
         return
     end
     self.isUpdatingEP = true
+    self.epUpdateStarted = GetTime()
+    self.epCallbacks = { callback }
 
     self:Debug("Принудительное обновление EP...")
     local epgpTable = EPGP or EPGP_Auction or CEPGP or EPGPCore
-    if not epgpTable then
-        if callback then callback(false, 0) end
+    -- Сбрасывает флаг ДО вызова колбэков: ошибка в колбэке не должна оставить
+    -- isUpdatingEP = true (иначе все следующие ставки молча отклонялись бы).
+    local function finish(success, ep)
+        local list = self.epCallbacks or {}
+        self.epCallbacks = nil
         self.isUpdatingEP = false
+        for _, cb in ipairs(list) do
+            local ok, err = pcall(cb, success, ep)
+            if not ok then self:Debug("ForceEPUpdate: ошибка колбэка: "..tostring(err)) end
+        end
+    end
+    if not epgpTable then
+        finish(false, 0)
         return
     end
     if epgpTable.Update then
@@ -214,43 +232,50 @@ function auction:ForceEPUpdate(callback)
     end
     local playerName = UnitName("player")
     self:ScheduleTimer(function()
-        local newEP = 0
-        if epgpTable.GetEPGP then
-            local ep, gp, main = epgpTable:GetEPGP(playerName)
-            if ep then
-                if main then
-                    local mainEP, mainGP, mainMain = epgpTable:GetEPGP(main)
-                    newEP = tonumber(mainEP or ep) or 0
-                else
-                    newEP = tonumber(ep) or 0
+        local ok, newEP = pcall(function()
+            local newEP = 0
+            if epgpTable.GetEPGP then
+                local ep, gp, main = epgpTable:GetEPGP(playerName)
+                if ep then
+                    if main then
+                        local mainEP, mainGP, mainMain = epgpTable:GetEPGP(main)
+                        newEP = tonumber(mainEP or ep) or 0
+                    else
+                        newEP = tonumber(ep) or 0
+                    end
+                end
+            elseif epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
+                local playerData = epgpTable.db.profile.players[playerName]
+                if playerData then
+                    if playerData.main then
+                        local mainData = epgpTable.db.profile.players[playerData.main]
+                        newEP = tonumber(mainData and mainData.EP or playerData.EP) or 0
+                    else
+                        newEP = tonumber(playerData.EP) or 0
+                    end
                 end
             end
-        elseif epgpTable.db and epgpTable.db.profile and epgpTable.db.profile.players then
-            local playerData = epgpTable.db.profile.players[playerName]
-            if playerData then
-                if playerData.main then
-                    local mainData = epgpTable.db.profile.players[playerData.main]
-                    newEP = tonumber(mainData and mainData.EP or playerData.EP) or 0
-                else
-                    newEP = tonumber(playerData.EP) or 0
-                end
+            auction.myEP = newEP
+            auction.lastEPUpdate = GetTime()
+
+            auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
+
+            auction:RefreshPlayerEPCache()
+
+            if auction.frame and auction.frame:IsShown() then
+                auction.myEPText:SetText("Ваш ЕП: "..auction:FormatNumber(newEP))
+                auction:UpdateMaxBidDisplay()
+                auction:UpdateBidRowColors()
             end
+            return newEP
+        end)
+        if ok then
+            auction:Debug("Принудительное обновление завершено, EP="..newEP)
+            finish(true, newEP)
+        else
+            auction:Debug("ForceEPUpdate: ошибка обновления: "..tostring(newEP))
+            finish(false, auction.myEP)
         end
-        auction.myEP = newEP
-        auction.lastEPUpdate = GetTime()
-
-        auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
-
-        auction:RefreshPlayerEPCache()
-
-        if auction.frame and auction.frame:IsShown() then
-            auction.myEPText:SetText("Ваш ЕП: "..auction:FormatNumber(newEP))
-            auction:UpdateMaxBidDisplay()
-            auction:UpdateBidRowColors()
-        end
-        auction:Debug("Принудительное обновление завершено, EP="..newEP)
-        if callback then callback(true, newEP) end
-        auction.isUpdatingEP = false
     end, 0.5)
 end
 

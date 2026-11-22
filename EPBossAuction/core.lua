@@ -484,7 +484,7 @@ function auction:FormatNumber(n)
         n = -n
     end
     local int_part, frac_part = math.modf(n)
-    local formatted = tostring(int_part):reverse():gsub("(%d%d%d)", "%1 "):reverse()
+    local formatted = tostring(int_part):reverse():gsub("(%d%d%d)", "%1 "):reverse():gsub("^ ", "")
     if frac_part > 0 then
         formatted = formatted .. string.format("%.2f", frac_part):sub(2)
     end
