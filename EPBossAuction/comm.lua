@@ -160,7 +160,7 @@ function auction:ShowNewVersionPopup(remoteVersion, updateURL)
     -- Окно — один раз на версию навсегда (между сессиями и /reload):
     -- последняя показанная версия лежит в SavedVariables. Чат-уведомление
     -- (Handle_MY_VERSION) от этого не зависит и приходит раз за сессию.
-    local saved = EPBossAuctionSavedUpdateNoticeVersion
+    local saved = self:GetDB().updateNoticeVersion
     if saved and self:CompareVersions(remoteVersion, saved) <= 0 then
         self.pendingUpdatePopup = nil
         return
@@ -174,7 +174,7 @@ function auction:ShowNewVersionPopup(remoteVersion, updateURL)
         return
     end
     self.pendingUpdatePopup = nil
-    EPBossAuctionSavedUpdateNoticeVersion = remoteVersion
+    self:GetDB().updateNoticeVersion = remoteVersion
     local hasURL = updateURL and updateURL ~= ""
     StaticPopupDialogs["EPBA_NEW_VERSION"] = {
         text = "Доступна новая версия EPBossAuction:\n|cffffd200%s|r (у вас сейчас %s)"

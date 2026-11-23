@@ -6,7 +6,7 @@ local auction = EPBossAuction
 -- Назначение: показать офицерам, кто что получил с рейдов и сколько ЕП
 -- потрачено/начислено — по игрокам, по боссам и списком выдач.
 --
--- Источник данных — журнал выдач EPBossAuctionSavedLootLog (его пишет окно
+-- Источник данных — журнал выдач EPBossAuctionDB.lootLog (его пишет окно
 -- добычи, lootmaster.lua). Журнал ведёт клиент ЛМ: «Выдать» и «Списать ЕП»
 -- через окно добычи. Предметы, которые забрали мимо аддона (стандартное окно
 -- добычи), в журнал не попадают. У остальных офицеров журнал пока пуст
@@ -94,8 +94,9 @@ end
 
 -- Таблица журнала (создаётся, если её нет).
 function auction:GetLootLog()
-    if type(EPBossAuctionSavedLootLog) ~= "table" then EPBossAuctionSavedLootLog = {} end
-    return EPBossAuctionSavedLootLog
+    local db = self:GetDB()
+    if type(db.lootLog) ~= "table" then db.lootLog = {} end
+    return db.lootLog
 end
 
 -- Уникальный id записи: время и 16 бит случайности.
@@ -133,7 +134,7 @@ end
 
 -- Полная очистка журнала на этом клиенте.
 function auction:ClearLootLog()
-    EPBossAuctionSavedLootLog = {}
+    self:GetDB().lootLog = {}
     self:StatsChanged()
     self:AttendanceSay("Статистика: журнал выдач очищен")
 end

@@ -185,11 +185,11 @@ end
 -- Загрузка
 -- ======================
 
--- Читает EPBossAuctionSavedReserves, отбрасывая неизвестных боссов/предметы и
+-- Читает EPBossAuctionDB.reserves, отбрасывая неизвестных боссов/предметы и
 -- старые надгробия. Вызывается из events.lua при ADDON_LOADED.
 function auction:LoadReserves()
     self.reserves = {}
-    local saved = EPBossAuctionSavedReserves
+    local saved = self:GetDB().reserves
     if type(saved) ~= "table" then return end
     local cutoff = time() - self.RESERVE_TOMBSTONE_DAYS * 86400
     for boss, items in pairs(saved) do

@@ -33,8 +33,8 @@ local auction = EPBossAuction
 --     mains   = { ["Твинк"] = "Мейн", ... },       -- необязательно
 --     manual  = true }                             -- необязательно: записано вручную
 --
--- Хранится в SavedVariables: EPBossAuctionSavedAttendance (список) и
--- EPBossAuctionSavedAttendanceMeta (метки удаления для синхронизации, см.
+-- Хранится в SavedVariables: EPBossAuctionDB.attendance (список) и
+-- EPBossAuctionDB.attendanceMeta (метки удаления для синхронизации, см.
 -- attendanceMeta ниже). events.lua грузит, core.lua:SaveData сохраняет.
 -- ============================================================
 
