@@ -45,7 +45,7 @@ Loot Master видит список ставок по каждому предм�
 | `theme.lua` | Палитра + хелперы `SkinPanel`/`SkinButton`/`SkinInput`/`SkinCheckbox`/`SkinDropdown`/`SkinScrollBar` для единого тёмного стиля. |
 | `options.lua` | Панель настроек (Interface Options → EPBossAuction). |
 | `minimap.lua` | Кнопка на миникарте. |
-| `help.lua` | Окно «Справка» (обучение): страницы в `BuildHelpPages`, листание «Назад»/«Далее». Страница про Attendance/Резерв — только при `HasAttendanceAccess()`; страница про окно добычи — при `IsLootMaster()` или `HasAttendanceAccess()`. Новым пользователям показывается сам один раз (флаг `EPBossAuctionSavedHelpSeen`, логика в `events.lua`). **При смене названий кнопок или поведения интерфейса — править текст здесь.** Страница «Если что-то не работает» (про диагностику) — для всех; при изменении вкладок/команд diag.lua правьте и её. |
+| `help.lua` | Окно «Справка» (обучение): страницы в `BuildHelpPages`, листание «Назад»/«Далее». Страница про Attendance/Резерв — только при `HasAttendanceAccess()`; страница про окно добычи — при `IsLootMaster()` или `HasAttendanceAccess()`. Новым пользователям показывается сам один раз (флаг `EPBossAuctionDB.helpSeen`, логика в `events.lua`). **При смене названий кнопок или поведения интерфейса — править текст здесь.** Страница «Если что-то не работает» (про диагностику) — для всех; при изменении вкладок/команд diag.lua правьте и её. |
 | `contacts.lua` | Окно «Сообщить о проблеме» (`/epba bug`): ссылка на GitHub Issues и контакт в Discord (таблица `auction.contacts` в шапке файла — поменять там), строка диагностики (`GetDiagnosticsString`). Поля только для копирования (Ctrl+C). |
 | `diag.lua` | Диагностика: журнал, перехват ошибок Lua, трассировка сети, проверки целостности, опрос рейда (DPING/DPONG), окно `/epba diag`. Грузится после `contacts.lua`. |
 | `attendance.lua` | Посещаемость (только для тех, кто может редактировать офицерскую заметку): данные и логика — доступ, запись снимков состава рейда (автоматическая и ручная), удаление/очистка, слияние, подсчёт (`BuildAttendanceReport` и сводки — чистые функции), текст отчёта. |
@@ -70,20 +70,31 @@ Loot Master видит список ставок по каждому предм�
 Всё висит прямо на таблице `auction` (не через `self.db`, кроме настроек —
 см. ниже), заполняется в `events.lua` при `ADDON_LOADED` из `SavedVariables`:
 
+**Хранение данных.** Все данные аддона лежат в одной SavedVariable `EPBossAuctionDB`
+(объявлена в `.toc`); доступ — `auction:GetDB()` (создаёт таблицу при первом обращении).
+Поля: `settings`, `bids`, `versions`, `signups`, `attendance`, `attendanceMeta`, `reserves`,
+`lootLog`, `diag`, `selectedBoss`, `selectedItem`, `bidsLocked`, `windowScale`, `minimapPos`,
+`offspecMultiplier`, `helpSeen`, `lastSeenVersion`, `updateNoticeVersion`, `dbVersion`
+(версия схемы, `auction.DB_VERSION`; при изменении формата данных повышается, а в
+`events.lua` пишется миграция). В 3.5.8 база начата заново: старые отдельные переменные
+(`EPBossAuctionSavedBids` и др.) не читаются. Запись — `SaveData` в `core.lua`, чтение —
+начало обработчика `ADDON_LOADED` в `events.lua`.
+
+
 | Поле | Что это | SavedVariable |
 |---|---|---|
-| `auction.bids[boss][itemID]` | список `{player, amount, isOffspec}` — текущие ставки | `EPBossAuctionSavedBids` |
-| `auction.signups[boss][category]` | `{[playerName] = true}` — явка (`fight`/`rest`; список — `auction.SIGNUP_CATEGORIES`) | `EPBossAuctionSavedSignups` |
-| `auction.dataVersions[boss:itemID]` | счётчик версии данных (у ЛМ растёт при каждой ставке) | `EPBossAuctionSavedVersions` |
+| `auction.bids[boss][itemID]` | список `{player, amount, isOffspec}` — текущие ставки | `EPBossAuctionDB.bids` |
+| `auction.signups[boss][category]` | `{[playerName] = true}` — явка (`fight`/`rest`; список — `auction.SIGNUP_CATEGORIES`) | `EPBossAuctionDB.signups` |
+| `auction.dataVersions[boss:itemID]` | счётчик версии данных (у ЛМ растёт при каждой ставке) | `EPBossAuctionDB.versions` |
 | `auction.lastVersions[boss:itemID]` | последняя версия, которую **я** применил из SYNC | не сохраняется (сбрасывается при входе) |
-| `auction.attendance` | список записей посещаемости, по возрастанию времени (формат — в шапке `attendance.lua`) | `EPBossAuctionSavedAttendance` |
-| `auction.attendanceMeta` | метки удаления/очистки (`clearedBefore`, `deleted`), чтобы синхронизация не вернула удалённое | `EPBossAuctionSavedAttendanceMeta` |
-| `auction.reserves[boss][itemID]` | `{qty, note, t, by}` — резерв (только у тех, у кого есть доступ; `qty = 0` — «надгробие» для синхронизации) | `EPBossAuctionSavedReserves` |
+| `auction.attendance` | список записей посещаемости, по возрастанию времени (формат — в шапке `attendance.lua`) | `EPBossAuctionDB.attendance` |
+| `auction.attendanceMeta` | метки удаления/очистки (`clearedBefore`, `deleted`), чтобы синхронизация не вернула удалённое | `EPBossAuctionDB.attendanceMeta` |
+| `auction.reserves[boss][itemID]` | `{qty, note, t, by}` — резерв (только у тех, у кого есть доступ; `qty = 0` — «надгробие» для синхронизации) | `EPBossAuctionDB.reserves` |
 | `auction.reservePublic[boss][itemID]` | `qty` — публичная копия резерва от ЛМ (без заметок), у остальных игроков | не сохраняется |
-| `auction.db` | настройки (см. `auction.defaults` в `core.lua`); внутри `db.lootmaster` — позиция окна добычи и последняя сумма «за босса» по боссам (создаётся лениво, в `defaults` не описано) | `EPBossAuctionSettings` |
+| `auction.db` | настройки (см. `auction.defaults` в `core.lua`); внутри `db.lootmaster` — позиция окна добычи и последняя сумма «за босса» по боссам (создаётся лениво, в `defaults` не описано) | `EPBossAuctionDB.settings` |
 | `auction.lootEntries` | записи окна добычи — по одной на слот (формат — в шапке `lootmaster.lua`) | не сохраняется |
-| `EPBossAuctionSavedLootLog` | журнал выдач и массовых начислений ЛМ, последние 2000 записей (формат — в шапке `stats.lua`); источник вкладки «Статистика» | `EPBossAuctionSavedLootLog` |
-| `auction.bidsLocked` | заблокированы ли ставки | `EPBossAuctionBidsLocked` |
+| `EPBossAuctionDB.lootLog` | журнал выдач и массовых начислений ЛМ, последние 2000 записей (формат — в шапке `stats.lua`); источник вкладки «Статистика» | `EPBossAuctionDB.lootLog` |
+| `auction.bidsLocked` | заблокированы ли ставки | `EPBossAuctionDB.bidsLocked` |
 
 `dataVersions` и `lastVersions` — разные вещи, их легко перепутать по
 названию. Комментарий над этим блоком в `core.lua` объясняет разницу
@@ -191,7 +202,7 @@ if version > lastVersion or senderIsLM then
    - если я ЛМ и ставок нет → просто `"LM"` в рейд;
    - если не ЛМ → `RequestDataFromLM()` (запрашиваю данные у лутера);
    - в любом случае → `BroadcastMyVersion()` в гильдию.
-4. Если версия аддона выросла с прошлого входа (`EPBossAuctionSavedLastSeenVersion`
+4. Если версия аддона выросла с прошлого входа (`EPBossAuctionDB.lastSeenVersion`
    меньше `auction.version`) — через 2 сек показывается окно "Что нового?"
    (`ShowWhatsNewWindow` в `ui.lua`).
 
@@ -248,10 +259,16 @@ if version > lastVersion or senderIsLM then
 рейда с классами, отмеченные «Хочу отдохнуть», мейны твинков. Кнопка «Записать килл» не
 требует, чтобы вы были ЛМ.
 
-**Босс обязателен**: неизвестное имя (`auction.bosses`) запись не создаёт. Две записи по
-одному боссу ближе `ATTENDANCE_SAME_KILL_SECONDS` (5 минут) считаются **одним киллом** —
-это отсекает повторные клики и дубли, пришедшие по синхронизации. Запись не создаётся
-вне рейда и без доступа к Attendance. Хранится не больше 600 записей. Историю у каждого
+**Босс обязателен**: неизвестное имя (`auction.bosses`) запись не создаёт. У каждой записи
+есть уникальный `id` (`"время:случайное"` в hex; у старых записей — `"время:хэш_босса"`,
+см. `AttendanceKey`). Одним киллом считаются записи, у которых совпадает босс, время
+различается не больше чем на `ATTENDANCE_SAME_KILL_SECONDS` (3 часа) и состав рейда
+совпадает не меньше чем на `ATTENDANCE_SAME_ROSTER_RATIO` (60% от меньшего состава) —
+`IsSameKill`. Это отсекает повторные клики и дубли от другого офицера, но не склеивает
+настоящие киллы одного босса разными составами (основа и твинк-рейд). При слиянии чужой
+`id` запоминается в `rec.alt` («двойник»), чтобы синхронизация не присылала этот килл
+снова. Запись не создаётся вне рейда и без доступа к Attendance. Хранится не больше 600
+записей. Историю у каждого
 офицера пополняет и выравнивает синхронизация (см. ниже).
 
 **Правило доступа** — одно место: `auction:CanRecordAttendance()` = состоит в гильдии
@@ -271,7 +288,7 @@ if version > lastVersion or senderIsLM then
 **Синхронизация между офицерами** (`attendance_sync.lua`). Кнопка «Синхронизировать»
 и один автозапуск за сессию (через 25 секунд после входа в мир, из `HandleWorldEnter`).
 Запрашивающий шлёт в `GUILD` список ключей своих записей за 60 дней (`ATT_REQ`,
-ключ = время и хэш босса); офицеры с доступом отвечают по `WHISPER` записями, которых в
+ключи — `id` записей и их «двойников» `alt`); офицеры с доступом отвечают по `WHISPER` записями, которых в
 списке нет (`ATT_REC`, затем `ATT_DONE`). Сообщения 3.3.5a ограничены 255 байтами,
 поэтому запись режется на куски (`SplitUtf8` не рвёт русские буквы), отправка идёт
 очередью раз в 0.2 секунды. Принятая запись проходит проверку (известный босс,
@@ -281,6 +298,14 @@ if version > lastVersion or senderIsLM then
 Ограничения: любой гильдеец с аддоном может запросить историю (клиент не может
 проверить, что запрашивающий — офицер), данные — только имена и классы; одному
 запросившему отвечаем не чаще раза в 20 секунд.
+
+**Периоды и рейдовые недели.** Период вкладки — выпадающий список: 7 дней / 30 дней / всё
+время либо рейдовая неделя (`auction.attendanceWeek`). Неделя идёт с четверга: номер —
+`AttendanceWeek(t)`, начало — `AttendanceWeekStart(week)`, момент сброса в течение суток
+задаёт `ATTENDANCE_RESET_OFFSET` (3 ч после 00:00 UTC = 06:00 МСК). `GetAttendancePeriod()`
+возвращает `{ label, range }`; `range` — число дней либо `{ from, to }` для недели, и это
+значение передаётся в `Build*`. Число колонок-дат в таблице игроков зависит от ширины окна
+(`GetAttendanceVisibleColumns`, не больше `ATTENDANCE_COLUMNS`).
 
 **Подсчёт** — чистые функции без обращений к WoW API (кроме `date`), их проверяют
 тестами вне игры:
@@ -361,7 +386,7 @@ if version > lastVersion or senderIsLM then
 ## Статистика
 
 Вкладка «Статистика» (четвёртая квадратная кнопка слева от окна; доступ как у Attendance). Данные — журнал
-`EPBossAuctionSavedLootLog`; формат записей описан в шапке `stats.lua`:
+`EPBossAuctionDB.lootLog`; формат записей описан в шапке `stats.lua`:
 - выдача (`kind = "item"`): `id, t, lm, boss, itemID, winner, bid, offspec, bids, charged, chargedAmount, main`
   (пишет `LootJournalAdd` при выдаче, поля списания дописывает `LootDoCharge`);
 - массовое начисление (`kind = "mass"`): `id, t, lm, boss, amount, n` (пишет `LootDoMass`). У записей до 3.6.0 нет `id`/`kind`/`lm` —
@@ -416,7 +441,7 @@ if version > lastVersion or senderIsLM then
 списанные записи; выданные-но-не-списанные переживают закрытие и следующее открытие добычи. Окно намеренно не
 добавлено в `UISpecialFrames`, чтобы Esc не закрывал его посреди выдачи.
 
-**Журнал.** При успешной выдаче `LootJournalAdd` пишет в `EPBossAuctionSavedLootLog` запись
+**Журнал.** При успешной выдаче `LootJournalAdd` пишет в `EPBossAuctionDB.lootLog` запись
 `{t, boss, itemID, winner, bid, offspec, bids, charged}` (через `StatsAddRecord` из `stats.lua`: id, ЛМ, обрезка до 2000); при списании к ней добавляются
 `chargedAmount` и `main`; массовое начисление пишется отдельной записью `kind = "mass"`. Это единственное место, где
 хранится «кто что получил» (разбор — в разделе «Статистика») — таблица ставок после «Очистить таблицу» ничего не помнит. Тестовый режим
@@ -438,7 +463,7 @@ if version > lastVersion or senderIsLM then
 
 `auction.defaults` (`core.lua`) — единственный источник дефолтов, структура:
 `general` / `table` / `minimap` / `window`. При загрузке `auction.db =
-MergeDefaults(EPBossAuctionSettings, auction.defaults)` — то есть **при
+MergeDefaults(EPBossAuctionDB.settings, auction.defaults)` — то есть **при
 добавлении новой настройки просто допиши ключ в `auction.defaults`**, старым
 пользователям он подставится автоматически, ничего больше делать не нужно.
 
@@ -536,7 +561,7 @@ MergeDefaults(EPBossAuctionSettings, auction.defaults)` — то есть **пр
   превышение лимита 255, неизвестные команды), Ошибки (xpcall вокруг таймеров и входящих сообщений +
   глобальный обработчик; со стеком), Рейд (опрос DPING/DPONG: версия, кого считает ЛМ, контрольная сумма
   ставок), Отчёт (всё важное одним текстом для вставки в баг-репорт). Ошибки и хвост журнала сохраняются в
-  `EPBossAuctionSavedDiag` при выходе. Новая проверка = `Check("название", function() return "ok|warn|fail|info", "текст" end)`.
+  `EPBossAuctionDB.diag` при выходе. Новая проверка = `Check("название", function() return "ok|warn|fail|info", "текст" end)`.
   `/epba diag chat | checks | log [текст] | net | errors | raid | report | clear | debug on/off`.
   diag.lua грузится после comm.lua/contacts.lua и переопределяет `Debug`, `ScheduleTimer`, `HandleMessage`,
   `GetDiagnosticsString`. `IsInRaid`/`IsInGroup` в core.lua подставляются, если клиент их не даёт (`auction.apiShims`).
@@ -550,8 +575,9 @@ MergeDefaults(EPBossAuctionSettings, auction.defaults)` — то есть **пр
 | Команда | Действие |
 |---|---|
 | `/epba` | открыть/закрыть главное окно |
-| `/epba bug` | окно с контактами для сообщений об ошибках (то же открывает кнопка «Нашли баг?» в шапке главного окна) |
-| `/epba help` | окно «Справка» (то же открывает кнопка «?» в шапке главного окна, между «Настройки» и «Нашли баг?») |
+| `/epba bug` | окно с контактами для сообщений об ошибках (то же: кнопка «Меню» → «Нашли баг?» в шапке главного окна) |
+| `/epba help` | окно «Справка» (то же: кнопка «Меню» в шапке главного окна → «Справка») |
+| `/epba new` (или `/epba changelog`) | окно «Что нового» с полным списком изменений (`ShowWhatsNewWindow(true)`; без аргумента окно показывается только при новой версии) |
 | `/epbasave` | принудительно сохранить данные |
 | `/epbaupdate` | принудительно обновить EP из EPGP |
 | `/epbazoom+` / `/epbazoom-` / `/epbazoomreset` | масштаб окна |

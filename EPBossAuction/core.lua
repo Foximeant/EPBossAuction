@@ -109,7 +109,7 @@ for _, cat in ipairs(auction.SIGNUP_CATEGORIES) do
 end
 
 -- Удаляет из auction.signups категории, которых больше нет в
--- SIGNUP_CATEGORIES (хвосты от старых версий в EPBossAuctionSavedSignups).
+-- SIGNUP_CATEGORIES (хвосты от старых версий в EPBossAuctionDB.signups).
 function auction:PurgeObsoleteSignups()
     if type(self.signups) ~= "table" then return end
     for bossName, cats in pairs(self.signups) do
@@ -898,8 +898,30 @@ end
 -- Загружает настройки при старте (MergeDefaults поверх сохранённых),
 -- плюс миграция старого дефолтного minBid=1000 → 100 и защита минимальных
 -- размеров окна. Вызывается один раз из events.lua при ADDON_LOADED.
+-- Все сохраняемые данные лежат в ОДНОЙ SavedVariable — EPBossAuctionDB:
+--   settings          настройки (auction.db)
+--   bids, versions    ставки и версии данных
+--   signups           явка ("хочу бить"/"хочу отдохнуть")
+--   attendance, attendanceMeta   история посещаемости и метки удаления
+--   reserves          резерв предметов
+--   lootLog           журнал выдач и начислений (вкладка "Статистика")
+--   diag              хвост диагностики прошлой сессии
+--   selectedBoss, selectedItem, bidsLocked, windowScale, minimapPos,
+--   offspecMultiplier, helpSeen, lastSeenVersion, updateNoticeVersion
+--   dbVersion         версия схемы (для будущих миграций)
+-- Старые отдельные переменные (EPBossAuctionSavedBids и др.) больше не
+-- читаются: при переходе на 3.5.8 база осознанно начата заново.
+auction.DB_VERSION = 1
+
+function auction:GetDB()
+    if type(EPBossAuctionDB) ~= "table" then
+        EPBossAuctionDB = { dbVersion = self.DB_VERSION }
+    end
+    return EPBossAuctionDB
+end
+
 function auction:LoadSettings()
-    self.db = self:MergeDefaults(EPBossAuctionSettings, self.defaults)
+    self.db = self:MergeDefaults(self:GetDB().settings, self.defaults)
     if self.db.general.minBid == 1000 then
         self.db.general.minBid = 100
     end
@@ -911,10 +933,10 @@ function auction:LoadSettings()
     self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
 end
 
--- Кладёт auction.db в SavedVariable EPBossAuctionSettings (сама запись на
--- диск — задача клиента WoW при выходе, не этой функции).
+-- Кладёт auction.db в EPBossAuctionDB.settings (сама запись на диск — задача
+-- клиента WoW при выходе, не этой функции).
 function auction:SaveSettings()
-    EPBossAuctionSettings = self.db
+    self:GetDB().settings = self.db
 end
 
 -- Отложенное сохранение с debounce: повторные вызовы за время задержки
@@ -977,7 +999,7 @@ function auction:ApplySettings()
 end
 
 -- Фактическая запись всех рабочих данных (ставки/версии/явка/позиция
--- окна/блокировка и т.д.) в соответствующие SavedVariable-глобалы. force
+-- окна/блокировка и т.д.) в EPBossAuctionDB. force
 -- сейчас не используется внутри (проверка на dataDirty — на вызывающей
 -- стороне, см. RequestSaveData/InitAutoSave), оставлен для читаемости.
 function auction:SaveData(force)
@@ -989,20 +1011,20 @@ function auction:SaveData(force)
     self.db.window.scale = self.windowScale
     self.db.general.offspecMultiplier = self.offspecMultiplier
     self.db.minimap.position = self.minimapButtonPosition
-    EPBossAuctionSavedBids = self.bids
-    EPBossAuctionSavedVersions = self.dataVersions
-    EPBossAuctionSavedSignups = self.signups
-    EPBossAuctionSavedAttendance = self.attendance
-    EPBossAuctionSavedAttendanceMeta = self.attendanceMeta
-    EPBossAuctionSavedReserves = self.reserves
-    EPBossAuctionSavedTime = GetTime()
-    EPBossAuctionSavedLM = UnitName("player")
-    EPBossAuctionSavedSelectedBoss = self.selectedBoss
-    EPBossAuctionSavedSelectedItem = self.selectedItem
-    EPBossAuctionSavedScale = self.windowScale
-    EPBossAuctionSavedMinimapPos = self.minimapButtonPosition
-    EPBossAuctionBidsLocked = self.bidsLocked
-    EPBossAuctionSavedOffspecMultiplier = self.offspecMultiplier
+    local db = self:GetDB()
+    db.dbVersion = self.DB_VERSION
+    db.bids = self.bids
+    db.versions = self.dataVersions
+    db.signups = self.signups
+    db.attendance = self.attendance
+    db.attendanceMeta = self.attendanceMeta
+    db.reserves = self.reserves
+    db.selectedBoss = self.selectedBoss
+    db.selectedItem = self.selectedItem
+    db.windowScale = self.windowScale
+    db.minimapPos = self.minimapButtonPosition
+    db.bidsLocked = self.bidsLocked
+    db.offspecMultiplier = self.offspecMultiplier
     self:SaveSettings()
     self.dataDirty = false
     self.lastSaveTime = GetTime()

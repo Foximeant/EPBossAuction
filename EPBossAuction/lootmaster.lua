@@ -32,7 +32,7 @@ local auction = EPBossAuction
 --     slot, itemID, link, name, icon, quantity, boss,
 --     status = "open" | "giving" | "given" | "charged",
 --     selected (выбранный победитель), winner (кому выдано), amount (сколько списать)
---   EPBossAuctionSavedLootLog — журнал выдач и массовых начислений (источник вкладки
+--   EPBossAuctionDB.lootLog — журнал выдач и массовых начислений (источник вкладки
 --   «Статистика»), см. LootJournalAdd, LootJournalAddMass и stats.lua.
 --   auction.db.lootmaster — позиция окна и последняя сумма «за босса» по боссам.
 --
@@ -983,8 +983,8 @@ ev:RegisterEvent("LOOT_SLOT_CLEARED")
 ev:RegisterEvent("UPDATE_MASTER_LOOT_LIST")
 ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
-        if arg1 == "EPBossAuction" and type(EPBossAuctionSavedLootLog) ~= "table" then
-            EPBossAuctionSavedLootLog = {}
+        if arg1 == "EPBossAuction" then
+            auction:GetLootLog()   -- создаёт журнал в EPBossAuctionDB, если его ещё нет
         end
     elseif event == "LOOT_OPENED" then
         auction:LootOnOpened()

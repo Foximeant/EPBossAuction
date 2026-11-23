@@ -97,92 +97,51 @@ function auction:CreateUI()
     close:SetScript("OnClick", function() frame:Hide() end)
     self:SkinButton(close)
 
-    -- Кнопка настроек
-    local optionsBtn = CreateFrame("Button", "EPBossAuctionOptionsButton", frame)
-    optionsBtn:SetSize(76, 22)
-    optionsBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -8, 0)
-    optionsBtn:SetText("Настройки")
-    optionsBtn:SetNormalFontObject(GameFontNormal)
-    self:SkinButton(optionsBtn)
-    optionsBtn:SetScript("OnClick", function()
-        auction:OpenOptions()
+    -- Кнопка "Меню" в шапке: по клику — список "Настройки" / "Справка" /
+    -- "Что нового" / "Нашли баг?" (раньше это были отдельные кнопки).
+    local menuBtn = CreateFrame("Button", "EPBossAuctionMenuButton", frame)
+    menuBtn:SetSize(64, 22)
+    menuBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -8, 0)
+    menuBtn:SetText("Меню")
+    menuBtn:SetNormalFontObject(GameFontNormal)
+    self:SkinButton(menuBtn)
+    local mainMenu = CreateFrame("Frame", "EPBossAuctionMainMenu", UIParent, "UIDropDownMenuTemplate")
+    UIDropDownMenu_Initialize(mainMenu, function(menu, level)
+        local items = {
+            { "Настройки", function() auction:OpenOptions() end },
+            { "Справка", function() auction:ShowHelpWindow() end },
+            { "Что нового (список изменений)", function() auction:ShowWhatsNewWindow(true) end },
+            { "Нашли баг?", function() auction:ShowContactsWindow() end },
+        }
+        for _, item in ipairs(items) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = item[1]
+            info.notCheckable = true
+            info.func = item[2]
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end, "MENU")
+    menuBtn:SetScript("OnClick", function()
+        ToggleDropDownMenu(1, nil, mainMenu, menuBtn, 0, 0)
     end)
-    optionsBtn:SetScript("OnEnter", function()
+    menuBtn:SetScript("OnEnter", function()
         local c = auction.theme and auction.theme.colors
         if c then
-            optionsBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
+            menuBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
         end
-        GameTooltip:SetOwner(optionsBtn, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Настройки")
-        GameTooltip:AddLine("Открыть окно настроек аддона", 0.5, 1, 0.5)
+        GameTooltip:SetOwner(menuBtn, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Меню")
+        GameTooltip:AddLine("Настройки, справка, список изменений, контакты для сообщений об ошибках", 0.5, 1, 0.5)
         GameTooltip:Show()
     end)
-    optionsBtn:SetScript("OnLeave", function()
+    menuBtn:SetScript("OnLeave", function()
         local c = auction.theme and auction.theme.colors
         if c then
-            optionsBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
+            menuBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
         end
         GameTooltip:Hide()
     end)
-    self.optionsBtn = optionsBtn
-
-    -- Кнопка "?" (справка) — между "Настройки" и "Нашли баг?"
-    local helpBtn = CreateFrame("Button", "EPBossAuctionHelpButton", frame)
-    helpBtn:SetSize(22, 22)
-    helpBtn:SetPoint("TOPRIGHT", optionsBtn, "TOPLEFT", -8, 0)
-    helpBtn:SetText("?")
-    helpBtn:SetNormalFontObject(GameFontNormalLarge)
-    self:SkinButton(helpBtn)
-    helpBtn:SetScript("OnClick", function()
-        auction:ShowHelpWindow()
-    end)
-    helpBtn:SetScript("OnEnter", function()
-        local c = auction.theme and auction.theme.colors
-        if c then
-            helpBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
-        end
-        GameTooltip:SetOwner(helpBtn, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Справка")
-        GameTooltip:AddLine("Как пользоваться аддоном (/epba help)", 0.5, 1, 0.5)
-        GameTooltip:Show()
-    end)
-    helpBtn:SetScript("OnLeave", function()
-        local c = auction.theme and auction.theme.colors
-        if c then
-            helpBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
-        end
-        GameTooltip:Hide()
-    end)
-    self.helpBtn = helpBtn
-
-    -- Кнопка "Нашли баг?" — окно с контактами (contacts.lua), слева от "?"
-    local bugBtn = CreateFrame("Button", "EPBossAuctionBugButton", frame)
-    bugBtn:SetSize(112, 22)
-    bugBtn:SetPoint("TOPRIGHT", helpBtn, "TOPLEFT", -8, 0)
-    bugBtn:SetText("Нашли баг?")
-    bugBtn:SetNormalFontObject(GameFontNormal)
-    self:SkinButton(bugBtn)
-    bugBtn:SetScript("OnClick", function()
-        auction:ShowContactsWindow()
-    end)
-    bugBtn:SetScript("OnEnter", function()
-        local c = auction.theme and auction.theme.colors
-        if c then
-            bugBtn:SetBackdropColor(c.buttonHover[1], c.buttonHover[2], c.buttonHover[3], c.buttonHover[4])
-        end
-        GameTooltip:SetOwner(bugBtn, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Нашли баг?")
-        GameTooltip:AddLine("Контакты для сообщений об ошибках и предложений", 0.5, 1, 0.5)
-        GameTooltip:Show()
-    end)
-    bugBtn:SetScript("OnLeave", function()
-        local c = auction.theme and auction.theme.colors
-        if c then
-            bugBtn:SetBackdropColor(c.button[1], c.button[2], c.button[3], c.button[4])
-        end
-        GameTooltip:Hide()
-    end)
-    self.bugBtn = bugBtn
+    self.menuBtn = menuBtn
 
     -- ======================
     -- ЛЕВАЯ ПАНЕЛЬ УПРАВЛЕНИЯ
@@ -554,6 +513,7 @@ function auction:CreateUI()
             if GetTime() - (auction.lastResize or 0) > 0.25 then
                 if auction.frame and auction.frame:IsShown() then
                     auction:UpdateScrollFrameSize()
+                    if auction.RefreshAttendance then auction:RefreshAttendance() end
                     auction:RequestRefresh()
                 end
             end
@@ -582,6 +542,9 @@ function auction:CreateUI()
             return
         elseif msg == "help" then
             auction:ShowHelpWindow()
+            return
+        elseif msg == "new" or msg == "changelog" then
+            auction:ShowWhatsNewWindow(true)
             return
         elseif msg:sub(1, 4) == "diag" then
             auction:DiagCommand(msg:sub(5))   -- diag.lua
@@ -1681,10 +1644,13 @@ end
 -- "Что нового?": заголовок, текущая версия, прокручиваемый список
 -- изменений (GetChangelogVersions) и кнопка "Понятно". Вызывается через
 -- ScheduleTimer из events.lua при обнаружении новой версии после входа.
-function auction:ShowWhatsNewWindow()
+-- manual = true — открыто вручную (кнопка "Меню" → "Что нового", /epba new): показываем
+-- список и тогда, когда новой версии нет (автоматический показ — только если
+-- events.lua выставил pendingWhatsNew).
+function auction:ShowWhatsNewWindow(manual)
     local lastSeen = self.pendingWhatsNew
     self.pendingWhatsNew = nil
-    if not lastSeen then return end
+    if not lastSeen and not manual then return end
 
     local versions = self:GetChangelogVersions()
     if #versions == 0 then return end

@@ -24,7 +24,7 @@ local auction = EPBossAuction
 --      считает ЛМ, совпадает ли контрольная сумма ставок с моей.
 --   6) Окно «Диагностика» (вкладки: Сводка / Проверки / Лог / Сеть /
 --      Ошибки / Рейд / Отчёт), команда /epba diag, сохранение ошибок и
---      хвоста журнала в EPBossAuctionSavedDiag.
+--      хвоста журнала в EPBossAuctionDB.diag.
 --
 -- Загружается ПОСЛЕ comm.lua, core.lua и contacts.lua (переопределяет
 -- Debug/ScheduleTimer/HandleMessage/GetDiagnosticsString).
@@ -668,8 +668,8 @@ Check("Данные: посещаемость (attendance)", function()
             if prev and type(r.t) == "number" and type(prev.t) == "number" then
                 if r.t < prev.t then
                     problems[#problems + 1] = "#"..i..": нарушен порядок по времени (список должен идти по возрастанию)"
-                elseif r.boss and r.boss == prev.boss and (r.t - prev.t) < sameKill then
-                    problems[#problems + 1] = "#"..i..": дубль килла «"..tostring(r.boss).."» (меньше "..sameKill.." с после предыдущего)"
+                elseif auction.IsSameKill and auction:IsSameKill(prev.boss, prev.t, prev.players, r.boss, r.t, r.players) then
+                    problems[#problems + 1] = "#"..i..": дубль килла «"..tostring(r.boss).."» (тот же босс и почти тот же состав в пределах "..sameKill.." с)"
                 end
             end
             prev = r
@@ -710,9 +710,9 @@ Check("Данные: резерв предметов", function()
 end)
 
 Check("Данные: журнал выдач", function()
-    local log = EPBossAuctionSavedLootLog
+    local log = auction:GetDB().lootLog
     if log == nil then return "info", "журнала нет" end
-    if type(log) ~= "table" then return "fail", "EPBossAuctionSavedLootLog не таблица" end
+    if type(log) ~= "table" then return "fail", "EPBossAuctionDB.lootLog не таблица" end
     local problems, ids, dup = {}, {}, 0
     for i, e in ipairs(log) do
         if type(e) ~= "table" then
@@ -740,9 +740,9 @@ end)
 
 Check("SavedVariables: объём", function()
     local sv = {
-        Bids = EPBossAuctionSavedBids, Signups = EPBossAuctionSavedSignups,
-        Attendance = EPBossAuctionSavedAttendance, Reserves = EPBossAuctionSavedReserves,
-        LootLog = EPBossAuctionSavedLootLog, Settings = EPBossAuctionSettings,
+        Bids = auction:GetDB().bids, Signups = auction:GetDB().signups,
+        Attendance = auction:GetDB().attendance, Reserves = auction:GetDB().reserves,
+        LootLog = auction:GetDB().lootLog, Settings = auction:GetDB().settings,
     }
     local lines, total = {}, 0
     for _, k in ipairs(SortedKeys(sv)) do
@@ -929,7 +929,7 @@ function diag.BuildSummary()
         add("Ставок на выбранном боссе: %d, сумма: %d", bc, bcs)
     end
     add("Посещаемость: %d зап. | журнал выдач: %d зап. | версий данных: %d",
-        auction.attendance and #auction.attendance or 0, EPBossAuctionSavedLootLog and #EPBossAuctionSavedLootLog or 0, CountNodes(auction.dataVersions))
+        auction.attendance and #auction.attendance or 0, auction:GetDB().lootLog and #auction:GetDB().lootLog or 0, CountNodes(auction.dataVersions))
     add("")
     add("== Сеть и ошибки ==")
     local n = diag.net
@@ -1455,13 +1455,14 @@ local function SaveToSV()
     table.insert(sessions, { t = sessionStartUnix, dur = math.floor(GetTime() - sessionStart), ver = auction.version,
         errors = diag.errorTotal, out = n.outN, ["in"] = n.inN, peak10 = n.peak10, oversize = n.oversize, unknown = n.unknown })
     while #sessions > SAVED_SESSIONS do table.remove(sessions, 1) end
-    EPBossAuctionSavedDiag = { saved = time(), version = auction.version, errors = merged, logTail = tail, sessions = sessions }
+    auction:GetDB().diag = { saved = time(), version = auction.version, errors = merged, logTail = tail, sessions = sessions }
 end
 
 ef:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == "EPBossAuction" then
-            diag.saved = (type(EPBossAuctionSavedDiag) == "table") and EPBossAuctionSavedDiag or nil
+            local savedDiag = auction:GetDB().diag
+            diag.saved = (type(savedDiag) == "table") and savedDiag or nil
             diag.Log("evt", "ADDON_LOADED, версия "..tostring(auction.version))
         end
         return

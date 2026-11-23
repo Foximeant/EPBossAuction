@@ -34,96 +34,67 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CreateUI()
         auction:CreateOptionsPanel()
         auction:Debug("=== ПРОВЕРКА СОХРАНЕННЫХ ДАННЫХ ===")
-        if EPBossAuctionSavedBids then
-            local savedCount = 0
-            for bossName, bossBids in pairs(EPBossAuctionSavedBids) do
+        -- Сохранённые данные (EPBossAuctionDB, см. core.lua:GetDB). Пустая база
+        -- (первый запуск или после смены схемы) даёт пустые таблицы — отдельной
+        -- ветки "нет данных" нет.
+        local db = auction:GetDB()
+        local savedCount = 0
+        if type(db.bids) == "table" then
+            for bossName, bossBids in pairs(db.bids) do
                 for itemID, bidsForItem in pairs(bossBids) do
                     savedCount = savedCount + #bidsForItem
                 end
             end
-            auction:Debug("В сохранении: "..savedCount.." ставок")
-            auction.bids = EPBossAuctionSavedBids
-            auction.dataVersions = auction:NormalizeVersionTable(EPBossAuctionSavedVersions or {})
-            auction.lastVersions = {}
-            auction.signups = EPBossAuctionSavedSignups or {}
-            auction:PurgeObsoleteSignups() -- убираем категории, которых больше нет (напр. "валик")
-            -- История посещаемости (вкладка Attendance, attendance.lua)
-            auction.attendance = (type(EPBossAuctionSavedAttendance) == "table") and EPBossAuctionSavedAttendance or {}
-            -- Метки удалений/очистки для синхронизации посещаемости (attendance.lua)
-            auction.attendanceMeta = { clearedBefore = 0, deleted = {} }
-            if type(EPBossAuctionSavedAttendanceMeta) == "table" then
-                local meta = EPBossAuctionSavedAttendanceMeta
-                auction.attendanceMeta.clearedBefore = tonumber(meta.clearedBefore) or 0
-                if type(meta.deleted) == "table" then auction.attendanceMeta.deleted = meta.deleted end
-            end
-            auction:RebuildBidData()
+        end
+        auction:Debug("В сохранении: "..savedCount.." ставок")
+        auction.bids = (type(db.bids) == "table") and db.bids or {}
+        auction.dataVersions = auction:NormalizeVersionTable(db.versions or {})
+        auction.lastVersions = {}
+        auction.signups = (type(db.signups) == "table") and db.signups or {}
+        auction:PurgeObsoleteSignups() -- убираем категории, которых больше нет (напр. "валик")
+        -- История посещаемости (вкладка Attendance, attendance.lua)
+        auction.attendance = (type(db.attendance) == "table") and db.attendance or {}
+        -- Метки удалений/очистки для синхронизации посещаемости (attendance.lua)
+        auction.attendanceMeta = { clearedBefore = 0, deleted = {} }
+        if type(db.attendanceMeta) == "table" then
+            auction.attendanceMeta.clearedBefore = tonumber(db.attendanceMeta.clearedBefore) or 0
+            if type(db.attendanceMeta.deleted) == "table" then auction.attendanceMeta.deleted = db.attendanceMeta.deleted end
+        end
+        auction:RebuildBidData()
 
-            if EPBossAuctionSavedSelectedBoss and auction.bosses[EPBossAuctionSavedSelectedBoss] then
-                auction.selectedBoss = EPBossAuctionSavedSelectedBoss
-                auction.selectedInstance = auction.bossToInstance[auction.selectedBoss]
-                auction:Debug("Восстановлен босс: "..auction.selectedBoss)
-            else
-                auction.selectedBoss = nil
-                auction.selectedInstance = nil
-            end
-            auction:UpdateBossDropdownText()
-
-            if auction.selectedBoss and EPBossAuctionSavedSelectedItem then
-                local items = auction.bosses[auction.selectedBoss]
-                local found = false
-                for _, itemID in ipairs(items) do
-                    if itemID == EPBossAuctionSavedSelectedItem then
-                        found = true
-                        break
-                    end
-                end
-                if found then
-                    auction.selectedItem = EPBossAuctionSavedSelectedItem
-                    auction:Debug("Восстановлен предмет: "..auction.selectedItem)
-                else
-                    auction.selectedItem = nil
-                end
-            else
-                auction.selectedItem = nil
-            end
-
-            if EPBossAuctionSavedScale then
-                auction.windowScale = EPBossAuctionSavedScale
-                auction.db.window.scale = EPBossAuctionSavedScale
-            end
-
-            if EPBossAuctionSavedMinimapPos then
-                auction.minimapButtonPosition = EPBossAuctionSavedMinimapPos
-                auction.db.minimap.position = EPBossAuctionSavedMinimapPos
-            end
-
-            if EPBossAuctionBidsLocked ~= nil then
-                auction.bidsLocked = EPBossAuctionBidsLocked
-            end
-
-            if EPBossAuctionSavedOffspecMultiplier then
-                auction.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
-                auction.db.general.offspecMultiplier = EPBossAuctionSavedOffspecMultiplier
-            end
+        if db.selectedBoss and auction.bosses[db.selectedBoss] then
+            auction.selectedBoss = db.selectedBoss
+            auction.selectedInstance = auction.bossToInstance[auction.selectedBoss]
+            auction:Debug("Восстановлен босс: "..auction.selectedBoss)
         else
-            auction:Debug("Нет сохраненных данных")
-            auction.bids = {}
-            auction.dataVersions = {}
-            auction.lastVersions = {}
-            auction.windowScale = 1.0
-            auction.bidsLocked = false
-            -- Остальные таблицы тоже нужны с первого запуска (раньше signups
-            -- оставался nil, и очистка таблицы ставок падала с ошибкой).
-            auction.signups = (type(EPBossAuctionSavedSignups) == "table") and EPBossAuctionSavedSignups or {}
-            auction:PurgeObsoleteSignups()
-            auction.attendance = (type(EPBossAuctionSavedAttendance) == "table") and EPBossAuctionSavedAttendance or {}
-            auction.attendanceMeta = { clearedBefore = 0, deleted = {} }
-            if type(EPBossAuctionSavedAttendanceMeta) == "table" then
-                local meta = EPBossAuctionSavedAttendanceMeta
-                auction.attendanceMeta.clearedBefore = tonumber(meta.clearedBefore) or 0
-                if type(meta.deleted) == "table" then auction.attendanceMeta.deleted = meta.deleted end
+            auction.selectedBoss = nil
+            auction.selectedInstance = nil
+        end
+        auction:UpdateBossDropdownText()
+
+        auction.selectedItem = nil
+        if auction.selectedBoss and db.selectedItem then
+            for _, itemID in ipairs(auction.bosses[auction.selectedBoss]) do
+                if itemID == db.selectedItem then
+                    auction.selectedItem = db.selectedItem
+                    auction:Debug("Восстановлен предмет: "..auction.selectedItem)
+                    break
+                end
             end
-            auction:RebuildBidData()
+        end
+
+        if db.windowScale then
+            auction.windowScale = db.windowScale
+            auction.db.window.scale = db.windowScale
+        end
+        if db.minimapPos then
+            auction.minimapButtonPosition = db.minimapPos
+            auction.db.minimap.position = db.minimapPos
+        end
+        auction.bidsLocked = (db.bidsLocked == true)
+        if db.offspecMultiplier then
+            auction.offspecMultiplier = db.offspecMultiplier
+            auction.db.general.offspecMultiplier = db.offspecMultiplier
         end
         auction:ApplySettings()
         auction:LoadReserves()   -- резерв предметов (reserve.lua), не зависит от наличия сохранённых ставок
@@ -132,13 +103,13 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         auction:CreateMinimapButton()
         auction.fullyLoaded = true
 
-        -- Справка: новому пользователю (нет EPBossAuctionSavedLastSeenVersion — аддон
+        -- Справка: новому пользователю (нет EPBossAuctionDB.lastSeenVersion — аддон
         -- ставят впервые) показываем автоматически один раз. Тем, кто обновился с
         -- прошлой версии, не навязываем (у них свой экран "Что нового?"; справка
-        -- доступна по кнопке "?" и /epba help). Проверка — до записи LastSeenVersion ниже.
-        if not EPBossAuctionSavedHelpSeen then
-            EPBossAuctionSavedHelpSeen = true
-            if not EPBossAuctionSavedLastSeenVersion then
+        -- доступна по кнопке "Меню" и /epba help). Проверка — до записи LastSeenVersion ниже.
+        if not db.helpSeen then
+            db.helpSeen = true
+            if not db.lastSeenVersion then
                 auction:ScheduleTimer(function()
                     auction:ShowHelpWindow()
                 end, 3)
@@ -146,10 +117,10 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
         end
 
         -- "Что нового?": показываем, если аддон обновился с прошлого входа
-        if EPBossAuctionSavedLastSeenVersion and auction:CompareVersions(auction.version, EPBossAuctionSavedLastSeenVersion) > 0 then
-            auction.pendingWhatsNew = EPBossAuctionSavedLastSeenVersion
+        if db.lastSeenVersion and auction:CompareVersions(auction.version, db.lastSeenVersion) > 0 then
+            auction.pendingWhatsNew = db.lastSeenVersion
         end
-        EPBossAuctionSavedLastSeenVersion = auction.version
+        db.lastSeenVersion = auction.version
 
         if auction.pendingWorldEnter then
             auction:HandleWorldEnter()

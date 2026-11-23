@@ -33,19 +33,31 @@ local auction = EPBossAuction
 --     mains   = { ["Твинк"] = "Мейн", ... },       -- необязательно
 --     manual  = true }                             -- необязательно: записано вручную
 --
--- Хранится в SavedVariables: EPBossAuctionSavedAttendance (список) и
--- EPBossAuctionSavedAttendanceMeta (метки удаления для синхронизации, см.
+-- Хранится в SavedVariables: EPBossAuctionDB.attendance (список) и
+-- EPBossAuctionDB.attendanceMeta (метки удаления для синхронизации, см.
 -- attendanceMeta ниже). events.lua грузит, core.lua:SaveData сохраняет.
 -- ============================================================
 
 -- Сколько последних записей хранить (старые вытесняются).
 auction.ATTENDANCE_MAX_RECORDS = 600
 -- Сколько последних киллов показывать колонками-датами в таблице игроков.
-auction.ATTENDANCE_COLUMNS = 10
--- Две записи по одному боссу ближе друг к другу, чем это число секунд, считаются
--- ОДНИМ киллом: так отсекаются дубли (эхо собственного END у ЛМ, повторный клик,
--- запись того же килла, пришедшая по синхронизации от другого офицера).
-auction.ATTENDANCE_SAME_KILL_SECONDS = 300
+auction.ATTENDANCE_COLUMNS = 24   -- максимум колонок; сколько реально видно — зависит от ширины окна (GetAttendanceVisibleColumns)
+-- Две записи по одному боссу считаются ОДНИМ киллом, если они ближе друг к
+-- другу, чем это число секунд, И составы рейда в них совпадают хотя бы на
+-- ATTENDANCE_SAME_ROSTER_RATIO (см. IsSameKill). Так отсекаются дубли: эхо
+-- собственного END у ЛМ, повторный клик, запись того же килла от другого
+-- офицера (у каждого время записи своё — вплоть до нескольких часов, если
+-- записывали позже вручную), а настоящие киллы одного босса разными составами
+-- (например, основа и твинк-рейд) остаются раздельными.
+auction.ATTENDANCE_SAME_KILL_SECONDS = 3 * 3600
+-- Доля совпадения составов (от меньшего состава), с которой записи — один килл.
+auction.ATTENDANCE_SAME_ROSTER_RATIO = 0.6
+-- Рейдовая неделя начинается в четверг: 1970-01-01 (начало эпохи Unix) был
+-- четвергом 00:00 UTC. Сдвиг ниже — во сколько секунд после 00:00 UTC наступает
+-- сброс рейдов (3 часа = 06:00 по Москве). Если на сервере сброс в другое
+-- время — поменяйте это число.
+auction.ATTENDANCE_WEEK_SECONDS = 7 * 86400
+auction.ATTENDANCE_RESET_OFFSET = 3 * 3600
 -- За сколько дней считать процент посещаемости в тултипе ставок.
 auction.ATTENDANCE_TOOLTIP_DAYS = 30
 -- Периоды для процента посещаемости; days = 0 значит "без ограничения".
@@ -56,6 +68,7 @@ auction.ATTENDANCE_PERIODS = {
 }
 -- Состояние вкладки (только на время сессии): период, вид и фильтр по боссу.
 auction.attendancePeriodIndex = 2           -- индекс в ATTENDANCE_PERIODS (30 дней)
+auction.attendanceWeek = nil                -- номер рейдовой недели (AttendanceWeek) или nil: тогда действует attendancePeriodIndex
 auction.attendanceView = "players"          -- "players" | "bosses" | "days"
 auction.attendanceBossFilter = nil          -- имя босса или nil ("Все боссы")
 
@@ -177,11 +190,58 @@ function auction:InsertAttendanceRecord(rec)
     end
 end
 
--- Есть ли уже запись того же килла (тот же босс, время в пределах
--- ATTENDANCE_SAME_KILL_SECONDS). Возвращает найденную запись или nil.
-function auction:FindAttendanceDuplicate(boss, t)
+-- Номер рейдовой недели для момента времени t (неделя идёт с четверга).
+function auction:AttendanceWeek(t)
+    return math.floor((t - self.ATTENDANCE_RESET_OFFSET) / self.ATTENDANCE_WEEK_SECONDS)
+end
+
+-- Момент начала рейдовой недели week (секунды Unix).
+function auction:AttendanceWeekStart(week)
+    return week * self.ATTENDANCE_WEEK_SECONDS + self.ATTENDANCE_RESET_OFFSET
+end
+
+-- Новый уникальный id записи: "время:случайное" в hex (тот же вид, что у
+-- ключей синхронизации). Нужен, чтобы синхронизация не пересылала то, что у
+-- офицера уже есть, и чтобы запись можно было однозначно сопоставить.
+function auction:NewAttendanceId(t)
+    return string.format("%x:%x", math.floor(t), math.random(0x1000, 0xFFFF))
+end
+
+-- Все известные нам id записи: собственный и id "двойников" (того же килла,
+-- записанного другим офицером), которые мы поглотили при слиянии.
+function auction:AttendanceKnownIds(rec)
+    local ids = { self:AttendanceKey(rec) }
+    for _, alt in ipairs(rec.alt or {}) do ids[#ids + 1] = alt end
+    return ids
+end
+
+-- Один ли это килл: тот же босс, время в пределах ATTENDANCE_SAME_KILL_SECONDS
+-- и состав рейда совпадает не меньше чем на ATTENDANCE_SAME_ROSTER_RATIO от
+-- меньшего состава. Ссылки на состав — таблицы вида { имя = ... }.
+function auction:IsSameKill(bossA, tA, playersA, bossB, tB, playersB)
+    if bossA ~= bossB then return false end
+    if math.abs(tA - tB) > self.ATTENDANCE_SAME_KILL_SECONDS then return false end
+    local sizeA, sizeB, common = 0, 0, 0
+    for name in pairs(playersA or {}) do
+        sizeA = sizeA + 1
+        if playersB and playersB[name] then common = common + 1 end
+    end
+    for _ in pairs(playersB or {}) do sizeB = sizeB + 1 end
+    local smaller = math.min(sizeA, sizeB)
+    if smaller == 0 then return true end        -- состав неизвестен: решает время
+    return common / smaller >= self.ATTENDANCE_SAME_ROSTER_RATIO
+end
+
+-- Ищет в истории уже записанный килл с таким же id или тот же килл по
+-- IsSameKill. Возвращает найденную запись или nil.
+function auction:FindAttendanceSameKill(boss, t, players, id)
     for _, rec in ipairs(self.attendance or {}) do
-        if rec.boss == boss and math.abs(rec.t - t) <= self.ATTENDANCE_SAME_KILL_SECONDS then
+        if id then
+            for _, known in ipairs(self:AttendanceKnownIds(rec)) do
+                if known == id then return rec end
+            end
+        end
+        if self:IsSameKill(rec.boss, rec.t, rec.players, boss, t, players) then
             return rec
         end
     end
@@ -196,7 +256,6 @@ function auction:AddAttendanceRecord(bossName, manual)
     if not bossName or not self.bosses[bossName] then return false, "no_boss" end
 
     local now = time()
-    if self:FindAttendanceDuplicate(bossName, now) then return false, "duplicate" end
 
     local players, mains, count = {}, {}, 0
     for i = 1, GetNumRaidMembers() do
@@ -209,6 +268,7 @@ function auction:AddAttendanceRecord(bossName, manual)
         end
     end
     if count == 0 then return false, "no_roster" end
+    if self:FindAttendanceSameKill(bossName, now, players) then return false, "duplicate" end
 
     local rested = {}
     for name in pairs(self:GetSignupSet(bossName, "rest")) do
@@ -216,6 +276,7 @@ function auction:AddAttendanceRecord(bossName, manual)
     end
 
     local rec = {
+        id = self:NewAttendanceId(now),
         t = now,
         boss = bossName,
         instance = self.bossToInstance[bossName],
@@ -243,7 +304,7 @@ function auction:RecordAttendanceManual(bossName)
     elseif info == "not_raid" then
         self:AttendanceSay("Attendance: вы не в рейде — записывать нечего", true)
     elseif info == "duplicate" then
-        self:AttendanceSay("Attendance: килл «"..bossName.."» уже записан за последние "..math.floor(self.ATTENDANCE_SAME_KILL_SECONDS / 60).." мин.", true)
+        self:AttendanceSay("Attendance: килл «"..bossName.."» уже записан (с таким же составом рейда) за последние "..math.floor(self.ATTENDANCE_SAME_KILL_SECONDS / 3600).." ч.", true)
     elseif info == "no_roster" then
         self:AttendanceSay("Attendance: не удалось получить состав рейда", true)
     else
@@ -264,7 +325,7 @@ function auction:DeleteAttendanceRecord(rec)
     end
     if rec.boss then
         local meta = self.attendanceMeta
-        table.insert(meta.deleted, { boss = rec.boss, t = rec.t })
+        table.insert(meta.deleted, { boss = rec.boss, t = rec.t, ids = self:AttendanceKnownIds(rec) })
         while #meta.deleted > 200 do table.remove(meta.deleted, 1) end
     end
     self:AttendanceChanged()
@@ -297,10 +358,16 @@ end
 -- ======================
 
 -- Удалена ли запись такого килла вручную или очисткой истории (метки в attendanceMeta).
-function auction:IsAttendanceTombstoned(boss, t)
+function auction:IsAttendanceTombstoned(boss, t, id)
     local meta = self.attendanceMeta
     if t <= (meta.clearedBefore or 0) then return true end
     for _, d in ipairs(meta.deleted) do
+        -- удалена запись с тем же id (в том числе id "двойника" при слиянии)
+        if id and d.ids then
+            for _, deletedId in ipairs(d.ids) do
+                if deletedId == id then return true end
+            end
+        end
         if d.boss == boss and math.abs(d.t - t) <= self.ATTENDANCE_SAME_KILL_SECONDS then
             return true
         end
@@ -317,14 +384,34 @@ function auction:MergeAttendanceRecord(rec, noNotify)
        or not self.bosses[rec.boss] or type(rec.players) ~= "table" then
         return "invalid"
     end
-    if self:IsAttendanceTombstoned(rec.boss, rec.t) then return "tombstoned" end
+    -- id записи: пришедший от офицера либо старый вид "время:хэш босса"
+    -- (записи без id, сделанные до введения id)
+    local id = rec.id or self:AttendanceKey(rec)
+    rec.id = id
+    if self:IsAttendanceTombstoned(rec.boss, rec.t, id) then return "tombstoned" end
 
-    local existing = self:FindAttendanceDuplicate(rec.boss, rec.t)
+    local existing = self:FindAttendanceSameKill(rec.boss, rec.t, rec.players, id)
     if existing then
+        local changed = false
         if not existing.mains and rec.mains then
             existing.mains = rec.mains
-            if not noNotify then self:AttendanceChanged() end
+            changed = true
         end
+        -- Запоминаем чужой id как "двойник": при следующей синхронизации офицер
+        -- увидит, что этот килл у нас уже есть, и не будет присылать его снова.
+        local known = false
+        for _, knownId in ipairs(self:AttendanceKnownIds(existing)) do
+            if knownId == id then known = true break end
+        end
+        if not known then
+            existing.alt = existing.alt or {}
+            if #existing.alt < 4 then
+                existing.alt[#existing.alt + 1] = id
+                changed = true
+            end
+        end
+        if changed and not noNotify then self:AttendanceChanged() end
+        if changed then self:RequestSaveData() end
         return "duplicate"
     end
 
@@ -386,11 +473,19 @@ local function ResolveIdentities(rec, resolveMain)
 end
 
 -- Записи за период (и по боссу, если задан bossFilter), по возрастанию времени.
+-- Границы периода: periodDays — число дней назад (0/nil = всё время) либо
+-- таблица { from = t1, to = t2 } для рейдовой недели ([from, to)).
+local function PeriodBounds(now, periodDays)
+    if type(periodDays) == "table" then return periodDays.from, periodDays.to end
+    if periodDays and periodDays > 0 then return now - periodDays * 86400, nil end
+    return nil, nil
+end
+
 local function FilterRecords(records, now, periodDays, bossFilter)
-    local cutoff = (periodDays and periodDays > 0) and (now - periodDays * 86400) or nil
+    local cutoff, upTo = PeriodBounds(now, periodDays)
     local list = {}
     for _, rec in ipairs(records) do
-        if (not cutoff or rec.t >= cutoff) and (not bossFilter or rec.boss == bossFilter) then
+        if (not cutoff or rec.t >= cutoff) and (not upTo or rec.t < upTo) and (not bossFilter or rec.boss == bossFilter) then
             list[#list + 1] = rec
         end
     end
@@ -492,16 +587,57 @@ function auction:BuildAttendanceReport(records, now, periodDays, maxColumns, bos
     return { total = total, columns = columns, players = players, firstSeen = firstSeen }
 end
 
+-- Текущий период вкладки: рейдовая неделя (если выбрана) или один из
+-- ATTENDANCE_PERIODS. Возвращает { label, range } — range передаётся в
+-- Build*-функции вместо числа дней (для обычных периодов range = число дней).
+function auction:GetAttendancePeriod()
+    if self.attendanceWeek then
+        local from = self:AttendanceWeekStart(self.attendanceWeek)
+        local to = from + self.ATTENDANCE_WEEK_SECONDS
+        return {
+            week = self.attendanceWeek,
+            label = "неделя "..date("%d.%m", from).."-"..date("%d.%m", to - 86400),
+            range = { from = from, to = to },
+            days = 0,
+        }
+    end
+    local period = self.ATTENDANCE_PERIODS[self.attendancePeriodIndex] or self.ATTENDANCE_PERIODS[2]
+    return { label = period.label, range = period.days, days = period.days }
+end
+
+-- Список рейдовых недель для выбора: текущая, предыдущая и все более ранние,
+-- в которых есть записи (не больше maxWeeks). Каждая: { week, from, to, count }, новые первыми.
+function auction:BuildAttendanceWeekList(records, now, maxWeeks)
+    local counts = {}
+    for _, rec in ipairs(records or {}) do
+        local week = self:AttendanceWeek(rec.t)
+        counts[week] = (counts[week] or 0) + 1
+    end
+    local current = self:AttendanceWeek(now)
+    counts[current] = counts[current] or 0
+    counts[current - 1] = counts[current - 1] or 0
+    local weeks = {}
+    for week in pairs(counts) do weeks[#weeks + 1] = week end
+    table.sort(weeks, function(a, b) return a > b end)
+    local list = {}
+    for _, week in ipairs(weeks) do
+        if #list >= (maxWeeks or 12) then break end
+        local from = self:AttendanceWeekStart(week)
+        list[#list + 1] = { week = week, from = from, to = from + self.ATTENDANCE_WEEK_SECONDS, count = counts[week] }
+    end
+    return list
+end
+
 -- Боссы для выпадающего списка фильтра: те, у кого есть хотя бы один килл за
 -- период (periodDays, 0/nil = всё время). Возвращает список { boss, count },
 -- упорядоченный как в аддоне; неизвестные боссы идут в конце по алфавиту.
 -- Записи без босса (старые) в список не попадают.
 function auction:BuildAttendanceBossList(records, now, periodDays)
-    local cutoff = (periodDays and periodDays > 0) and (now - periodDays * 86400) or nil
+    local cutoff, upTo = PeriodBounds(now, periodDays)
 
     local counts = {}
     for _, rec in ipairs(records) do
-        if rec.boss and (not cutoff or rec.t >= cutoff) then
+        if rec.boss and (not cutoff or rec.t >= cutoff) and (not upTo or rec.t < upTo) then
             counts[rec.boss] = (counts[rec.boss] or 0) + 1
         end
     end

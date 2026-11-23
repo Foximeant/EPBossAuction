@@ -72,17 +72,19 @@ end
 
 -- Ключ записи для обмена: "время:хэш_босса" в hex, например "6537c8a1:3f2a".
 function auction:AttendanceKey(rec)
+    if rec.id then return rec.id end
+    -- записи, сделанные до введения id: ключ "время:хэш босса" (у разных
+    -- офицеров он одинаков, пока время записи скопировано при синхронизации)
     return string.format("%x:%x", math.floor(rec.t), BossHash(rec.boss))
 end
 
 -- Разбирает список ключей "t:h,t:h,..." в список { t, h }.
 local function ParseKeys(csv)
-    local list = {}
+    local set = {}
     for item in (csv..","):gmatch("(.-),") do
-        local th, hh = item:match("^(%x+):(%x+)$")
-        if th then list[#list + 1] = { t = tonumber(th, 16), h = tonumber(hh, 16) } end
+        if item:match("^%x+:%x+$") then set[item:lower()] = true end
     end
-    return list
+    return set
 end
 
 -- Режет строку на куски не длиннее maxBytes, не разрывая UTF-8 символ
@@ -113,7 +115,8 @@ local function SafeName(s)
 end
 
 -- Запись → строка. Поля через "^": время, босс, подземелье, флаги ("m" —
--- вручную), игроки "имя~код класса", отдыхающие, мейны "твинк~мейн" (списки через ",").
+-- вручную), игроки "имя~код класса", отдыхающие, мейны "твинк~мейн" (списки через ","),
+-- id записи.
 function auction:SerializeAttendanceRecord(rec)
     local players = {}
     for name, class in pairs(rec.players) do
@@ -141,6 +144,7 @@ function auction:SerializeAttendanceRecord(rec)
         table.concat(players, ","),
         table.concat(rested, ","),
         table.concat(mains, ","),
+        self:AttendanceKey(rec),
     }, "^")
 end
 
@@ -149,7 +153,8 @@ end
 function auction:DeserializeAttendanceRecord(str)
     local fields = {}
     for part in (str.."^"):gmatch("(.-)%^") do fields[#fields + 1] = part end
-    if #fields ~= 7 then return nil end
+    -- 7 полей — запись старого вида (без id), 8 — с id
+    if #fields ~= 7 and #fields ~= 8 then return nil end
 
     local t = tonumber(fields[1])
     local boss = fields[2]
@@ -184,6 +189,8 @@ function auction:DeserializeAttendanceRecord(str)
         end
     end
     rec.mains = mains
+    local id = fields[8]
+    if id and id:match("^%x+:%x+$") and #id <= 24 then rec.id = id:lower() end
     return rec
 end
 
@@ -231,7 +238,9 @@ function auction:StartAttendanceSync(silent)
     local cutoff = time() - self.ATT_SYNC_DAYS * 86400
     local keys = {}
     for _, rec in ipairs(self.attendance) do
-        if rec.boss and rec.t >= cutoff then keys[#keys + 1] = self:AttendanceKey(rec) end
+        if rec.boss and rec.t >= cutoff then
+            for _, id in ipairs(self:AttendanceKnownIds(rec)) do keys[#keys + 1] = id end
+        end
     end
 
     local sid = string.format("%x", math.random(0x1000, 0xFFFFF))
@@ -296,7 +305,7 @@ function auction:Handle_ATT_REQ(rest, sender)
 
     local sid, i, n, payload = rest:match("^([^;]*);(%d+);(%d+);(.*)$")
     i, n = tonumber(i), tonumber(n)
-    if not sid or not i or not n or n < 1 or n > 20 or i < 1 or i > n then return end
+    if not sid or not i or not n or n < 1 or n > 40 or i < 1 or i > n then return end
 
     self.attReqBuf = self.attReqBuf or {}
     local key = sender..":"..sid
@@ -336,16 +345,15 @@ function auction:RespondToAttendanceRequest(sender, sid)
     for i = 1, buf.n do parts[i] = buf.parts[i] or "" end
     local theirKeys = ParseKeys(table.concat(parts))
 
-    local window = self.ATTENDANCE_SAME_KILL_SECONDS
     local cutoff = time() - self.ATT_SYNC_DAYS * 86400
     local missing = {}
     for i = #self.attendance, 1, -1 do
         local rec = self.attendance[i]
         if rec.t < cutoff then break end            -- список по возрастанию времени: дальше только старше
         if rec.boss then
-            local hash, known = BossHash(rec.boss), false
-            for _, k in ipairs(theirKeys) do
-                if k.h == hash and math.abs(k.t - rec.t) <= window then known = true break end
+            local known = false
+            for _, id in ipairs(self:AttendanceKnownIds(rec)) do
+                if theirKeys[id:lower()] then known = true break end
             end
             if not known then
                 missing[#missing + 1] = rec
