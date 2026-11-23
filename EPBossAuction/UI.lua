@@ -554,6 +554,7 @@ function auction:CreateUI()
             if GetTime() - (auction.lastResize or 0) > 0.25 then
                 if auction.frame and auction.frame:IsShown() then
                     auction:UpdateScrollFrameSize()
+                    if auction.RefreshAttendance then auction:RefreshAttendance() end
                     auction:RequestRefresh()
                 end
             end

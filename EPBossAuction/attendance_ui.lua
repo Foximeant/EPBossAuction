@@ -27,7 +27,7 @@ local HEADER_Y = -62                       -- шапка таблицы под �
 local CONTENT_WIDTH = 590                  -- ширина прокручиваемого содержимого
 local NAME_X, NAME_W = 6, 118              -- вид "Игроки": колонка игрока
 local PCT_X, PCT_W = 128, 44               --               колонка процента
-local COL_X, COL_W = 176, 40               --               колонки-даты
+local COL_X, COL_W = 176, 36               --               колонки-даты
 
 -- Колонки сводных видов (x, ширина, выравнивание; без align — по центру).
 local SUMMARY_LAYOUT = {
@@ -347,10 +347,42 @@ end
 -- Два ряда кнопок над таблицей. Подробности — в шапке файла.
 function auction:CreateAttendanceToolbar(panel)
     -- ---- Ряд 1 ----
-    self.attendancePeriodBtn = MakeButton(self, panel, "Период", 150, 6, -6, function()
-        auction.attendancePeriodIndex = (auction.attendancePeriodIndex % #auction.ATTENDANCE_PERIODS) + 1
-        auction:RefreshAttendance()
+    -- Период: 7 дней / 30 дней / всё время либо одна из рейдовых недель
+    -- (неделя начинается в четверг; список — текущая, прошлая и более ранние
+    -- недели, в которых есть записи).
+    local periodDropdown = MakeDropdown(panel, "EPBossAuctionAttendancePeriodDropdown", 100, 6, -5, "Период")
+    UIDropDownMenu_Initialize(periodDropdown, function()
+        LockDropdownHeight(periodDropdown)
+        for i, p in ipairs(auction.ATTENDANCE_PERIODS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = p.label
+            info.checked = (auction.attendanceWeek == nil and auction.attendancePeriodIndex == i)
+            info.func = function()
+                auction.attendanceWeek = nil
+                auction.attendancePeriodIndex = i
+                auction:RefreshAttendance()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+        local now = time()
+        local currentWeek = auction:AttendanceWeek(now)
+        for _, w in ipairs(auction:BuildAttendanceWeekList(auction.attendance or {}, now, 12)) do
+            local info = UIDropDownMenu_CreateInfo()
+            local range = date("%d.%m", w.from).."-"..date("%d.%m", w.to - 86400)
+            local prefix = ""
+            if w.week == currentWeek then prefix = "Эта неделя " elseif w.week == currentWeek - 1 then prefix = "Прошлая " end
+            info.text = prefix..range.." |cff888888("..w.count..")|r"
+            info.checked = (auction.attendanceWeek == w.week)
+            info.func = function()
+                auction.attendanceWeek = w.week
+                auction:RefreshAttendance()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
     end)
+    LockDropdownHeight(periodDropdown)
+    self:SkinDropdown(periodDropdown)
+    self.attendancePeriodDropdown = periodDropdown
 
     -- Вид: по клику переключается Игроки → Боссы → Дни → Игроки
     self.attendanceViewBtn = MakeButton(self, panel, "Вид", 120, 162, -6, function()
@@ -367,7 +399,7 @@ function auction:CreateAttendanceToolbar(panel)
     local bossDropdown = MakeDropdown(panel, "EPBossAuctionAttendanceBossDropdown", 130, 288, -5, "Все боссы")
     UIDropDownMenu_Initialize(bossDropdown, function()
         LockDropdownHeight(bossDropdown)
-        local period = auction.ATTENDANCE_PERIODS[auction.attendancePeriodIndex]
+        local period = auction:GetAttendancePeriod()
         local allInfo = UIDropDownMenu_CreateInfo()
         allInfo.text = "Все боссы"
         allInfo.checked = (auction.attendanceBossFilter == nil)
@@ -376,7 +408,7 @@ function auction:CreateAttendanceToolbar(panel)
             auction:RefreshAttendance()
         end
         UIDropDownMenu_AddButton(allInfo)
-        for _, item in ipairs(auction:BuildAttendanceBossList(auction.attendance or {}, time(), period.days)) do
+        for _, item in ipairs(auction:BuildAttendanceBossList(auction.attendance or {}, time(), period.range)) do
             local boss = item.boss
             local info = UIDropDownMenu_CreateInfo()
             info.text = boss.." |cff888888("..item.count..")|r"
@@ -746,10 +778,10 @@ function auction:RefreshAttendance()
     local panel = self.attendancePanel
     if not panel or not panel:IsShown() then return end
 
-    local period = self.ATTENDANCE_PERIODS[self.attendancePeriodIndex]
+    local period = self:GetAttendancePeriod()
     local view = self.attendanceView
 
-    self.attendancePeriodBtn:SetText("Период: "..period.label)
+    UIDropDownMenu_SetText(self.attendancePeriodDropdown, period.label)
     self.attendanceViewBtn:SetText("Вид: "..VIEW_LABELS[view])
     SetCheckboxChecked(self.attendanceByMainCheck, self:IsAttendanceByMain())
 
@@ -822,9 +854,22 @@ function auction:RefreshAttendance()
     end
 end
 
+-- Сколько колонок-дат показывать: сколько влезает по ширине панели, но не меньше
+-- 10 и не больше ATTENDANCE_COLUMNS (сколько колонок создано). Чем шире окно,
+-- тем больше киллов видно сразу.
+function auction:GetAttendanceVisibleColumns()
+    local panel = self.attendancePanel
+    local width = (panel and panel:GetWidth()) or 618
+    local fit = math.floor((width - 6 - 26 - COL_X - 6) / COL_W)
+    return math.max(10, math.min(self.ATTENDANCE_COLUMNS, fit))
+end
+
 -- Вид "Игроки". Возвращает true, если за период нет киллов.
 function auction:RefreshAttendancePlayers(period, now, resolver)
-    local report = self:BuildAttendanceReport(self.attendance or {}, now, period.days, self.ATTENDANCE_COLUMNS, self.attendanceBossFilter, resolver)
+    -- Сколько колонок-дат помещается: зависит от ширины окна (окно можно растянуть)
+    local columns = self:GetAttendanceVisibleColumns()
+    self.attendanceContent:SetWidth(math.max(CONTENT_WIDTH, self.attendancePanel:GetWidth() - 6 - 26))
+    local report = self:BuildAttendanceReport(self.attendance or {}, now, period.range, columns, self.attendanceBossFilter, resolver)
     self.attendanceReport = report
     self.attendanceViewData = {
         view = "players", data = report,
@@ -893,7 +938,7 @@ end
 
 -- Вид "Боссы": по строке на босса. Возвращает true, если данных нет.
 function auction:RefreshAttendanceBosses(period, now, resolver)
-    local list = self:BuildBossSummary(self.attendance or {}, now, period.days, resolver)
+    local list = self:BuildBossSummary(self.attendance or {}, now, period.range, resolver)
     self.attendanceViewData = {
         view = "bosses", data = list,
         info = { periodLabel = period.label, byMain = resolver ~= nil },
@@ -920,7 +965,7 @@ end
 -- Вид "Дни": по строке на рейд-день (новые сверху), с учётом фильтра по боссу.
 -- Возвращает true, если данных нет.
 function auction:RefreshAttendanceDays(period, now, resolver)
-    local list = self:BuildDaySummary(self.attendance or {}, now, period.days, self.attendanceBossFilter, resolver)
+    local list = self:BuildDaySummary(self.attendance or {}, now, period.range, self.attendanceBossFilter, resolver)
     self.attendanceViewData = {
         view = "days", data = list,
         info = { periodLabel = period.label, bossFilter = self.attendanceBossFilter, byMain = resolver ~= nil },

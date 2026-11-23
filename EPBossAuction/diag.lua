@@ -668,8 +668,8 @@ Check("Данные: посещаемость (attendance)", function()
             if prev and type(r.t) == "number" and type(prev.t) == "number" then
                 if r.t < prev.t then
                     problems[#problems + 1] = "#"..i..": нарушен порядок по времени (список должен идти по возрастанию)"
-                elseif r.boss and r.boss == prev.boss and (r.t - prev.t) < sameKill then
-                    problems[#problems + 1] = "#"..i..": дубль килла «"..tostring(r.boss).."» (меньше "..sameKill.." с после предыдущего)"
+                elseif auction.IsSameKill and auction:IsSameKill(prev.boss, prev.t, prev.players, r.boss, r.t, r.players) then
+                    problems[#problems + 1] = "#"..i..": дубль килла «"..tostring(r.boss).."» (тот же босс и почти тот же состав в пределах "..sameKill.." с)"
                 end
             end
             prev = r

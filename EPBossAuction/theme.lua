@@ -288,19 +288,26 @@ function auction:SkinScrollBar(scrollBar)
     local up = scrollBar.ScrollUpButton or _G[scrollBar:GetName() .. "ScrollUpButton"]
     local down = scrollBar.ScrollDownButton or _G[scrollBar:GetName() .. "ScrollDownButton"]
     local thumb = scrollBar.ThumbTexture or _G[scrollBar:GetName() .. "ThumbTexture"]
-    -- Стрелки полосы прокрутки рисуем шрифтом с символами (в стандартном
-    -- шрифте клиента ˄ ˅ нет); если шрифт недоступен — обычные ^ и v.
-    -- Размер шрифта стрелок: чем больше число, тем крупнее стрелка.
-    local SCROLL_ARROW_FONT_SIZE = 22
+    -- Стрелки полосы прокрутки рисуем шрифтом с символами (▲ ▼ симметричны и
+    -- встают по центру кнопки; ˄ ˅ из-за своих метрик съезжали вправо-вверх).
+    -- Если шрифт недоступен — обычные ^ и v.
+    -- SCROLL_ARROW_FONT_SIZE — размер (больше число = крупнее стрелка);
+    -- SCROLL_ARROW_OFFSET_X/Y — сдвиг от центра кнопки в пикселях.
+    local SCROLL_ARROW_FONT_SIZE = 14
+    local SCROLL_ARROW_OFFSET_X, SCROLL_ARROW_OFFSET_Y = 0, 0
     local function SetArrow(button, glyph, fallback)
         button:SetText(glyph)
         local fs = button:GetFontString()
-        if fs and not self:TrySetSymbolFont(fs, SCROLL_ARROW_FONT_SIZE) then
+        if fs and self:TrySetSymbolFont(fs, SCROLL_ARROW_FONT_SIZE) then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", button, "CENTER", SCROLL_ARROW_OFFSET_X, SCROLL_ARROW_OFFSET_Y)
+            fs:SetJustifyH("CENTER")
+        else
             button:SetText(fallback)
         end
     end
-    if up then self:SkinButton(up); SetArrow(up, "˄", "^") end
-    if down then self:SkinButton(down); SetArrow(down, "˅", "v") end
+    if up then self:SkinButton(up); SetArrow(up, "▲", "^") end
+    if down then self:SkinButton(down); SetArrow(down, "▼", "v") end
     if thumb then
         thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
         thumb:SetVertexColor(c.accent[1], c.accent[2], c.accent[3], 0.9)
