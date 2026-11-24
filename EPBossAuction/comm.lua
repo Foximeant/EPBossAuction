@@ -3,7 +3,7 @@ local auction = EPBossAuction
 -- ============================================================
 -- comm.lua — сетевой протокол аддона
 -- ============================================================
--- Весь обмен идёт через SendAddonMessage(auction.prefix, ...) по
+-- Весь обмен идёт через auction:Send (исходящая очередь, ниже) → SendAddonMessage(auction.prefix, ...) по
 -- каналам RAID/GUILD/WHISPER. Входящие сообщения приходят в
 -- events.lua (CHAT_MSG_ADDON) и передаются сюда в HandleMessage,
 -- которая по первому слову до ";" находит функцию Handle_<CMD>
@@ -50,19 +50,148 @@ local function GetSafeItemInfo(itemID)
     return "предмет "..tostring(itemID)
 end
 
+-- ======================
+-- Исходящая очередь (защита ЛМ от мута за флуд)
+-- ======================
+-- Сервер банит за отправку ~5 сообщений в очень короткий срок, и аддонные
+-- сообщения считаются. Поэтому ВСЕ исходящие сообщения идут через
+-- auction:Send(), а не прямым SendAddonMessage. Очередь работает как
+-- "ведро с жетонами": можно отправить OUT_BURST сообщений подряд, дальше —
+-- не чаще одного раза в OUT_INTERVAL секунд (в любом окне в 1 секунду уходит
+-- не больше 4 сообщений). Пока жетоны есть, сообщение уходит МГНОВЕННО, без
+-- задержки — поэтому одиночная ставка и её SYNC не замедляются.
+-- Если сообщений больше, чем можно, срочное идёт раньше несрочного:
+--   0 STATE   состояние, которое видит весь рейд (SYNC, LOCK, END, LM, OFFSPEC_MULT)
+--   1 REPLY   личные ответы по ставке (BIDOK, LOCKED, TOOLOW), SIGNUP
+--   2 WELCOME данные новичкам и по запросу (HELLO/версии, резерв)
+--   3 BULK    фоновая синхронизация (посещаемость, версии аддона)
+-- key — ключ слияния: если сообщение с таким ключом ещё не ушло, новое ЗАМЕНЯЕТ
+-- его (и поднимает в более срочную очередь), а не ставится вторым. msg может
+-- быть функцией: она вызывается в момент реальной отправки и возвращает
+-- свежий текст (или nil — тогда отправка пропускается), так что устаревшие
+-- данные никогда не уйдут. ttl — через сколько секунд ожидания сообщение
+-- считается ненужным и выбрасывается.
+auction.OUT_BURST = 3
+auction.OUT_INTERVAL = 0.6
+auction.outStats = { sent = 0, dropped = 0, maxQueue = 0, maxWait = 0 }
+
+function auction:Send(msg, channel, target, prio, key, ttl)
+    prio = prio or 2
+    self.outQueues = self.outQueues or { [0] = {}, {}, {}, {} }
+    self.outKeyed = self.outKeyed or {}
+    local now = GetTime()
+    local entry = key and self.outKeyed[key]
+    if entry then
+        entry.msg, entry.channel, entry.target = msg, channel, target
+        entry.expires = ttl and (now + ttl) or nil
+        if prio < entry.prio then
+            local queue = self.outQueues[entry.prio]
+            for i, e in ipairs(queue) do
+                if e == entry then table.remove(queue, i) break end
+            end
+            entry.prio = prio
+            table.insert(self.outQueues[prio], entry)
+        end
+    else
+        entry = { msg = msg, channel = channel, target = target, prio = prio,
+                  key = key, queued = now, expires = ttl and (now + ttl) or nil }
+        table.insert(self.outQueues[prio], entry)
+        if key then self.outKeyed[key] = entry end
+    end
+    self:PumpOutbox()
+end
+
+-- Достаёт следующее сообщение: сначала срочные очереди; просроченные
+-- (ttl) выбрасывает. allowLow = false — только приоритеты 0 и 1 (фоновые
+-- сообщения оставляют один жетон про запас, см. PumpOutbox).
+function auction:OutboxPop(allowLow)
+    for prio = 0, (allowLow and 3 or 1) do
+        local queue = self.outQueues[prio]
+        while #queue > 0 do
+            local e = table.remove(queue, 1)
+            if e.key and self.outKeyed[e.key] == e then self.outKeyed[e.key] = nil end
+            if e.expires and GetTime() > e.expires then
+                self.outStats.dropped = self.outStats.dropped + 1
+            else
+                return e
+            end
+        end
+    end
+    return nil
+end
+
+function auction:OutboxPending()
+    local q = self.outQueues
+    if not q then return 0 end
+    return #q[0] + #q[1] + #q[2] + #q[3]
+end
+
+-- Отправляет из очереди столько, сколько позволяют жетоны, и при остатке
+-- планирует себя на момент появления следующего жетона.
+function auction:PumpOutbox()
+    local now = GetTime()
+    local tokens = (self.outTokens or self.OUT_BURST) + (now - (self.outStamp or now)) / self.OUT_INTERVAL
+    if tokens > self.OUT_BURST then tokens = self.OUT_BURST end
+    self.outStamp = now
+
+    local pending = self:OutboxPending()
+    if pending > self.outStats.maxQueue then self.outStats.maxQueue = pending end
+
+    while tokens >= 1 do
+        -- Один жетон держим про запас для срочного (ставки, SYNC, LOCK): фоновые
+        -- и "приветственные" сообщения тратят жетоны только пока их хотя бы два,
+        -- поэтому живая ставка во время фоновой рассылки уходит без ожидания.
+        local e = self:OutboxPop(tokens >= 2)
+        if not e then break end
+        local text = e.msg
+        if type(text) == "function" then
+            local ok, result = pcall(text)
+            if not ok then
+                -- ошибка при сборке сообщения не должна пройти молча: пишем в
+                -- Debug и отдаём обработчику ошибок (его ловит diag)
+                self:Debug("Send: ошибка формирования сообщения: "..tostring(result))
+                if geterrorhandler then geterrorhandler()(result) end
+            end
+            text = ok and result or nil
+        end
+        if text then
+            local ok, err = pcall(SendAddonMessage, self.prefix, text, e.channel, e.target)
+            if not ok then self:Debug("Send: ошибка отправки: "..tostring(err)) end
+            tokens = tokens - 1
+            local stats = self.outStats
+            stats.sent = stats.sent + 1
+            local waited = now - e.queued
+            if waited > stats.maxWait then stats.maxWait = waited end
+        end
+    end
+    self.outTokens = tokens
+
+    if self:OutboxPending() > 0 and not self.outTimerSet then
+        self.outTimerSet = true
+        local q = self.outQueues
+        local needed = (#q[0] + #q[1] > 0) and 1 or 2     -- сколько жетонов нужно следующему сообщению
+        local wait = math.max(0.05, (needed - tokens) * self.OUT_INTERVAL)
+        self:ScheduleTimer(function()
+            self.outTimerSet = false
+            self:PumpOutbox()
+        end, wait)
+    end
+end
+
 -- Отправляет message адресно текущему ЛМ (WHISPER), если он известен
 -- (self.lastLM) и это не я сам; иначе — веерно в RAID (на случай, если ЛМ
 -- ещё не определён). Возвращает true/false — ушло ли адресно или веерно.
-function auction:SendToLootMaster(message)
+function auction:SendToLootMaster(message, prio, key)
     if not message or message == "" then return false end
+    prio = prio or 0    -- по умолчанию срочно (BID); запросы данных передают 2
 
     local playerName = UnitName("player")
     if self.lastLM and self.lastLM ~= "" and self.lastLM ~= playerName then
-        SendAddonMessage(self.prefix, message, "WHISPER", self.lastLM)
+        self:Send(message, "WHISPER", self.lastLM, prio, key)
         return true
     end
 
-    SendAddonMessage(self.prefix, message, "RAID")
+    self:Send(message, "RAID", nil, prio, key)
     return false
 end
 
@@ -104,7 +233,7 @@ function auction:HandleWorldEnter()
                 end, 3)
             else
                 self:Debug("НЕТ СТАВОК, просто сообщаем что мы лутер")
-                SendAddonMessage(self.prefix, "LM", "RAID")
+                self:Send("LM", "RAID", nil, 0, "LM")
             end
         else
             self:Debug("Я НЕ ЛУТЕР")
@@ -129,7 +258,7 @@ function auction:BroadcastMyVersion()
     -- экране (зона/инст), а гильдии достаточно узнать версию при входе.
     if self.versionBroadcasted then return end
     self.versionBroadcasted = true
-    SendAddonMessage(self.prefix, "MY_VERSION;"..self.version, "GUILD")
+    self:Send("MY_VERSION;"..self.version, "GUILD", nil, 3, "MY_VERSION")
 end
 
 -- Приём чужой версии аддона (в комнате уже есть отдельный заголовок про MY_VERSION выше).
@@ -225,46 +354,29 @@ function auction:AnnounceToRaid(message)
 end
 
 -- Полная рассылка ВСЕХ имеющихся ставок по всем боссам в рейд (только
--- ЛМ). Растягивает отправку по времени (0.3 сек между предметами), чтобы
--- не забить канал разом, и в конце шлёт SYNC_COMPLETE.
+-- ЛМ). Темп отправки задаёт исходящая очередь (auction:Send, приоритет
+-- "данные новичкам"); в конце ставится SYNC_COMPLETE.
 function auction:SyncAllToRaid()
     if not self:IsLootMaster() then 
         self:Debug("Не лутер, синхронизация отменена")
         return 
     end
-    SendAddonMessage(self.prefix, "LM", "RAID")
+    self:Send("LM", "RAID", nil, 0, "LM")
     local syncCount = 0
-    local totalItems = 0
     for bossName, bossBids in pairs(self.bids) do
         for itemID, bidsForItem in pairs(bossBids) do
             if #bidsForItem > 0 then
-                totalItems = totalItems + 1
-            end
-        end
-    end
-    if totalItems == 0 then
-        self:Debug("Нет ставок для синхронизации")
-        return
-    end
-    self:Debug("Начинаем синхронизацию "..totalItems.." предметов с рейдом")
-    local delay = 0
-    for bossName, bossBids in pairs(self.bids) do
-        for itemID, bidsForItem in pairs(bossBids) do
-            if #bidsForItem > 0 then
-                self:ScheduleTimer(function()
-                    self:SendSyncImmediate(bossName, itemID)
-                end, delay)
-                delay = delay + 0.3
+                self:SendSyncImmediate(bossName, itemID, 2, true)
                 syncCount = syncCount + 1
             end
         end
     end
-    if syncCount > 0 then
-        self:Debug("Запланирована отправка "..syncCount.." предметов")
-        self:ScheduleTimer(function()
-            SendAddonMessage(self.prefix, "SYNC_COMPLETE", "RAID")
-        end, delay + 1)
+    if syncCount == 0 then
+        self:Debug("Нет ставок для синхронизации")
+        return
     end
+    self:Debug("В очередь отправки поставлено предметов: "..syncCount)
+    self:Send("SYNC_COMPLETE", "RAID", nil, 3, "SYNC_COMPLETE")
 end
 
 -- Тонкая обёртка над QueueSync (force сейчас не используется, оставлена для совместимости вызовов).
@@ -303,18 +415,25 @@ end
 -- увеличивает dataVersion, собирает все ставки в строку вида
 -- "игрок:сумма:офф-спек,...". Не сохраняет данные сама — это на таймере
 -- автосейва (см. core.lua InitAutoSave).
-function auction:SendSyncImmediate(bossName, itemID)
+function auction:SendSyncImmediate(bossName, itemID, prio, noBump)
     if not bossName or not itemID then return end
     local bidsForItem = self.bids[bossName] and self.bids[bossName][itemID]
     if not bidsForItem then 
         self:Debug("Нет ставок для отправки: "..bossName.." "..itemID)
         return 
     end
-    local currentVersion = self:IncrementDataVersion(bossName, itemID)
-    local message, sent = self:BuildSyncMessage(bossName, itemID, bidsForItem, currentVersion)
-    self:Debug("Отправка SYNC2 для босса "..bossName..": "..GetSafeItemInfo(itemID).." ("..sent.."/"..#bidsForItem.." ставок, "..#message.." байт), версия "..currentVersion)
-    SendAddonMessage(self.prefix, message, "RAID")
-    -- Сохранение данных теперь только по таймеру, не здесь
+    -- Текст собирается в момент реальной отправки (см. auction:Send), поэтому
+    -- в рейд всегда уходит самое свежее состояние предмета, а несколько
+    -- изменений подряд сливаются в один SYNC (ключ "SYNC:босс:предмет").
+    -- noBump — не увеличивать версию данных (простая пересылка того же).
+    self:Send(function()
+        local bids = self.bids[bossName] and self.bids[bossName][itemID]
+        if not bids then return nil end
+        local currentVersion = noBump and self:GetDataVersion(bossName, itemID) or self:IncrementDataVersion(bossName, itemID)
+        local message, sent = self:BuildSyncMessage(bossName, itemID, bids, currentVersion)
+        self:Debug("Отправка SYNC2 для босса "..bossName..": "..GetSafeItemInfo(itemID).." ("..sent.."/"..#bids.." ставок, "..#message.." байт), версия "..currentVersion)
+        return message
+    end, "RAID", nil, prio or 0, "SYNC:"..bossName..":"..itemID)
 end
 
 -- Компактный формат SYNC2 (вместо SYNC, который не влезал в 255 байт при
@@ -366,35 +485,6 @@ function auction:BuildSyncMessage(bossName, itemID, bids, version)
     return message, #parts
 end
 
--- Персональная (WHISPER) отправка всех ставок по одному боссу
--- конкретному игроку — ответ ЛМ на HELLO. В отличие от
--- SendSyncImmediate не увеличивает dataVersion (это просто пересылка уже
--- существующих данных, а не новое изменение).
-function auction:SendAllBidsForBoss(bossName, targetPlayer)
-    if not bossName or not targetPlayer then return false end
-    local bossBids = self.bids[bossName]
-    if not bossBids then 
-        self:Debug("Нет ставок для босса "..bossName.." игроку "..targetPlayer)
-        return false
-    end
-    local sentCount = 0
-    self:Debug("Отправка ставок для "..bossName.." игроку "..targetPlayer)
-    for itemID, bidsForItem in pairs(bossBids) do
-        if #bidsForItem > 0 then
-            local currentVersion = self:GetDataVersion(bossName, itemID)
-            local message = self:BuildSyncMessage(bossName, itemID, bidsForItem, currentVersion)
-            SendAddonMessage(self.prefix, message, "WHISPER", targetPlayer)
-            sentCount = sentCount + 1
-            self:Debug("Отправлен предмет "..itemID.." ("..#bidsForItem.." ставок)")
-        end
-    end
-    if sentCount > 0 then
-        SendAddonMessage(self.prefix, "SYNC_COMPLETE", "WHISPER", targetPlayer)
-        return true
-    end
-    return false
-end
-
 -- Запрос своих данных у текущего ЛМ (не-ЛМ вызывает при входе в мир и
 -- при обнаружении нового ЛМ): шлёт LM_REQUEST + CHECK_VERSION + HELLO
 -- (с именем выбранного босса, если есть). Через 8 сек проверяет по
@@ -408,13 +498,13 @@ function auction:RequestDataFromLM()
     self.receivedItems = {}
     self.receivedSync = false
     self.receivedAck = false
-    self:SendToLootMaster("LM_REQUEST")
-    self:SendToLootMaster("CHECK_VERSION")
+    self:SendToLootMaster("LM_REQUEST", 2, "LM_REQUEST")
+    self:SendToLootMaster("CHECK_VERSION", 2, "CHECK_VERSION")
     local bossParam = ""
     if self.selectedBoss then
         bossParam = ";"..self.selectedBoss
     end
-    self:SendToLootMaster("HELLO"..bossParam)
+    self:SendToLootMaster("HELLO"..bossParam, 2, "HELLO")
     self:ScheduleTimer(function()
         if not self.receivedSync and not self.receivedAck then
             self:Debug("Не удалось получить данные от лутера")
@@ -429,7 +519,8 @@ end
 -- ======================
 function auction:BroadcastSignup(bossName, category, playerName, state)
     local msg = "SIGNUP;"..bossName..";"..category..";"..playerName..";"..(state and "1" or "0")
-    SendAddonMessage(self.prefix, msg, "RAID")
+    -- ключ: пара быстрых нажатий подряд сольётся в одно сообщение с последним состоянием
+    self:Send(msg, "RAID", nil, 1, "SIGNUP:"..bossName..":"..category..":"..playerName)
 end
 
 -- Приём чужой явки — просто применяет присланное состояние (ApplySignup), без проверки прав отправителя (явка не требует роли ЛМ).
@@ -468,7 +559,7 @@ function auction:Handle_BID(rest, sender)
     end
     if self.bidsLocked then
         self:Debug("Блокировка активна, ставка отклонена")
-        SendAddonMessage(self.prefix, "LOCKED", "WHISPER", sender)
+        self:Send("LOCKED", "WHISPER", sender, 1, "LOCKED:"..sender, 5)
         return
     end
     local bossName, itemID, playerName, amount, isOffspec = rest:match("([^;]+);([^;]+);([^;]+);([^;]+);(.*)")
@@ -487,7 +578,7 @@ function auction:Handle_BID(rest, sender)
     -- Резерв: на предмет, проданный заранее, ставки не принимаются (снять свою ставку, amount = 0, можно).
     if amount and amount > 0 and self:IsReserved(bossName, itemID) then
         self:Debug("Ставка от "..playerName.." на зарезервированный предмет "..itemID.." отклонена")
-        SendAddonMessage(self.prefix, "RESERVED;"..bossName..";"..itemID, "WHISPER", sender)
+        self:Send("RESERVED;"..bossName..";"..itemID, "WHISPER", sender, 1, "RESERVED:"..sender..":"..bossName..":"..itemID, 5)
         return
     end
     
@@ -515,7 +606,7 @@ function auction:Handle_BID(rest, sender)
     end
     if amount < self.db.general.minBid then
         self:Debug("Ставка меньше минимальной ("..self.db.general.minBid.."), игнорируем")
-        SendAddonMessage(self.prefix, "TOOLOW;"..amount..";"..self.db.general.minBid, "WHISPER", sender)
+        self:Send("TOOLOW;"..amount..";"..self.db.general.minBid, "WHISPER", sender, 1, "TOOLOW:"..sender, 5)
         return
     end
     self.bids[bossName] = self.bids[bossName] or {}
@@ -542,7 +633,9 @@ function auction:Handle_BID(rest, sender)
         end
     end
     self:CheckIfOutbid(bossName, itemID)
-    SendAddonMessage(self.prefix, "BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender)
+    -- BIDOK только очищает поле ввода у ставившего (само состояние приходит в SYNC2), поэтому
+    -- при заторе в очереди его можно выбросить (ttl 4 сек)
+    self:Send("BIDOK;"..amount..";"..playerName..";"..bossName..";"..itemID, "WHISPER", sender, 1, "BIDOK:"..sender..":"..bossName..":"..itemID, 4)
     self:Debug("Ставка обработана, отправлен SYNC")
 end
 
@@ -644,34 +737,104 @@ function auction:Handle_HELLO(rest, sender)
     end
     local requestedBoss = rest
     if requestedBoss == "" then requestedBoss = nil end
-    local playerName = sender
-    self:Debug("Получен HELLO от "..playerName.." для босса "..(requestedBoss or "всех"))
+    self:Debug("Получен HELLO от "..sender.." для босса "..(requestedBoss or "всех"))
     if not self:IsLootMaster() then 
         self:Debug("Игнорируем HELLO, я не лутер")
         return 
     end
-    if requestedBoss then
-        if not self:SendAllBidsForBoss(requestedBoss, playerName) then
-            SendAddonMessage(self.prefix, "END;"..requestedBoss, "WHISPER", playerName)
+    self:QueueLMReply("hello", sender, requestedBoss)
+end
+
+-- ЛМ отвечает на HELLO / LM_REQUEST / CHECK_VERSION НЕ каждому по отдельности,
+-- а одним общим ответом в рейд: запросы, пришедшие за LM_REPLY_DELAY секунд,
+-- копятся и обрабатываются разом (FlushLMReplies). Иначе при сборе рейда или
+-- смене ЛМ 25 игроков одновременно спрашивают ЛМ, и он отвечает каждому
+-- несколькими сообщениями — на этом сервер и мутит. Теперь число сообщений
+-- зависит от числа предметов с ставками, а не от числа игроков.
+local LM_REPLY_DELAY = 1.0
+
+function auction:QueueLMReply(kind, name, boss)
+    if not self:IsLootMaster() then return end
+    local p = self.lmReplyPending
+    if not p then
+        p = { hello = {} }
+        self.lmReplyPending = p
+    end
+    if kind == "hello" then
+        p.hello[name] = boss or false
+    elseif kind == "lm" then
+        p.lm = true
+    elseif kind == "versions" then
+        p.versions = true
+    end
+    if not self.lmReplyTimer then
+        self.lmReplyTimer = true
+        self:ScheduleTimer(function() self:FlushLMReplies() end, LM_REPLY_DELAY)
+    end
+end
+
+function auction:FlushLMReplies()
+    local p = self.lmReplyPending
+    self.lmReplyPending = nil
+    self.lmReplyTimer = nil
+    if not p or not self:IsLootMaster() then return end
+
+    if p.lm then
+        self:Send("LM_RESPONSE;"..UnitName("player"), "RAID", nil, 2, "LM_RESPONSE")
+    end
+
+    if p.versions then
+        -- список версий по предметам; в одно сообщение влезает не всё — лишнее
+        -- отбрасываем (ЛМ-данные клиенты всё равно принимают безусловно)
+        local msg = "VERSIONS"
+        local limit = self.SYNC_MAX_BYTES - #self.prefix - 1
+        for versionKey, version in pairs(self.dataVersions) do
+            local part = ";"..versionKey..":"..version
+            if #msg + #part > limit then break end
+            msg = msg..part
         end
-    else
-        if self.selectedBoss then
-            self:SendAllBidsForBoss(self.selectedBoss, playerName)
-        else
-            local sentAny = false
-            for bossName, _ in pairs(self.bids) do
-                if self:SendAllBidsForBoss(bossName, playerName) then
+        self:Send(msg, "RAID", nil, 2, "VERSIONS")
+    end
+
+    if next(p.hello) then
+        local bosses = {}
+        for name, requested in pairs(p.hello) do
+            if requested then
+                bosses[requested] = true
+            elseif self.selectedBoss then
+                bosses[self.selectedBoss] = true
+            else
+                for bossName in pairs(self.bids) do bosses[bossName] = true end
+            end
+        end
+        local sentAny = false
+        for bossName in pairs(bosses) do
+            for itemID, bidsForItem in pairs(self.bids[bossName] or {}) do
+                if #bidsForItem > 0 then
+                    self:SendSyncImmediate(bossName, itemID, 2, true)
                     sentAny = true
                 end
             end
-            if not sentAny then
-                self:Debug("Нет данных для отправки "..playerName)
+        end
+        -- Игрокам, спросившим босса, по которому у ЛМ ничего нет, — персональный END
+        -- (чтобы они сбросили устаревшее у себя; рейду END слать нельзя — он
+        -- очищает и явку)
+        for name, requested in pairs(p.hello) do
+            if requested then
+                local hasData = false
+                for _, bidsForItem in pairs(self.bids[requested] or {}) do
+                    if #bidsForItem > 0 then hasData = true break end
+                end
+                if not hasData then
+                    self:Send("END;"..requested, "WHISPER", name, 2, "END:"..requested..":"..name)
+                end
             end
         end
+        self:QueueReserveBroadcast()   -- списку резерва нужна одна рассылка на всех
+        self:Send(function() return "LOCK;"..tostring(self.bidsLocked) end, "RAID", nil, 2, "LOCK")
+        self:Send("HELLO_ACK", "RAID", nil, 3, "HELLO_ACK")
+        if sentAny then self:Send("SYNC_COMPLETE", "RAID", nil, 3, "SYNC_COMPLETE") end
     end
-    self:QueueReserveBroadcast()   -- новому/переподключившемуся игроку нужен список резерва (одна рассылка на всех)
-    SendAddonMessage(self.prefix, "LOCK;"..tostring(self.bidsLocked), "WHISPER", playerName)
-    SendAddonMessage(self.prefix, "HELLO_ACK", "WHISPER", playerName)
 end
 
 -- Подтверждение от ЛМ, что мой HELLO дошёл — выставляет self.receivedAck (только для Debug-диагностики зависшей синхронизации).
@@ -689,7 +852,7 @@ function auction:Handle_LM(rest, sender)
         if self.selectedBoss then
             bossParam = ";"..self.selectedBoss
         end
-        SendAddonMessage(self.prefix, "HELLO"..bossParam, "WHISPER", sender)
+        self:Send("HELLO"..bossParam, "WHISPER", sender, 2, "HELLO")
     end
 end
 
@@ -697,8 +860,7 @@ end
 function auction:Handle_LM_REQUEST(rest, sender)
     self:Debug("Получен LM_REQUEST от "..sender)
     if self:IsLootMaster() then
-        SendAddonMessage(self.prefix, "LM_RESPONSE;"..UnitName("player"), "WHISPER", sender)
-        self:Debug("Отправлен LM_RESPONSE")
+        self:QueueLMReply("lm")
     end
 end
 
@@ -716,12 +878,7 @@ end
 function auction:Handle_CHECK_VERSION(rest, sender)
     self:Debug("Получен CHECK_VERSION от "..sender)
     if self:IsLootMaster() then
-        local versionMsg = "VERSIONS"
-        for versionKey, version in pairs(self.dataVersions) do
-            versionMsg = versionMsg .. ";" .. versionKey .. ":" .. version
-        end
-        SendAddonMessage(self.prefix, versionMsg, "WHISPER", sender)
-        self:Debug("Отправлены версии: "..versionMsg)
+        self:QueueLMReply("versions")
     end
 end
 
@@ -746,7 +903,7 @@ function auction:Handle_VERSIONS(rest, sender)
         if self.selectedBoss then
             bossParam = ";"..self.selectedBoss
         end
-        self:SendToLootMaster("HELLO"..bossParam)
+        self:SendToLootMaster("HELLO"..bossParam, 2, "HELLO")
     end
 end
 

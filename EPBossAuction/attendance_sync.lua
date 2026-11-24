@@ -31,7 +31,7 @@ local auction = EPBossAuction
 -- Ограничения и безопасность (сознательно простые):
 --   • 3.3.5a ограничивает сообщение 255 байтами, поэтому запись режется на куски
 --     (SplitUtf8 — не посреди русской буквы), а отправка идёт очередью по
---     одному сообщению в 0.2 сек (AttQueueSend), чтобы не упереться в лимиты.
+--     общей исходящей очереди (AttQueueSend → auction:Send), чтобы не упереться в лимиты.
 --   • Запрос уходит всей гильдии, отвечают только те, у кого есть доступ к
 --     Attendance (HasAttendanceAccess). Проверить, что запрашивающий — именно
 --     офицер, клиент не может: любой гильдеец с аддоном и подправленным кодом
@@ -45,7 +45,6 @@ local auction = EPBossAuction
 auction.ATT_SYNC_DAYS = 60
 
 local CHUNK_BYTES = 170               -- размер куска данных в одном сообщении
-local SEND_INTERVAL = 0.2             -- пауза между исходящими сообщениями, сек
 local MAX_RECORDS_PER_RESPONSE = 120  -- не больше записей в одном ответе
 local RESPOND_COOLDOWN = 20           -- не отвечать одному и тому же запросившему чаще, сек
 local SYNC_MAX_SECONDS = 120          -- сессия синхронизации длится не дольше, сек
@@ -198,26 +197,12 @@ end
 -- Очередь отправки
 -- ======================
 
--- Ставит сообщение в очередь; очередь разбирается по одному сообщению раз в
--- SEND_INTERVAL секунд. channel — "GUILD" или "WHISPER" (тогда target — имя).
-function auction:AttQueueSend(msg, channel, target)
-    self.attSendQueue = self.attSendQueue or {}
-    table.insert(self.attSendQueue, { msg = msg, channel = channel, target = target })
-    if not self.attSendRunning then
-        self.attSendRunning = true
-        self:AttPumpQueue()
-    end
-end
-
--- Отправляет следующее сообщение из очереди и планирует следующее.
-function auction:AttPumpQueue()
-    local item = table.remove(self.attSendQueue or {}, 1)
-    if not item then
-        self.attSendRunning = false
-        return
-    end
-    SendAddonMessage(self.prefix, item.msg, item.channel, item.target)
-    self:ScheduleTimer(function() self:AttPumpQueue() end, SEND_INTERVAL)
+-- Отправка идёт через общую исходящую очередь (auction:Send, comm.lua), которая
+-- держит темп и не даёт ЛМ/офицеру получить мут за флуд. channel — "GUILD" или
+-- "WHISPER" (тогда target — имя); prio — приоритет очереди (по умолчанию 3 —
+-- фоновый: синхронизация не должна задерживать ставки).
+function auction:AttQueueSend(msg, channel, target, prio)
+    self:Send(msg, channel, target, prio or 3)
 end
 
 -- ======================

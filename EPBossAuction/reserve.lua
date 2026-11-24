@@ -319,7 +319,7 @@ function auction:ApplyReserveOnLootMaster(boss, itemID)
     end
     local channel = GroupChannel()
     if channel and self:HasReserveAccess() then
-        SendAddonMessage(self.prefix, "RES_ONE;"..boss..";"..itemID..";"..qty, channel)
+        self:Send("RES_ONE;"..boss..";"..itemID..";"..qty, channel, nil, 2, "RES_ONE:"..boss..":"..itemID)
     end
 end
 
@@ -415,12 +415,12 @@ function auction:BroadcastReserves()
     for boss, items in pairs(self.reserves) do
         for itemID, e in pairs(items) do
             if e.qty > 0 then
-                self:AttQueueSend(string.format("RES;%s;%s;%d;%d", gen, boss, itemID, e.qty), channel)
+                self:AttQueueSend(string.format("RES;%s;%s;%d;%d", gen, boss, itemID, e.qty), channel, nil, 2)
                 count = count + 1
             end
         end
     end
-    self:AttQueueSend(string.format("RES_END;%s;%d", gen, count), channel)
+    self:AttQueueSend(string.format("RES_END;%s;%d", gen, count), channel, nil, 2)
     self:Debug("Резерв: рассылка в "..channel..", записей: "..count)
 end
 
@@ -492,7 +492,7 @@ function auction:SendReserveUpdate(boss, itemID)
     if not IsInGuild() then return end
     local e = self:GetReserveEntry(boss, itemID)
     if not e then return end
-    self:AttQueueSend(string.format("RES_UPD;%s;%d;%d;%d;%s", boss, itemID, e.qty, e.t, e.note or ""), "GUILD")
+    self:Send(string.format("RES_UPD;%s;%d;%d;%d;%s", boss, itemID, e.qty, e.t, e.note or ""), "GUILD", nil, 2, "RES_UPD:"..boss..":"..itemID)
 end
 
 -- Проверка входящей записи (чужим данным не доверяем): известный босс и предмет,

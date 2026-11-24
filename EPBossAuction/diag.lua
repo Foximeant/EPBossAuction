@@ -41,6 +41,14 @@ local SAVED_ERR_MAX = 30
 local SAVED_SESSIONS = 6
 local MSG_LIMIT = 255                -- лимит SendAddonMessage в 3.x: префикс + \t + текст
 
+-- Строка со статистикой исходящей очереди (auction:Send в comm.lua): сколько
+-- отправлено, сколько сейчас ждёт, пик очереди и самое долгое ожидание.
+local function OutboxLine()
+    local s = auction.outStats or {}
+    return string.format("исходящая очередь: отправлено %d, сейчас ждёт %d, пик очереди %d, макс. ожидание %.1f с, выброшено устаревших %d",
+        s.sent or 0, auction.OutboxPending and auction:OutboxPending() or 0, s.maxQueue or 0, s.maxWait or 0, s.dropped or 0)
+end
+
 local sessionStart = GetTime()
 local sessionStartUnix = time()
 local prof = (type(debugprofilestop) == "function") and debugprofilestop
@@ -781,6 +789,7 @@ Check("Сеть: здоровье протокола", function()
     local n = diag.net
     local lines = { string.format("исходящих %d (%d Б), входящих %d (%d Б), пик исходящих за 10 с: %d, самое длинное: %d Б",
         n.outN, n.outB, n.inN, n.inB, n.peak10, n.longest) }
+    lines[#lines + 1] = OutboxLine()
     local status = "ok"
     if n.oversize > 0 then status = "fail"; lines[#lines + 1] = "сообщений сверх лимита "..MSG_LIMIT..": "..n.oversize.." (сервер их режет — данные теряются)" end
     if n.handlerErrors > 0 then status = "fail"; lines[#lines + 1] = "ошибок в обработчиках входящих: "..n.handlerErrors end
@@ -935,7 +944,8 @@ function diag.BuildSummary()
     local n = diag.net
     add("Сообщений: исходящих %d, входящих %d | пик за 10 с: %d | сверх лимита: %d | неизвестных: %d | ошибок обработчиков: %d",
         n.outN, n.inN, n.peak10, n.oversize, n.unknown, n.handlerErrors)
-    add("Ошибок Lua за сессию: %d (уникальных %d) | перехват ошибок: %s", diag.errorTotal, #diag.errors, diag.hookActive and "активен" or "нет")
+    add("Очередь отправки: %s", (OutboxLine():gsub("^исходящая очередь: ", "")))
+        add("Ошибок Lua за сессию: %d (уникальных %d) | перехват ошибок: %s", diag.errorTotal, #diag.errors, diag.hookActive and "активен" or "нет")
     local results = diag.RunChecks()
     local c = diag.CheckSummary(results)
     add("Проверки: OK %d, внимание %d, ошибки %d (подробно — вкладка «Проверки»)", c.ok, c.warn, c.fail)
@@ -987,6 +997,7 @@ function diag.BuildNet(lastN, filter)
         n.outN, n.outB, n.inN, n.inB, n.peak10, n.peak10At and (" в "..Clock(n.peak10At)) or "")
     L[#L + 1] = string.format("Сверх лимита %d: %d | неизвестных команд: %d | ошибок обработчиков: %d | самое длинное: %d Б",
         MSG_LIMIT, n.oversize, n.unknown, n.handlerErrors, n.longest)
+    L[#L + 1] = OutboxLine()
     L[#L + 1] = ""
     L[#L + 1] = "По командам: команда | исх. шт/Б | вх. шт/Б | обработка макс/сред мс | ошибок | неизв. | >лимита"
     for _, cmd in ipairs(SortedKeys(n.cmds)) do
@@ -1090,7 +1101,7 @@ function auction:Handle_DPING(rest, sender)
     local _, build = GetBuildInfo()
     local msg = string.format("DPONG;%s;%s;%s;%d;%d;%d;%d;%d;%d;%s", id, tostring(self.version), tostring(self.lastLM or "-"),
         isLM and 1 or 0, cnt, cs, bcnt, bcs, diag.errorTotal, tostring(build))
-    SendAddonMessage(self.prefix, msg, "WHISPER", sender)
+    self:Send(msg, "WHISPER", sender, 3)   -- через общую очередь (защита от мута)
 end
 
 function auction:Handle_DPONG(rest, sender)
@@ -1126,7 +1137,7 @@ function diag.StartRaidPing()
     diag.raid = { id = id, started = GetTime(), at = time(), boss = boss, channel = channel, replies = {} }
     diag.raid.replies[me] = { ver = tostring(auction.version), lm = tostring(auction.lastLM or "-"), isLM = isLM and true or false,
         cnt = cnt, cs = cs, bcnt = bcnt, bcs = bcs, errs = diag.errorTotal, build = tostring(build), ms = 0, self = true }
-    SendAddonMessage(auction.prefix, "DPING;"..id..";"..boss, channel)
+    auction:Send("DPING;"..id..";"..boss, channel, nil, 3)
     diag.Log("net", "опрос рейда "..id.." по каналу "..channel)
     auction:ScheduleTimer(function()
         if diag.frame and diag.frame:IsShown() and diag.tab == "raid" then diag.Refresh() end

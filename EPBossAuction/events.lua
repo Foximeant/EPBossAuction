@@ -180,7 +180,7 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                     if auction.selectedBoss then
                         auction:RefreshTable()
                     end
-                    SendAddonMessage(auction.prefix, "LM", "RAID")
+                    auction:Send("LM", "RAID", nil, 0, "LM")
                     auction:OnBecameLootMaster()   -- резерв: подтянуть правки офицеров и разослать список в рейд
                     if auction.syncAllTimer then
                         auction:CancelTimer(auction.syncAllTimer)

@@ -329,7 +329,7 @@ function auction:CreateUI()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:Send("LOCK;"..(state and "true" or "false"), "RAID", nil, 0, "LOCK")
             auction:AnnounceToRaid(state and "Ставки ЗАБЛОКИРОВАНЫ" or "Ставки ОТКРЫТЫ")
         end)
     end
@@ -386,7 +386,7 @@ function auction:CreateUI()
                 button1 = "Да", button2 = "Отмена",
                 OnAccept = function()
                     auction:EndAuctionLocal(bossName)
-                    SendAddonMessage(auction.prefix, "END;"..bossName, "RAID")
+                    auction:Send("END;"..bossName, "RAID", nil, 0, "END:"..bossName)
                     auction:AnnounceToRaid("Ставки по \""..bossName.."\" очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
@@ -398,7 +398,7 @@ function auction:CreateUI()
                 button1 = "Да, все", button2 = "Отмена",
                 OnAccept = function()
                     auction:EndAuctionAllLocal()
-                    SendAddonMessage(auction.prefix, "END_ALL", "RAID")
+                    auction:Send("END_ALL", "RAID", nil, 0, "END_ALL")
                     auction:AnnounceToRaid("Ставки по всем боссам очищены")
                 end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
@@ -598,7 +598,7 @@ function auction:CreateUI()
         auction.db.general.offspecMultiplier = multiplier
         auction:SaveSettings()
         print("|cff00ff00[EPBA]|r Коэффициент офф-спек установлен на " .. (multiplier * 100) .. "%")
-        SendAddonMessage(auction.prefix, "OFFSPEC_MULT;" .. multiplier, "RAID")
+        auction:Send("OFFSPEC_MULT;" .. multiplier, "RAID", nil, 0, "OFFSPEC_MULT")
     end
 
     -- Вкладки "Ставки"/"Attendance" и панель посещаемости (attendance.lua)
@@ -687,7 +687,7 @@ function auction:UpdateLockCheckbox()
             local checked = self:GetChecked()
             local state = (checked == 1)
             auction:SetBidsLocked(state)
-            SendAddonMessage(auction.prefix, "LOCK;"..(state and "true" or "false"), "RAID")
+            auction:Send("LOCK;"..(state and "true" or "false"), "RAID", nil, 0, "LOCK")
             auction:AnnounceToRaid(state and "Ставки ЗАБЛОКИРОВАНЫ" or "Ставки ОТКРЫТЫ")
         end)
     else
