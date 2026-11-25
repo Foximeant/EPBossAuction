@@ -142,6 +142,7 @@ function auction:CreateUI()
         GameTooltip:Hide()
     end)
     self.menuBtn = menuBtn
+    self:CreateWatchlistButton(frame, menuBtn)   -- кнопка «★ Мои» (watchlist.lua)
 
     -- ======================
     -- ЛЕВАЯ ПАНЕЛЬ УПРАВЛЕНИЯ
@@ -583,24 +584,6 @@ function auction:CreateUI()
     SlashCmdList["EPBA_OPTIONS"] = function()
         auction:OpenOptions()
     end
-    SLASH_EPBA_OFFSPEC1 = "/epbaoffspec"
-    SlashCmdList["EPBA_OFFSPEC"] = function(value)
-        if not auction:IsLootMaster() then
-            print("|cffff0000[EPBA]|r Только Loot Master может изменять коэффициент офф-спек.")
-            return
-        end
-        local multiplier = tonumber(value)
-        if not multiplier or multiplier < 0.1 or multiplier > 1.0 then
-            print("|cffff0000[EPBA]|r Использование: /epbaoffspec <0.1-1.0> (например: /epbaoffspec 0.5)")
-            return
-        end
-        auction.offspecMultiplier = multiplier
-        auction.db.general.offspecMultiplier = multiplier
-        auction:SaveSettings()
-        print("|cff00ff00[EPBA]|r Коэффициент офф-спек установлен на " .. (multiplier * 100) .. "%")
-        auction:Send("OFFSPEC_MULT;" .. multiplier, "RAID", nil, 0, "OFFSPEC_MULT")
-    end
-
     -- Вкладки "Ставки"/"Attendance" и панель посещаемости (attendance.lua)
     self:CreateAttendanceUI(frame)
 
@@ -972,6 +955,8 @@ function auction:CreateRowTemplate()
     end)
     row.rightClick = rightClick
 
+    self:CreateRowStar(row)   -- звёздочка белого списка (watchlist.lua)
+
     return row
 end
 
@@ -1092,7 +1077,7 @@ function auction:RenderItemRow(row, itemID, index, metrics)
 
     row.itemName:SetText(itemName)
     row.itemName:SetFont(GameFontNormal:GetFont(), metrics.itemFontSize)
-    row.itemName:SetWidth(metrics.itemWidth - (metrics.showIcons and 30 or 10))
+    row.itemName:SetWidth(metrics.itemWidth - (metrics.showIcons and 30 or 10) - self.STAR_SPACE)
     row.itemName:ClearAllPoints()
 
     if metrics.colorMode == "gold" then
@@ -1147,6 +1132,9 @@ function auction:RenderItemRow(row, itemID, index, metrics)
     row.rightClick:ClearAllPoints()
     row.rightClick:SetPoint("TOPLEFT", row, "TOPLEFT", metrics.itemWidth, 0)
     row.rightClick:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+
+    self:LayoutRowStar(row, metrics.itemWidth)
+    self:UpdateRowStar(row)
 
     row:Show()
     return hasPendingItemInfo
@@ -1268,10 +1256,11 @@ function auction:RefreshTable()
 
     local visibleItems = {}
     local hideNoBids = dbTable.hideNoBids == true
+    local watchOnly = self:IsWatchlistOnly()   -- только отмеченные ★ (watchlist.lua)
     for _, itemID in ipairs(items) do
         local bidsForItem = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
         local hasBids = bidsForItem and #bidsForItem > 0
-        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) and (not hideNoBids or hasBids) then
+        if not self:IsItemHiddenForSession(self.selectedBoss, itemID) and (not hideNoBids or hasBids) and (not watchOnly or self:IsWatched(itemID)) then
             table.insert(visibleItems, itemID)
         end
     end
@@ -1290,6 +1279,9 @@ function auction:RefreshTable()
     end
     if #items == 0 then
         self.emptyBossText:SetText("Предметы для этого босса ещё не добавлены")
+        self.emptyBossText:Show()
+    elseif watchOnly and #visibleItems == 0 then
+        self.emptyBossText:SetText("У этого босса нет отмеченных предметов\nСнимите «★ Мои» вверху и отметьте нужные звёздочкой")
         self.emptyBossText:Show()
     else
         self.emptyBossText:Hide()
@@ -1327,7 +1319,7 @@ function auction:RefreshTable()
         end
         row.itemName:SetText(itemName)
         row.itemName:SetFont(GameFontNormal:GetFont(), itemFontSize)
-        row.itemName:SetWidth(itemWidth - (showIcons and 30 or 10))
+        row.itemName:SetWidth(itemWidth - (showIcons and 30 or 10) - self.STAR_SPACE)
         row.itemName:ClearAllPoints()
 
         if colorMode == "gold" then
@@ -1384,6 +1376,8 @@ function auction:RefreshTable()
 
         row.itemID = itemID
         row.index = i
+        self:LayoutRowStar(row, itemWidth)
+        self:UpdateRowStar(row)
         row:Show()
         table.insert(self.activeRows, row)
     end
@@ -1439,7 +1433,7 @@ end
 -- ======================
 -- Локальные функции ставок
 -- ======================
--- Обработка клика по кнопке ставки: валидирует сумму (не ниже minBid,
+-- Обработка клика по кнопке ставки: валидирует сумму (не ниже MIN_BID,
 -- не выше GetMaxBidAmount по актуальному EP — сначала форсит ForceEPUpdate,
 -- чтобы не свериться с устаревшим кэшем), затем либо сразу спрашивает
 -- подтверждение (если confirmBid включён в настройках), либо сразу шлёт
@@ -1453,10 +1447,8 @@ function auction:SendBidLocal()
         self:ReserveClickNotice()
         return
     end
-    -- Минимальную ставку знает и проверяет ЛМ (comm.lua Handle_BID, ответ TOOLOW);
-    -- у остальных своё значение не настраивается, поэтому заранее проверяет только сам ЛМ.
-    if amount ~= 0 and self:IsLootMaster() and amount < self.db.general.minBid then
-        print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.db.general.minBid.." EP (0 = отмена ставки)")
+    if amount ~= 0 and amount < self.MIN_BID then
+        print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.MIN_BID.." EP (0 = отмена ставки)")
         return
     end
     local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
@@ -1568,7 +1560,7 @@ end
 -- удалить при amount==0) — вызывается и когда ставлю я сам (если я ЛМ,
 -- из SendBidAfterConfirm), и как общий код для отражения результата.
 -- В отличие от Handle_BID (comm.lua) не парсит сетевое сообщение и не
--- шлёт BIDOK/TOOLOW — просто меняет self.bids и запускает синхронизацию
+-- шлёт BIDOK — просто меняет self.bids и запускает синхронизацию
 -- (QueueSync), если я ЛМ.
 function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
     if not bossName or not itemID or not playerName then

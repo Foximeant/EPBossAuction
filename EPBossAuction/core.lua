@@ -298,7 +298,11 @@ auction.minimapButton = nil
 auction.minimapButtonPosition = { angle = 0 }
 
 auction.bidsLocked = false
-auction.offspecMultiplier = 0.5
+
+-- Правила аукциона. Зашиты в код, не настраиваются и по сети не рассылаются:
+-- каждый клиент проверяет их сам (UI.lua SendBidLocal, GetMaxBidAmount).
+auction.MIN_BID = 100            -- минимальная ставка в ЕП (0 — отмена своей ставки)
+auction.OFFSPEC_MULTIPLIER = 0.5 -- офф-спек: максимум ставки = ЕП * этот коэффициент
 
 auction.outbidNotified = {}
 auction.outbidThrottle = {}
@@ -310,11 +314,9 @@ auction.playerClassCache = {}
 auction.defaults = {
     general = {
         debug = false,
-        minBid = 100,
         confirmBid = false,
         soundEnabled = true,
         soundFile = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg",
-        offspecMultiplier = 0.5,
         announceToRaid = false,
     },
     table = {
@@ -325,6 +327,7 @@ auction.defaults = {
         showIcons = true,
         showTopBids = 2,
         hideNoBids = false,
+        watchlistOnly = false,   -- показывать только отмеченные предметы (watchlist.lua)
         evenRowColor = {1, 1, 1, 0.03},
         oddRowColor = {0, 0, 0, 0},
         selectedRowColor = {0.80, 0.62, 0.10, 0.30},
@@ -340,6 +343,8 @@ auction.defaults = {
         tooltip = true,
         position = { angle = 0 },
     },
+    -- Белый список предметов (watchlist.lua): [itemID] = true
+    watchlist = {},
     -- Вкладка Attendance (attendance_ui.lua)
     attendance = {
         byMain = true,   -- считать посещаемость по мейнам (твинки вместе с мейном)
@@ -585,11 +590,11 @@ function auction:GetCachedPlayerEP(playerName)
 end
 
 -- Максимально допустимая ставка сейчас: весь мой EP для main-спека,
--- или EP * offspecMultiplier (округлено вниз) для офф-спека.
+-- или EP * OFFSPEC_MULTIPLIER (округлено вниз) для офф-спека.
 function auction:GetMaxBidAmount(isOffspec)
     local currentEP = self.myEP or 0
     if isOffspec then
-        return math.floor(currentEP * (self.offspecMultiplier or 0.5))
+        return math.floor(currentEP * self.OFFSPEC_MULTIPLIER)
     end
     return currentEP
 end
@@ -889,8 +894,7 @@ function auction:PrecacheItems()
 end
 
 -- Загружает настройки при старте (MergeDefaults поверх сохранённых),
--- плюс миграция старого дефолтного minBid=1000 → 100 и защита минимальных
--- размеров окна. Вызывается один раз из events.lua при ADDON_LOADED.
+-- плюс чистка устаревших ключей и защита минимальных размеров окна. Вызывается один раз из events.lua при ADDON_LOADED.
 -- Все сохраняемые данные лежат в ОДНОЙ SavedVariable — EPBossAuctionDB:
 --   settings          настройки (auction.db)
 --   bids, versions    ставки и версии данных
@@ -900,7 +904,7 @@ end
 --   lootLog           журнал выдач и начислений (вкладка "Статистика")
 --   diag              хвост диагностики прошлой сессии
 --   selectedBoss, selectedItem, bidsLocked, windowScale, minimapPos,
---   offspecMultiplier, helpSeen, lastSeenVersion, updateNoticeVersion
+--   helpSeen, lastSeenVersion, updateNoticeVersion
 --   dbVersion         версия схемы (для будущих миграций)
 -- Старые отдельные переменные (EPBossAuctionSavedBids и др.) больше не
 -- читаются: при переходе на 3.5.8 база осознанно начата заново.
@@ -915,15 +919,14 @@ end
 
 function auction:LoadSettings()
     self.db = self:MergeDefaults(self:GetDB().settings, self.defaults)
-    if self.db.general.minBid == 1000 then
-        self.db.general.minBid = 100
-    end
+    -- минимальная ставка и коэффициент офф-спека раньше были настройками, теперь это константы
+    self.db.general.minBid = nil
+    self.db.general.offspecMultiplier = nil
     self.db.window.width = math.max(650, self.db.window.width or 650)
     self.db.window.height = math.max(605, self.db.window.height or 605)
     self.debug = self.db.general.debug
     self.windowScale = self.db.window.scale
     self.minimapButtonPosition = self.db.minimap.position
-    self.offspecMultiplier = self.db.general.offspecMultiplier or 0.5
 end
 
 -- Кладёт auction.db в EPBossAuctionDB.settings (сама запись на диск — задача
@@ -1002,7 +1005,6 @@ function auction:SaveData(force)
     end
 
     self.db.window.scale = self.windowScale
-    self.db.general.offspecMultiplier = self.offspecMultiplier
     self.db.minimap.position = self.minimapButtonPosition
     local db = self:GetDB()
     db.dbVersion = self.DB_VERSION
@@ -1017,7 +1019,7 @@ function auction:SaveData(force)
     db.windowScale = self.windowScale
     db.minimapPos = self.minimapButtonPosition
     db.bidsLocked = self.bidsLocked
-    db.offspecMultiplier = self.offspecMultiplier
+    db.offspecMultiplier = nil   -- устаревший ключ
     self:SaveSettings()
     self.dataDirty = false
     self.lastSaveTime = GetTime()

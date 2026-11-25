@@ -923,7 +923,7 @@ function diag.BuildSummary()
     add("Метод добычи: %s (partyIndex=%s, raidIndex=%s), мастер по клиенту: %s", tostring(l.method), tostring(l.partyIndex), tostring(l.raidIndex), tostring(l.masterName))
     local okLM, isLM = pcall(auction.IsLootMaster, auction)
     add("Я ЛМ (IsLootMaster): %s | lastLM: %s | ставки заблокированы: %s | офф-спек: x%s",
-        okLM and YesNo(isLM) or ("ОШИБКА: "..tostring(isLM)), tostring(auction.lastLM), YesNo(auction.bidsLocked), tostring(auction.offspecMultiplier))
+        okLM and YesNo(isLM) or ("ОШИБКА: "..tostring(isLM)), tostring(auction.lastLM), YesNo(auction.bidsLocked), tostring(auction.OFFSPEC_MULTIPLIER))
     add("Выбран босс: %s | предмет: %s", tostring(auction.selectedBoss), tostring(auction.selectedItem))
     local epName = FindEPGP()
     add("EPGP: %s | мой EP: %s", epName or "НЕ НАЙДЕН", tostring(auction.myEP))

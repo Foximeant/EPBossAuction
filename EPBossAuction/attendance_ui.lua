@@ -253,6 +253,11 @@ function auction:ShowMainTab(tab)
     if tab ~= "bids" and tab ~= "settings" and not self:HasAttendanceAccess() then tab = "bids" end
     self.activeTab = tab
 
+    -- Кнопка «★ Мои» (белый список, watchlist.lua) нужна только над таблицей ставок
+    if self.watchButton then
+        if tab == "bids" then self.watchButton:Show() else self.watchButton:Hide() end
+    end
+
     -- Прячем панели всех остальных вкладок
     local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, settings = self.settingsPanel }
     for key, panel in pairs(panels) do

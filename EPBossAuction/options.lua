@@ -11,11 +11,11 @@ local auction = EPBossAuction
 --
 -- Разделы (две колонки):
 --   слева   «Окно», «Миникарта», «Таблица ставок»
---   справа  «Ставки и звук», «Правила рейда (Loot Master)»
+--   справа  «Ставки и звук», «Мои предметы» (белый список, watchlist.lua)
 --   внизу   «Режим отладки» и «Сбросить настройки»
--- «Правила рейда» видят все, а менять может только Loot Master: эти значения
--- не личные, а действуют на весь рейд (коэффициент офф-спека рассылается
--- рейду, минимальную ставку проверяет ЛМ).
+-- Минимальная ставка и коэффициент офф-спека здесь не выводятся: это
+-- константы в core.lua (auction.MIN_BID, auction.OFFSPEC_MULTIPLIER),
+-- их проверяет клиент каждого игрока.
 --
 -- Только выпадающие списки, галочки и кнопки — без ползунков. Ползунок
 -- масштаба внутри масштабируемого окна дёргается под курсором, а таблицу
@@ -24,14 +24,11 @@ local auction = EPBossAuction
 --
 -- Как добавить настройку:
 --   1. ключ и значение по умолчанию — в auction.defaults (core.lua);
---   2. виджет — в CreateSettingsPanel ниже (Check / Dropdown / NumberBox /
---      Button): каждая функция сама регистрирует виджет в
---      auction.settingsControls, поэтому значение подхватится при открытии
+--   2. виджет — в CreateSettingsPanel ниже (Check / Dropdown / Button):
+--      каждая функция сама регистрирует виджет в auction.settingsControls, поэтому значение подхватится при открытии
 --      вкладки и после «Сбросить настройки»;
 --   3. если настройка меняет вид окна на лету — допиши применение в
 --      auction:ApplySettings (core.lua).
--- Настройка для ЛМ — передай lm = true последним параметром регистрации
--- (RegisterLM), тогда у остальных она станет серой.
 -- ============================================================
 
 -- ======================
@@ -46,7 +43,6 @@ local SECTION_GAP = 12       -- промежуток перед заголовк
 
 local SCALE_VALUES   = { 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5 }       -- как minScale..maxScale
 local ALPHA_VALUES   = { 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3 }
-local OFFSPEC_VALUES = { 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0 }
 local TOP_BIDS_VALUES = { 1, 2, 3, 4, 5 }
 
 -- Готовые размеры таблицы: высота строки и размер шрифта (имён и ставок).
@@ -129,7 +125,7 @@ end
 -- Сброс настроек
 -- ======================
 StaticPopupDialogs["EPBA_RESET_SETTINGS"] = {
-    text = "Сбросить все настройки EPBA к значениям по умолчанию?\n\nПравила рейда (коэффициент офф-спека, минимальная ставка) и данные аддона не затрагиваются.",
+    text = "Сбросить все настройки EPBA к значениям по умолчанию?\n\nСписок «Мои предметы» и данные аддона не затрагиваются.",
     button1 = "Да", button2 = "Отмена",
     OnAccept = function() auction:ResetSettingsToDefaults() end,
     timeout = 0, whileDead = true, hideOnEscape = true,
@@ -137,15 +133,13 @@ StaticPopupDialogs["EPBA_RESET_SETTINGS"] = {
 
 -- Возвращает окно, таблицу, миникарту и звук к значениям по умолчанию.
 -- Остальное в auction.db (окно добычи db.lootmaster, учёт «по мейнам» на
--- вкладках Attendance/Статистика) и правила рейда не трогает — прежняя
+-- вкладках Attendance/Статистика, список db.watchlist) не трогает — прежняя
 -- кнопка «По умолчанию» заменяла auction.db целиком и стирала и их.
 function auction:ResetSettingsToDefaults()
     local db = self.db
-    local keepMinBid, keepMultiplier = db.general.minBid, db.general.offspecMultiplier
     for _, group in ipairs({ "general", "table", "minimap", "window" }) do
         db[group] = self:DeepCopy(self.defaults[group])
     end
-    db.general.minBid, db.general.offspecMultiplier = keepMinBid, keepMultiplier
     self.minimapButtonPosition = db.minimap.position
     if self.frame then
         self.frame:ClearAllPoints()
@@ -167,25 +161,6 @@ function auction:RefreshSettings()
     if not self.settingsControls then return end
     for _, control in ipairs(self.settingsControls) do
         if control.refresh then control.refresh() end
-    end
-    self:RefreshSettingsAccess()
-end
-
--- Включает/выключает элементы раздела «Правила рейда» (только для ЛМ).
--- Зовётся при открытии вкладки и при смене состава рейда (events.lua), потому
--- что игрок мог стать или перестать быть Loot Master, пока вкладка открыта.
-function auction:RefreshSettingsAccess()
-    if not self.settingsControls then return end
-    local isLM = self:IsLootMaster()
-    for _, control in ipairs(self.settingsControls) do
-        if control.setEnabled then control.setEnabled(isLM) end
-    end
-    if self.settingsRulesHint then
-        if isLM then
-            self.settingsRulesHint:SetText("Вы Loot Master: коэффициент офф-спека сразу уходит рейду, минимальную ставку проверяете вы.")
-        else
-            self.settingsRulesHint:SetText("Эти правила задаёт Loot Master рейда — здесь они только для просмотра.")
-        end
     end
 end
 
@@ -269,14 +244,13 @@ function auction:CreateSettingsPanel(frame)
         widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    -- Регистрация виджета: refresh читает значение из db, setEnabled (только
-    -- для настроек Loot Master) вызывается из RefreshSettingsAccess.
-    local function Register(refresh, setEnabled)
-        table.insert(controls, { refresh = refresh, setEnabled = setEnabled })
+    -- Регистрация виджета: refresh читает значение из db (RefreshSettings).
+    local function Register(refresh)
+        table.insert(controls, { refresh = refresh })
     end
 
-    -- Галочка. get() → bool, set(bool) пишет в db; lm = true — только для ЛМ.
-    local function Check(col, name, label, get, set, tip, lm)
+    -- Галочка. get() → bool, set(bool) пишет в db.
+    local function Check(col, name, label, get, set, tip)
         local box = CreateFrame("CheckButton", name, panel, "UICheckButtonTemplate")
         box:SetSize(20, 20)
         box:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y)
@@ -292,26 +266,18 @@ function auction:CreateSettingsPanel(frame)
         box:HookScript("OnClick", function(b)
             local state = b:GetChecked() and true or false
             H.SetCheckboxChecked(b, state)
-            if lm and not auction:IsLootMaster() then
-                H.SetCheckboxChecked(b, get())
-                return
-            end
             set(state)
         end)
         AttachTip(box, label, tip)
         col.y = col.y - ROW_CHECK
-        Register(function() H.SetCheckboxChecked(box, get()) end,
-            lm and function(isLM)
-                if isLM then box:Enable() else box:Disable() end
-                text:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
-            end or nil)
+        Register(function() H.SetCheckboxChecked(box, get()) end)
         return box
     end
 
     -- Выпадающий список с подписью слева. items = { {value=, text=}, ... },
     -- get() → текущее value, set(value) пишет в db; fallback — подпись, если
     -- текущего значения нет в списке; textOf (необязательно) — своя подпись.
-    local function Dropdown(col, name, label, items, get, set, fallback, textOf, lm)
+    local function Dropdown(col, name, label, items, get, set, fallback, textOf)
         local caption = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         caption:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y - 5)
         caption:SetWidth(LABEL_W)
@@ -336,7 +302,6 @@ function auction:CreateSettingsPanel(frame)
                 info.text = item.text
                 info.checked = (current == item.value)
                 info.func = function()
-                    if lm and not auction:IsLootMaster() then return end
                     set(item.value)
                     UIDropDownMenu_SetText(dropdown, CurrentText())
                 end
@@ -346,51 +311,8 @@ function auction:CreateSettingsPanel(frame)
         H.LockDropdownHeight(dropdown)
         auction:SkinDropdown(dropdown)
         col.y = col.y - ROW_DROP
-        Register(function() UIDropDownMenu_SetText(dropdown, CurrentText()) end,
-            lm and function(isLM)
-                if isLM then UIDropDownMenu_EnableDropDown(dropdown) else UIDropDownMenu_DisableDropDown(dropdown) end
-                caption:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
-            end or nil)
+        Register(function() UIDropDownMenu_SetText(dropdown, CurrentText()) end)
         return dropdown
-    end
-
-    -- Поле для целого числа с подписью слева; значение применяется по Enter и
-    -- при потере фокуса, Esc возвращает прежнее.
-    local function NumberBox(col, name, label, get, set, lm)
-        local caption = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        caption:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y - 5)
-        caption:SetWidth(LABEL_W)
-        caption:SetJustifyH("LEFT")
-        caption:SetText(label)
-
-        local box = CreateFrame("EditBox", name, panel)
-        box:SetSize(90, 22)
-        box:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x + LABEL_W + 8, col.y)
-        box:SetAutoFocus(false)
-        box:SetNumeric(true)
-        box:SetMaxLetters(6)
-        box:SetFontObject(GameFontHighlight)
-        box:SetTextInsets(6, 6, 0, 0)
-        auction:SkinInput(box)
-
-        local function Commit()
-            local value = tonumber(box:GetText())
-            if value and (not lm or auction:IsLootMaster()) then set(value) end
-            box:SetText(tostring(get()))
-        end
-        box:SetScript("OnEnterPressed", function(b) Commit(); b:ClearFocus() end)
-        box:SetScript("OnEscapePressed", function(b) b:SetText(tostring(get())); b:ClearFocus() end)
-        box:SetScript("OnEditFocusLost", function() Commit() end)
-
-        col.y = col.y - ROW_DROP
-        Register(function() box:SetText(tostring(get())) end,
-            lm and function(isLM)
-                box:EnableMouse(isLM)
-                box:SetAlpha(isLM and 1 or 0.5)
-                if not isLM then box:ClearFocus() end
-                caption:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
-            end or nil)
-        return box
     end
 
     -- Кнопка (в стиле остальных кнопок аддона). x — смещение от левого края колонки.
@@ -540,43 +462,25 @@ function auction:CreateSettingsPanel(frame)
         PlaySoundFile(auction.db.general.soundFile or SOUNDS[1].value)
     end)
 
-    -- ---- Правила рейда ----
-    Header(right, "Правила рейда (Loot Master)")
-    self.settingsRulesHint = Hint(right, "", 38)
-
-    Dropdown(right, "EPBASetOffspec", "Офф-спек:",
-        (function()
-            local list = {}
-            for _, v in ipairs(OFFSPEC_VALUES) do table.insert(list, { value = v, text = Pct(v) }) end
-            return list
-        end)(),
-        function() return Near(OFFSPEC_VALUES, auction.offspecMultiplier or 0.5) end,
-        function(value)
-            auction.offspecMultiplier = value
-            auction.db.general.offspecMultiplier = value
-            auction:SaveData()
-            if IsInRaid() then
-                auction:Send("OFFSPEC_MULT;" .. value, "RAID", nil, 0, "OFFSPEC_MULT")
-            end
-            if (auction.myEP or 0) > 0 then auction:UpdateMaxBidDisplay() end
-        end,
-        nil,
-        function() return Pct(auction.offspecMultiplier or 0.5) end,
-        true)
-
-    NumberBox(right, "EPBASetMinBid", "Мин. ставка (ЕП):",
-        function() return auction.db.general.minBid end,
-        function(value)
-            auction.db.general.minBid = math.max(0, math.floor(value))
-            Commit()
-        end,
-        true)
-
-    Check(right, "EPBASetAnnounce", "Рейд-варн при блокировке и очистке",
+    Check(right, "EPBASetAnnounce", "Рейд-варн: блокировка и очистка (ЛМ)",
         function() return auction.db.general.announceToRaid == true end,
         function(state) auction.db.general.announceToRaid = state; Commit() end,
-        "Блокировка/разблокировка ставок и очистка таблицы будут объявлены в рейд-варн (или в рейд-чат, если нет прав на варн).",
-        true)
+        "Для Loot Master: блокировка/разблокировка ставок и очистка таблицы будут объявлены в рейд-варн (или в рейд-чат, если нет прав на варн).")
+
+    -- ---- Мои предметы (белый список) ----
+    Header(right, "Мои предметы")
+    Check(right, "EPBASetWatchOnly", "Показывать только отмеченные ★",
+        function() return auction:IsWatchlistOnly() end,
+        function(state) auction:SetWatchlistOnly(state) end,
+        "В таблице останутся только предметы, отмеченные звёздочкой. То же делает кнопка «★ Мои» в шапке окна.")
+    local count = Hint(right, "", 18)
+    Register(function()
+        count:SetText("Отмечено предметов: " .. auction:GetWatchedCount())
+    end)
+    Hint(right, "Звёздочка справа от названия предмета в таблице добавляет его в список. Список общий для всех боссов и хранится только у вас.", 40)
+    Button(right, "Очистить список", 136, function()
+        StaticPopup_Show("EPBA_CLEAR_WATCHLIST")
+    end)
 
     -- =====================================================
     -- НИЖНЯЯ СТРОКА

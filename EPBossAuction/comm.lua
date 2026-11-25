@@ -28,7 +28,6 @@ local auction = EPBossAuction
 --   VERSIONS        игрок ← ЛМ           ответ на CHECK_VERSION
 --   BID             ЛМ ← игрок           игрок делает/снимает ставку
 --   BIDOK           игрок ← ЛМ           подтверждение принятой ставки
---   TOOLOW          игрок ← ЛМ           ставка меньше минимальной
 --   SYNC            рейд ← ЛМ            полные данные по предмету + версия
 --   SYNC_COMPLETE   рейд/игрок ← ЛМ      "синхронизация завершена"
 --   LOCK            рейд ← ЛМ            блокировка/разблокировка ставок
@@ -39,7 +38,6 @@ local auction = EPBossAuction
 --   MY_VERSION      гильдия ← любой      версия аддона (для уведомления об обновлении)
 --   ATT_REQ/ATT_REC/ATT_DONE  синхронизация истории посещаемости между офицерами,
 --                   см. attendance_sync.lua
---   OFFSPEC_MULT    рейд ← ЛМ            новый коэффициент офф-спека
 --   RES/RES_END/RES_ONE/RESERVED/RES_UPD/RES_REQ/RES_REC/RES_DONE  резерв предметов, см. reserve.lua
 -- ============================================================
 
@@ -61,8 +59,8 @@ end
 -- не больше 4 сообщений). Пока жетоны есть, сообщение уходит МГНОВЕННО, без
 -- задержки — поэтому одиночная ставка и её SYNC не замедляются.
 -- Если сообщений больше, чем можно, срочное идёт раньше несрочного:
---   0 STATE   состояние, которое видит весь рейд (SYNC, LOCK, END, LM, OFFSPEC_MULT)
---   1 REPLY   личные ответы по ставке (BIDOK, LOCKED, TOOLOW), SIGNUP
+--   0 STATE   состояние, которое видит весь рейд (SYNC, LOCK, END, LM)
+--   1 REPLY   личные ответы по ставке (BIDOK, LOCKED), SIGNUP
 --   2 WELCOME данные новичкам и по запросу (HELLO/версии, резерв)
 --   3 BULK    фоновая синхронизация (посещаемость, версии аддона)
 -- key — ключ слияния: если сообщение с таким ключом ещё не ушло, новое ЗАМЕНЯЕТ
@@ -604,11 +602,6 @@ function auction:Handle_BID(rest, sender)
         self:Debug("Отказ от ставки обработан")
         return
     end
-    if amount < self.db.general.minBid then
-        self:Debug("Ставка меньше минимальной ("..self.db.general.minBid.."), игнорируем")
-        self:Send("TOOLOW;"..amount..";"..self.db.general.minBid, "WHISPER", sender, 1, "TOOLOW:"..sender, 5)
-        return
-    end
     self.bids[bossName] = self.bids[bossName] or {}
     self.bids[bossName][itemID] = self.bids[bossName][itemID] or {}
     local existingBid
@@ -984,34 +977,10 @@ function auction:Handle_LOCK(rest, sender)
     self:SetBidsLocked(state)
 end
 
--- Приём нового коэффициента офф-спека от ЛМ — обновляет self.offspecMultiplier и пересчитывает отображаемый максимум ставки.
-function auction:Handle_OFFSPEC_MULT(rest, sender)
-    local multiplier = tonumber(rest)
-    if multiplier then
-        auction.offspecMultiplier = multiplier
-        auction.db.general.offspecMultiplier = multiplier
-        auction:SaveSettings()
-        auction:Debug("Получен новый коэффициент офф-спек: " .. (multiplier * 100) .. "%")
-        if auction.myEP > 0 then
-            auction:UpdateMaxBidDisplay()
-        end
-    end
-end
-
 -- Ответ от ЛМ на мою попытку сделать ставку во время блокировки — просто печатает предупреждение в чат.
 function auction:Handle_LOCKED(rest, sender)
     if not self:IsLootMaster() then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставки заблокированы лутером!")
-    end
-end
-
--- Ответ ЛМ: моя ставка меньше минимальной (rest = "сумма;минимум"). Раньше ставка
--- в этом случае отбрасывалась молча — теперь игрок видит, почему.
-function auction:Handle_TOOLOW(rest, sender)
-    local _, minBid = strsplit(";", rest or "")
-    minBid = tonumber(minBid)
-    if minBid then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставка меньше минимальной: Loot Master принимает ставки от "..self:FormatNumber(minBid).." EP")
     end
 end
 

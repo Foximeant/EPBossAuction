@@ -92,10 +92,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             auction.db.minimap.position = db.minimapPos
         end
         auction.bidsLocked = (db.bidsLocked == true)
-        if db.offspecMultiplier then
-            auction.offspecMultiplier = db.offspecMultiplier
-            auction.db.general.offspecMultiplier = db.offspecMultiplier
-        end
         auction:ApplySettings()
         auction:LoadReserves()   -- резерв предметов (reserve.lua), не зависит от наличия сохранённых ставок
         auction:InitAutoSave()
@@ -222,8 +218,6 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end
             auction:UpdateLMButtonsState()
             
-            -- вкладка «Настройки»: правила рейда доступны только ЛМ (options.lua)
-            auction:RefreshSettingsAccess()
         end, 2)
 
     -- Финальное сохранение перед выходом — подстраховка на случай, если

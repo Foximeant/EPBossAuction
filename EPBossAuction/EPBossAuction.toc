@@ -21,6 +21,7 @@ attendance_sync.lua
 attendance_ui.lua
 reserve.lua
 reserve_ui.lua
+watchlist.lua
 stats.lua
 stats_ui.lua
 lootmaster.lua

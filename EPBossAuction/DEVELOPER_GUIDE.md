@@ -43,7 +43,8 @@ Loot Master видит список ставок по каждому предм�
 | `events.lua` | Единственная точка входа: один фрейм, один `OnEvent`, реагирует на `ADDON_LOADED`, `PLAYER_ENTERING_WORLD`, `CHAT_MSG_ADDON`, `GROUP_ROSTER_UPDATE`/`RAID_ROSTER_UPDATE`, `PLAYER_LOGOUT`, `EPGP_UPDATE`. |
 | `epgp.lua` | Мост к внешнему EPGP-аддону (EPGP / EPGP_Auction / CEPGP / EPGPCore) — получение EP игрока, с резолвом твинк → мейн. |
 | `theme.lua` | Палитра + хелперы `SkinPanel`/`SkinButton`/`SkinInput`/`SkinCheckbox`/`SkinDropdown`/`SkinScrollBar` для единого тёмного стиля. |
-| `options.lua` | Вкладка «Настройки» главного окна (шестерёнка, `OpenOptions`, `RefreshSettings`) и заглушка в Interface Options с кнопкой «Открыть настройки». Только выпадающие списки/галочки/кнопки; правила рейда (офф-спек, мин. ставка, анонс) меняет только ЛМ. |
+| `options.lua` | Вкладка «Настройки» главного окна (шестерёнка, `OpenOptions`, `RefreshSettings`) и заглушка в Interface Options с кнопкой «Открыть настройки». Только выпадающие списки/галочки/кнопки. |
+| `watchlist.lua` | Белый список предметов: звёздочка ★ в строке таблицы, кнопка «★ Мои» в шапке, фильтр «только отмеченные» (`auction.db.watchlist`, `db.table.watchlistOnly`). Личный, в сеть не уходит. |
 | `minimap.lua` | Кнопка на миникарте. |
 | `help.lua` | Окно «Справка» (обучение): страницы в `BuildHelpPages`, листание «Назад»/«Далее». Страница про Attendance/Резерв — только при `HasAttendanceAccess()`; страница про окно добычи — при `IsLootMaster()` или `HasAttendanceAccess()`. Новым пользователям показывается сам один раз (флаг `EPBossAuctionDB.helpSeen`, логика в `events.lua`). **При смене названий кнопок или поведения интерфейса — править текст здесь.** Страница «Если что-то не работает» (про диагностику) — для всех; при изменении вкладок/команд diag.lua правьте и её. |
 | `contacts.lua` | Окно «Сообщить о проблеме» (`/epba bug`): ссылка на GitHub Issues и контакт в Discord (таблица `auction.contacts` в шапке файла — поменять там), строка диагностики (`GetDiagnosticsString`). Поля только для копирования (Ctrl+C). |
@@ -74,7 +75,7 @@ Loot Master видит список ставок по каждому предм�
 (объявлена в `.toc`); доступ — `auction:GetDB()` (создаёт таблицу при первом обращении).
 Поля: `settings`, `bids`, `versions`, `signups`, `attendance`, `attendanceMeta`, `reserves`,
 `lootLog`, `diag`, `selectedBoss`, `selectedItem`, `bidsLocked`, `windowScale`, `minimapPos`,
-`offspecMultiplier`, `helpSeen`, `lastSeenVersion`, `updateNoticeVersion`, `dbVersion`
+`helpSeen`, `lastSeenVersion`, `updateNoticeVersion`, `dbVersion`
 (версия схемы, `auction.DB_VERSION`; при изменении формата данных повышается, а в
 `events.lua` пишется миграция). В 3.5.8 база начата заново: старые отдельные переменные
 (`EPBossAuctionSavedBids` и др.) не читаются. Запись — `SaveData` в `core.lua`, чтение —
@@ -150,7 +151,6 @@ Loot Master видит список ставок по каждому предм�
 | `VERSIONS` | RAID | ЛМ → рейд | ответ на `CHECK_VERSION` (общий; список обрезается по лимиту 255 байт) |
 | `BID` | WHISPER | игрок → ЛМ | ставка (`amount = 0` = отказ от ставки) |
 | `BIDOK` | WHISPER | ЛМ → игрок | ставка принята |
-| `TOOLOW` | WHISPER | ЛМ → игрок | ставка меньше минимальной |
 | `SYNC2` | RAID/WHISPER | ЛМ → все | ставки по предмету + версия: `SYNC2;босс(№ в bossOrder);itemID;версия;ник:сумма[*],…[;невлезло]`. Влезают самые крупные ставки (лимит 255 байт). Старый `SYNC` с 3.5.2 только принимается (`Handle_SYNC`), не отправляется |
 | `SYNC_COMPLETE` | RAID/WHISPER | ЛМ → все | "синхронизация завершена" |
 | `LOCK` | RAID | ЛМ → рейд | блокировка/разблокировка ставок |
@@ -162,7 +162,6 @@ Loot Master видит список ставок по каждому предм�
 | `ATT_REQ` | **GUILD** | офицер → гильдия | запрос синхронизации посещаемости: ключи уже имеющихся записей, часть i из n |
 | `ATT_REC` | WHISPER | офицер → запросивший | кусок одной записи посещаемости (ответ на `ATT_REQ`) |
 | `ATT_DONE` | WHISPER | офицер → запросивший | «закончил отвечать, прислал N записей» |
-| `OFFSPEC_MULT` | RAID | ЛМ → рейд | новый коэффициент офф-спека |
 | `RES` / `RES_END` | RAID | ЛМ → рейд | публичный список резерва: записи, затем итог с числом записей (применяется только целиком) |
 | `RES_ONE` | RAID | ЛМ → рейд | одиночное изменение резерва (`qty = 0` — снято) |
 | `RESERVED` | WHISPER | ЛМ → игрок | ставка отклонена: предмет в резерве |
@@ -187,8 +186,8 @@ Loot Master видит список ставок по каждому предм�
 
 | prio | Что | Примеры |
 |---|---|---|
-| 0 `STATE` | состояние для всего рейда | `SYNC2`, `LOCK`, `END`, `END_ALL`, `LM`, `OFFSPEC_MULT` |
-| 1 `REPLY` | личные ответы по ставке, явка | `BIDOK`, `LOCKED`, `TOOLOW`, `RESERVED`, `SIGNUP` |
+| 0 `STATE` | состояние для всего рейда | `SYNC2`, `LOCK`, `END`, `END_ALL`, `LM` |
+| 1 `REPLY` | личные ответы по ставке, явка | `BIDOK`, `LOCKED`, `RESERVED`, `SIGNUP` |
 | 2 `WELCOME` | данные новичкам и по запросу | ответ на `HELLO`/`LM_REQUEST`/`CHECK_VERSION`, `RES`, `RES_ONE`, `RES_UPD` |
 | 3 `BULK` | фоновая синхронизация | `ATT_*`, `RES_REQ/REC/DONE`, `MY_VERSION`, `SYNC_COMPLETE` |
 
@@ -511,12 +510,18 @@ MergeDefaults(EPBossAuctionDB.settings, auction.defaults)` — то есть **�
 `attendance_ui.lua` раскладывает видимые вкладки в колонку).
 
 **Как добавить настройку:** ключ в `auction.defaults` → виджет в `CreateSettingsPanel`
-(`Check` / `Dropdown` / `NumberBox` / `Button` — каждый сам регистрируется в
-`auction.settingsControls`, поэтому значение подхватится в `RefreshSettings`) →
-применение на лету в `ApplySettings`, если оно меняет вид окна. Настройка Loot
-Master — последний параметр `true` (у остальных виджет станет серым,
-`RefreshSettingsAccess`). Правила рейда личными не бывают: коэффициент офф-спека
-рассылается командой `OFFSPEC_MULT`, минимальную ставку проверяет ЛМ и отвечает `TOOLOW`.
+(`Check` / `Dropdown` / `Button` — каждый сам регистрируется в `auction.settingsControls`,
+поэтому значение подхватится в `RefreshSettings`) → применение на лету в `ApplySettings`,
+если оно меняет вид окна.
+
+**Правила аукциона** не настраиваются: `auction.MIN_BID` (100 ЕП) и
+`auction.OFFSPEC_MULTIPLIER` (0.5) — константы в `core.lua`, проверяются на клиенте у
+каждого игрока (`SendBidLocal`, `GetMaxBidAmount`), по сети не рассылаются, ЛМ ставки по
+минимуму не отклоняет.
+
+**Белый список** (`watchlist.lua`) — личный фильтр таблицы: `auction.db.watchlist[itemID]`,
+режим `auction.db.table.watchlistOnly`. Фильтр применяется в `RefreshTable` (UI.lua) вместе
+со скрытием «до конца сессии» (правый клик) и `hideNoBids`; в сеть ничего не уходит.
 
 ---
 
@@ -629,7 +634,6 @@ Master — последний параметр `true` (у остальных в�
 | `/epbaupdate` | принудительно обновить EP из EPGP |
 | `/epbazoom+` / `/epbazoom-` / `/epbazoomreset` | масштаб окна |
 | `/epbaoptions` | открыть панель настроек |
-| `/epbaoffspec <0.1-1.0>` | коэффициент офф-спека (только ЛМ) |
 | `/epbaloot` | показать окно добычи, если есть невыданные/несписанные записи (только ЛМ) |
 | `/epbaloot test` | тестовое окно: выдача и списание имитируются, EPGP не трогается |
 | `/epbaloot hide` | закрыть окно добычи (списанные записи очищаются) |

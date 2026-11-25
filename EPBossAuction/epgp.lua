@@ -258,8 +258,6 @@ function auction:ForceEPUpdate(callback)
             auction.myEP = newEP
             auction.lastEPUpdate = GetTime()
 
-            auction.offspecMultiplier = auction.db.general.offspecMultiplier or 0.5
-
             auction:RefreshPlayerEPCache()
 
             if auction.frame and auction.frame:IsShown() then
