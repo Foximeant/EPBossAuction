@@ -1,845 +1,633 @@
 local auction = EPBossAuction
 
 -- ============================================================
--- options.lua — панель настроек (Interface Options → EPBossAuction)
+-- options.lua — вкладка «Настройки» главного окна
 -- ============================================================
--- Строит вкладки с чекбоксами/слайдерами, которые читают/пишут
--- auction.db (структура и дефолты — в core.lua, auction.defaults).
--- auction:ApplySettings() (core.lua) — синхронизирует изменённые
--- настройки с уже открытым главным окном на лету.
+-- Настройки живут во вкладке окна аддона (шестерёнка в колонке вкладок слева
+-- от окна; то же: «Меню» → «Настройки», /epbaoptions). Все изменения
+-- применяются сразу и сохраняются — кнопок «Применить»/«Закрыть» нет.
+-- Панель Interface Options осталась как «заглушка» с кнопкой, которая
+-- открывает эту вкладку (чтобы настройки находились и там).
+--
+-- Разделы (две колонки):
+--   слева   «Окно», «Миникарта», «Таблица ставок»
+--   справа  «Ставки и звук», «Правила рейда (Loot Master)»
+--   внизу   «Режим отладки» и «Сбросить настройки»
+-- «Правила рейда» видят все, а менять может только Loot Master: эти значения
+-- не личные, а действуют на весь рейд (коэффициент офф-спека рассылается
+-- рейду, минимальную ставку проверяет ЛМ).
+--
+-- Только выпадающие списки, галочки и кнопки — без ползунков. Ползунок
+-- масштаба внутри масштабируемого окна дёргается под курсором, а таблицу
+-- ставок удобнее настраивать готовыми вариантами («Компактная/Обычная/
+-- Крупная»), чем четырьмя числами.
+--
+-- Как добавить настройку:
+--   1. ключ и значение по умолчанию — в auction.defaults (core.lua);
+--   2. виджет — в CreateSettingsPanel ниже (Check / Dropdown / NumberBox /
+--      Button): каждая функция сама регистрирует виджет в
+--      auction.settingsControls, поэтому значение подхватится при открытии
+--      вкладки и после «Сбросить настройки»;
+--   3. если настройка меняет вид окна на лету — допиши применение в
+--      auction:ApplySettings (core.lua).
+-- Настройка для ЛМ — передай lm = true последним параметром регистрации
+-- (RegisterLM), тогда у остальных она станет серой.
 -- ============================================================
 
--- Строит всю панель настроек ОДНИМ вызовом (вызывается один раз из
--- events.lua при ADDON_LOADED) — четыре вкладки (Общие/Таблица/Миникарта/
--- Окно) как отдельные дочерние фреймы внутри общего contentChild,
--- переключаются показом/скрытием (см. переключение вкладок ниже), а не
--- пересозданием. Общий паттерн на каждый виджет: создать → выставить
--- текущее значение из self.db.* → повесить OnClick/OnChange, который
--- пишет обратно в self.db.* и вызывает ApplySettings()/SaveSettings().
--- Если добавляешь новую настройку — не забудь также прописать её в
--- auction.defaults (core.lua) и в RefreshOptionsPanelControls ниже (иначе
--- значение не подхватится при повторном открытии панели/после /reload).
+-- ======================
+-- Справочники значений
+-- ======================
+local COL_W = 286            -- ширина колонки
+local LEFT_X, RIGHT_X = 14, 322
+local LABEL_W = 112          -- ширина подписи слева от выпадающего списка
+local ROW_CHECK = 24         -- высота строки с галочкой
+local ROW_DROP = 28          -- высота строки с выпадающим списком / полем
+local SECTION_GAP = 12       -- промежуток перед заголовком следующего раздела
+
+local SCALE_VALUES   = { 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5 }       -- как minScale..maxScale
+local ALPHA_VALUES   = { 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3 }
+local OFFSPEC_VALUES = { 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0 }
+local TOP_BIDS_VALUES = { 1, 2, 3, 4, 5 }
+
+-- Готовые размеры таблицы: высота строки и размер шрифта (имён и ставок).
+local TABLE_SIZES = {
+    { key = "compact", text = "Компактная", rowHeight = 18, fontSize = 11 },
+    { key = "normal",  text = "Обычная",    rowHeight = 20, fontSize = 12 },
+    { key = "large",   text = "Крупная",    rowHeight = 26, fontSize = 14 },
+}
+
+local COLOR_MODES = {
+    { value = "gold",    text = "Золотой" },
+    { value = "quality", text = "По редкости" },
+}
+
+-- Привязка тултипа в таблице. В списке — самые полезные варианты; остальные
+-- значения (из старых настроек) остаются рабочими и показываются по имени.
+local ANCHOR_NAMES = {
+    CURSOR = "У курсора", RIGHT = "Справа", LEFT = "Слева", TOP = "Сверху", BOTTOM = "Снизу",
+    TOPRIGHT = "Сверху справа", TOPLEFT = "Сверху слева",
+    BOTTOMRIGHT = "Снизу справа", BOTTOMLEFT = "Снизу слева",
+}
+local ANCHORS = {
+    { value = "CURSOR", text = ANCHOR_NAMES.CURSOR },
+    { value = "RIGHT",  text = ANCHOR_NAMES.RIGHT },
+    { value = "LEFT",   text = ANCHOR_NAMES.LEFT },
+    { value = "TOP",    text = ANCHOR_NAMES.TOP },
+    { value = "BOTTOM", text = ANCHOR_NAMES.BOTTOM },
+}
+
+-- Звук при перебитой ставке. Первый — файл из папки аддона (значение по
+-- умолчанию), остальные — стандартные звуки клиента.
+local SOUNDS = {
+    { value = "Interface\\AddOns\\EPBossAuction\\sounds\\bid.ogg", text = "Звук аддона" },
+    { value = "Sound\\Interface\\RaidWarning.wav",                 text = "Рейд-предупреждение" },
+    { value = "Sound\\Interface\\ReadyCheck.wav",                  text = "Проверка готовности" },
+    { value = "Sound\\Interface\\AlarmClockWarning3.wav",          text = "Будильник" },
+}
+
+-- ======================
+-- Мелкие помощники
+-- ======================
+
+-- Процент для подписи: 0.5 → "50%".
+local function Pct(value)
+    return math.floor((tonumber(value) or 0) * 100 + 0.5) .. "%"
+end
+
+-- Ближайшее к value значение из списка чисел (текущий масштаб после Ctrl+колесо
+-- может быть 0.8999999 — в списке он должен отметиться как 0.9).
+local function Near(list, value)
+    value = tonumber(value) or list[1]
+    local best, bestDiff = list[1], math.huge
+    for _, v in ipairs(list) do
+        local diff = math.abs(v - value)
+        if diff < bestDiff then best, bestDiff = v, diff end
+    end
+    return best
+end
+
+-- Сохраняет и применяет настройки к открытым фреймам (общая точка выхода
+-- любого изменения на этой вкладке).
+local function Commit()
+    auction:ApplySettings()
+    auction:SaveSettings()
+end
+
+-- Текущий размер таблицы: ключ готового варианта или "custom" (значения из
+-- старых ползунков, которых нет в списке).
+local function CurrentTableSize()
+    local t = auction.db.table
+    for _, size in ipairs(TABLE_SIZES) do
+        if t.rowHeight == size.rowHeight and t.itemFontSize == size.fontSize and t.bidFontSize == size.fontSize then
+            return size.key
+        end
+    end
+    return "custom"
+end
+
+-- ======================
+-- Сброс настроек
+-- ======================
+StaticPopupDialogs["EPBA_RESET_SETTINGS"] = {
+    text = "Сбросить все настройки EPBA к значениям по умолчанию?\n\nПравила рейда (коэффициент офф-спека, минимальная ставка) и данные аддона не затрагиваются.",
+    button1 = "Да", button2 = "Отмена",
+    OnAccept = function() auction:ResetSettingsToDefaults() end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
+-- Возвращает окно, таблицу, миникарту и звук к значениям по умолчанию.
+-- Остальное в auction.db (окно добычи db.lootmaster, учёт «по мейнам» на
+-- вкладках Attendance/Статистика) и правила рейда не трогает — прежняя
+-- кнопка «По умолчанию» заменяла auction.db целиком и стирала и их.
+function auction:ResetSettingsToDefaults()
+    local db = self.db
+    local keepMinBid, keepMultiplier = db.general.minBid, db.general.offspecMultiplier
+    for _, group in ipairs({ "general", "table", "minimap", "window" }) do
+        db[group] = self:DeepCopy(self.defaults[group])
+    end
+    db.general.minBid, db.general.offspecMultiplier = keepMinBid, keepMultiplier
+    self.minimapButtonPosition = db.minimap.position
+    if self.frame then
+        self.frame:ClearAllPoints()
+        self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+    self:ApplySettings()
+    if self.UpdateScrollFrameSize then self:UpdateScrollFrameSize() end
+    self:SaveSettings()
+    self:RefreshSettings()
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EPBA]|r Настройки сброшены к значениям по умолчанию")
+end
+
+-- Перечитывает auction.db и выставляет текущие значения во все виджеты
+-- вкладки. Вызывается при открытии вкладки (OnShow), при сбросе и когда
+-- масштаб поменялся не из этой вкладки (Ctrl+колесо, /epbazoom+).
+-- Виджеты при этом НЕ вызывают свои обработчики (SetChecked/SetText их не
+-- запускают), поэтому ничего не рассылается в рейд.
+function auction:RefreshSettings()
+    if not self.settingsControls then return end
+    for _, control in ipairs(self.settingsControls) do
+        if control.refresh then control.refresh() end
+    end
+    self:RefreshSettingsAccess()
+end
+
+-- Включает/выключает элементы раздела «Правила рейда» (только для ЛМ).
+-- Зовётся при открытии вкладки и при смене состава рейда (events.lua), потому
+-- что игрок мог стать или перестать быть Loot Master, пока вкладка открыта.
+function auction:RefreshSettingsAccess()
+    if not self.settingsControls then return end
+    local isLM = self:IsLootMaster()
+    for _, control in ipairs(self.settingsControls) do
+        if control.setEnabled then control.setEnabled(isLM) end
+    end
+    if self.settingsRulesHint then
+        if isLM then
+            self.settingsRulesHint:SetText("Вы Loot Master: коэффициент офф-спека сразу уходит рейду, минимальную ставку проверяете вы.")
+        else
+            self.settingsRulesHint:SetText("Эти правила задаёт Loot Master рейда — здесь они только для просмотра.")
+        end
+    end
+end
+
+-- ======================
+-- Открытие вкладки
+-- ======================
+-- Открывает главное окно сразу на вкладке «Настройки» (кнопка «Меню» →
+-- «Настройки», /epbaoptions, кнопка в Interface Options).
+function auction:OpenOptions()
+    if not self.frame then return end
+    if not self.frame:IsShown() then self.frame:Show() end
+    self:ShowMainTab("settings")
+end
+
+-- ======================
+-- Построение вкладки
+-- ======================
+-- Строит вкладку «Настройки» в главном окне и «заглушку» в Interface Options.
+-- Вызывается один раз из events.lua (ADDON_LOADED) после CreateUI.
 function auction:CreateOptionsPanel()
-    -- Создаём панель
+    if self.settingsPanel then return end
+    self:CreateSettingsPanel(self.frame)
+    self:CreateInterfaceOptionsStub()
+    self:Debug("Вкладка настроек создана")
+end
+
+function auction:CreateSettingsPanel(frame)
+    local H = self.uiHelpers
+    local colors = self.theme.colors
+
+    local panel = CreateFrame("Frame", "EPBossAuctionSettingsPanel", frame)
+    panel:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -45)
+    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 16)
+    self:SkinPanel(panel)
+    panel:Hide()
+    panel:SetScript("OnShow", function() auction:RefreshSettings() end)
+    self.settingsPanel = panel
+    self.settingsControls = {}
+
+    local controls = self.settingsControls
+
+    -- ---- Колонки: курсор y движется вниз по мере добавления виджетов ----
+    local function NewColumn(x) return { x = x, y = -12, first = true } end
+
+    -- Заголовок раздела: золотой текст и тонкая линия под ним.
+    local function Header(col, text)
+        if not col.first then col.y = col.y - SECTION_GAP end
+        col.first = false
+        local label = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y)
+        label:SetText(text)
+        label:SetTextColor(colors.accent[1], colors.accent[2], colors.accent[3])
+        local line = panel:CreateTexture(nil, "ARTWORK")
+        line:SetTexture(colors.accent[1], colors.accent[2], colors.accent[3], 0.35)
+        line:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -3)
+        line:SetSize(COL_W, 1)
+        col.y = col.y - 24
+    end
+
+    -- Серый поясняющий текст (в несколько строк).
+    local function Hint(col, text, height)
+        local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y)
+        fs:SetWidth(COL_W)
+        fs:SetJustifyH("LEFT")
+        fs:SetTextColor(0.6, 0.6, 0.6)
+        fs:SetText(text)
+        col.y = col.y - (height or 26)
+        return fs
+    end
+
+    -- Подсказка при наведении (заголовок золотой, пояснение зелёное — как у кнопок шапки).
+    local function AttachTip(widget, title, text)
+        if not text then return end
+        widget:HookScript("OnEnter", function(w)
+            GameTooltip:SetOwner(w, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(title)
+            GameTooltip:AddLine(text, 0.5, 1, 0.5, true)
+            GameTooltip:Show()
+        end)
+        widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    -- Регистрация виджета: refresh читает значение из db, setEnabled (только
+    -- для настроек Loot Master) вызывается из RefreshSettingsAccess.
+    local function Register(refresh, setEnabled)
+        table.insert(controls, { refresh = refresh, setEnabled = setEnabled })
+    end
+
+    -- Галочка. get() → bool, set(bool) пишет в db; lm = true — только для ЛМ.
+    local function Check(col, name, label, get, set, tip, lm)
+        local box = CreateFrame("CheckButton", name, panel, "UICheckButtonTemplate")
+        box:SetSize(20, 20)
+        box:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y)
+        box:SetHitRectInsets(0, -(COL_W - 24), 0, 0)
+        local text = _G[name .. "Text"]
+        text:SetFontObject(GameFontHighlight)
+        text:ClearAllPoints()
+        text:SetPoint("LEFT", box, "RIGHT", 6, 0)
+        text:SetWidth(COL_W - 30)
+        text:SetJustifyH("LEFT")
+        text:SetText(label)
+        auction:SkinCheckbox(box)
+        box:HookScript("OnClick", function(b)
+            local state = b:GetChecked() and true or false
+            H.SetCheckboxChecked(b, state)
+            if lm and not auction:IsLootMaster() then
+                H.SetCheckboxChecked(b, get())
+                return
+            end
+            set(state)
+        end)
+        AttachTip(box, label, tip)
+        col.y = col.y - ROW_CHECK
+        Register(function() H.SetCheckboxChecked(box, get()) end,
+            lm and function(isLM)
+                if isLM then box:Enable() else box:Disable() end
+                text:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
+            end or nil)
+        return box
+    end
+
+    -- Выпадающий список с подписью слева. items = { {value=, text=}, ... },
+    -- get() → текущее value, set(value) пишет в db; fallback — подпись, если
+    -- текущего значения нет в списке; textOf (необязательно) — своя подпись.
+    local function Dropdown(col, name, label, items, get, set, fallback, textOf, lm)
+        local caption = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        caption:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y - 5)
+        caption:SetWidth(LABEL_W)
+        caption:SetJustifyH("LEFT")
+        caption:SetText(label)
+
+        local function CurrentText()
+            if textOf then return textOf() end
+            local value = get()
+            for _, item in ipairs(items) do
+                if item.value == value then return item.text end
+            end
+            return fallback or "—"
+        end
+
+        local dropdown = H.MakeDropdown(panel, name, COL_W - LABEL_W - 50, col.x + LABEL_W, col.y, CurrentText())
+        UIDropDownMenu_Initialize(dropdown, function()
+            H.LockDropdownHeight(dropdown)
+            local current = get()
+            for _, item in ipairs(items) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = item.text
+                info.checked = (current == item.value)
+                info.func = function()
+                    if lm and not auction:IsLootMaster() then return end
+                    set(item.value)
+                    UIDropDownMenu_SetText(dropdown, CurrentText())
+                end
+                UIDropDownMenu_AddButton(info)
+            end
+        end)
+        H.LockDropdownHeight(dropdown)
+        auction:SkinDropdown(dropdown)
+        col.y = col.y - ROW_DROP
+        Register(function() UIDropDownMenu_SetText(dropdown, CurrentText()) end,
+            lm and function(isLM)
+                if isLM then UIDropDownMenu_EnableDropDown(dropdown) else UIDropDownMenu_DisableDropDown(dropdown) end
+                caption:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
+            end or nil)
+        return dropdown
+    end
+
+    -- Поле для целого числа с подписью слева; значение применяется по Enter и
+    -- при потере фокуса, Esc возвращает прежнее.
+    local function NumberBox(col, name, label, get, set, lm)
+        local caption = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        caption:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x, col.y - 5)
+        caption:SetWidth(LABEL_W)
+        caption:SetJustifyH("LEFT")
+        caption:SetText(label)
+
+        local box = CreateFrame("EditBox", name, panel)
+        box:SetSize(90, 22)
+        box:SetPoint("TOPLEFT", panel, "TOPLEFT", col.x + LABEL_W + 8, col.y)
+        box:SetAutoFocus(false)
+        box:SetNumeric(true)
+        box:SetMaxLetters(6)
+        box:SetFontObject(GameFontHighlight)
+        box:SetTextInsets(6, 6, 0, 0)
+        auction:SkinInput(box)
+
+        local function Commit()
+            local value = tonumber(box:GetText())
+            if value and (not lm or auction:IsLootMaster()) then set(value) end
+            box:SetText(tostring(get()))
+        end
+        box:SetScript("OnEnterPressed", function(b) Commit(); b:ClearFocus() end)
+        box:SetScript("OnEscapePressed", function(b) b:SetText(tostring(get())); b:ClearFocus() end)
+        box:SetScript("OnEditFocusLost", function() Commit() end)
+
+        col.y = col.y - ROW_DROP
+        Register(function() box:SetText(tostring(get())) end,
+            lm and function(isLM)
+                box:EnableMouse(isLM)
+                box:SetAlpha(isLM and 1 or 0.5)
+                if not isLM then box:ClearFocus() end
+                caption:SetFontObject(isLM and GameFontHighlight or GameFontDisable)
+            end or nil)
+        return box
+    end
+
+    -- Кнопка (в стиле остальных кнопок аддона). x — смещение от левого края колонки.
+    local function Button(col, text, width, onClick, xOffset, keepRow)
+        local button = H.MakeButton(auction, panel, text, width, col.x + (xOffset or 0), col.y, onClick)
+        if not keepRow then col.y = col.y - ROW_DROP end
+        return button
+    end
+
+    local left, right = NewColumn(LEFT_X), NewColumn(RIGHT_X)
+
+    -- =====================================================
+    -- ЛЕВАЯ КОЛОНКА
+    -- =====================================================
+
+    -- ---- Окно ----
+    Header(left, "Окно")
+    Dropdown(left, "EPBASetScaleDropdown", "Масштаб:",
+        (function()
+            local list = {}
+            for _, v in ipairs(SCALE_VALUES) do table.insert(list, { value = v, text = Pct(v) }) end
+            return list
+        end)(),
+        function() return Near(SCALE_VALUES, auction.windowScale) end,
+        function(value) auction:SetWindowScale(value); Commit() end,
+        nil, function() return Pct(auction.windowScale) end)
+
+    Dropdown(left, "EPBASetAlphaDropdown", "Прозрачность:",
+        (function()
+            local list = {}
+            for _, v in ipairs(ALPHA_VALUES) do table.insert(list, { value = v, text = Pct(v) }) end
+            return list
+        end)(),
+        function() return Near(ALPHA_VALUES, auction.db.window.alpha) end,
+        function(value) auction.db.window.alpha = value; Commit() end,
+        nil, function() return Pct(auction.db.window.alpha) end)
+
+    Check(left, "EPBASetLockWindow", "Закрепить окно (запретить перемещение)",
+        function() return auction.db.window.locked == true end,
+        function(state) auction.db.window.locked = state; Commit() end,
+        "Окно нельзя будет перетащить. Масштаб (Ctrl+колесо мыши) и размер (правый нижний угол) менять по-прежнему можно.")
+
+    Button(left, "Сбросить позицию", 136, function()
+        if not auction.frame then return end
+        auction.db.window.point, auction.db.window.relativePoint = "CENTER", "CENTER"
+        auction.db.window.x, auction.db.window.y = 0, 0
+        auction.frame:ClearAllPoints()
+        auction.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        Commit()
+    end, 0, true)
+    Button(left, "Сбросить размер", 136, function()
+        if not auction.frame then return end
+        auction.db.window.width = auction.defaults.window.width
+        auction.db.window.height = auction.defaults.window.height
+        auction.frame:SetSize(auction.db.window.width, auction.db.window.height)
+        if auction.UpdateScrollFrameSize then auction:UpdateScrollFrameSize() end
+        Commit()
+    end, 144)
+
+    -- ---- Миникарта ----
+    Header(left, "Миникарта")
+    Check(left, "EPBASetShowMinimap", "Показывать кнопку у миникарты",
+        function() return auction.db.minimap.show ~= false end,
+        function(state) auction.db.minimap.show = state; Commit() end)
+    Button(left, "Сбросить позицию кнопки", 180, function()
+        auction.db.minimap.position = { angle = 0 }
+        auction.minimapButtonPosition = auction.db.minimap.position
+        Commit()
+    end)
+
+    -- ---- Таблица ставок ----
+    Header(left, "Таблица ставок")
+    Dropdown(left, "EPBASetTableSize", "Размер таблицы:",
+        (function()
+            local list = {}
+            for _, size in ipairs(TABLE_SIZES) do table.insert(list, { value = size.key, text = size.text }) end
+            return list
+        end)(),
+        CurrentTableSize,
+        function(key)
+            for _, size in ipairs(TABLE_SIZES) do
+                if size.key == key then
+                    local t = auction.db.table
+                    t.rowHeight, t.itemFontSize, t.bidFontSize = size.rowHeight, size.fontSize, size.fontSize
+                    Commit()
+                    return
+                end
+            end
+        end,
+        "Своя")
+
+    Dropdown(left, "EPBASetColorMode", "Цвет названий:", COLOR_MODES,
+        function() return auction.db.table.itemColorMode or "gold" end,
+        function(value) auction.db.table.itemColorMode = value; Commit() end,
+        "Золотой")
+
+    Dropdown(left, "EPBASetTopBids", "Ставок в строке:",
+        (function()
+            local list = {}
+            for _, v in ipairs(TOP_BIDS_VALUES) do table.insert(list, { value = v, text = tostring(v) }) end
+            return list
+        end)(),
+        function() return auction.db.table.showTopBids or 2 end,
+        function(value) auction.db.table.showTopBids = value; Commit() end,
+        "2")
+
+    Dropdown(left, "EPBASetTooltipAnchor", "Подсказки:", ANCHORS,
+        function() return auction.db.table.tooltipAnchor or "CURSOR" end,
+        function(value) auction.db.table.tooltipAnchor = value; Commit() end,
+        nil,
+        function() return ANCHOR_NAMES[auction.db.table.tooltipAnchor or "CURSOR"] or "У курсора" end)
+
+    Check(left, "EPBASetShowIcons", "Показывать иконки предметов",
+        function() return auction.db.table.showIcons ~= false end,
+        function(state) auction.db.table.showIcons = state; Commit() end)
+
+    Check(left, "EPBASetHideNoBids", "Скрывать предметы без ставок",
+        function() return auction.db.table.hideNoBids == true end,
+        function(state) auction.db.table.hideNoBids = state; Commit() end,
+        "В таблице останутся только предметы, на которые уже кто-то поставил.")
+
+    -- =====================================================
+    -- ПРАВАЯ КОЛОНКА
+    -- =====================================================
+
+    -- ---- Ставки и звук ----
+    Header(right, "Ставки и звук")
+    Check(right, "EPBASetConfirmBid", "Подтверждать ставку перед отправкой",
+        function() return auction.db.general.confirmBid == true end,
+        function(state) auction.db.general.confirmBid = state; Commit() end,
+        "Перед отправкой ставки появится окно с предметом и суммой.")
+
+    Check(right, "EPBASetSound", "Звук, когда мою ставку перебили",
+        function() return auction.db.general.soundEnabled ~= false end,
+        function(state) auction.db.general.soundEnabled = state; Commit() end)
+
+    Dropdown(right, "EPBASetSoundFile", "Звук:", SOUNDS,
+        function() return auction.db.general.soundFile end,
+        function(value)
+            auction.db.general.soundFile = value
+            Commit()
+            PlaySoundFile(value)   -- сразу слышно, что выбрали
+        end,
+        "Свой файл")
+
+    Button(right, "Проверить звук", 136, function()
+        PlaySoundFile(auction.db.general.soundFile or SOUNDS[1].value)
+    end)
+
+    -- ---- Правила рейда ----
+    Header(right, "Правила рейда (Loot Master)")
+    self.settingsRulesHint = Hint(right, "", 38)
+
+    Dropdown(right, "EPBASetOffspec", "Офф-спек:",
+        (function()
+            local list = {}
+            for _, v in ipairs(OFFSPEC_VALUES) do table.insert(list, { value = v, text = Pct(v) }) end
+            return list
+        end)(),
+        function() return Near(OFFSPEC_VALUES, auction.offspecMultiplier or 0.5) end,
+        function(value)
+            auction.offspecMultiplier = value
+            auction.db.general.offspecMultiplier = value
+            auction:SaveData()
+            if IsInRaid() then
+                auction:Send("OFFSPEC_MULT;" .. value, "RAID", nil, 0, "OFFSPEC_MULT")
+            end
+            if (auction.myEP or 0) > 0 then auction:UpdateMaxBidDisplay() end
+        end,
+        nil,
+        function() return Pct(auction.offspecMultiplier or 0.5) end,
+        true)
+
+    NumberBox(right, "EPBASetMinBid", "Мин. ставка (ЕП):",
+        function() return auction.db.general.minBid end,
+        function(value)
+            auction.db.general.minBid = math.max(0, math.floor(value))
+            Commit()
+        end,
+        true)
+
+    Check(right, "EPBASetAnnounce", "Рейд-варн при блокировке и очистке",
+        function() return auction.db.general.announceToRaid == true end,
+        function(state) auction.db.general.announceToRaid = state; Commit() end,
+        "Блокировка/разблокировка ставок и очистка таблицы будут объявлены в рейд-варн (или в рейд-чат, если нет прав на варн).",
+        true)
+
+    -- =====================================================
+    -- НИЖНЯЯ СТРОКА
+    -- =====================================================
+    local debugBox = Check(left, "EPBASetDebug", "Режим отладки",
+        function() return auction.db.general.debug == true end,
+        function(state) auction.db.general.debug = state; Commit() end,
+        "Подробный журнал работы аддона в чат. Нужен разработчику; для диагностики лучше «Меню» → «Нашли баг?».")
+    debugBox:ClearAllPoints()
+    debugBox:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", LEFT_X, 12)
+
+    local resetButton = H.MakeButton(self, panel, "Сбросить настройки", 150, 0, 0, function()
+        StaticPopup_Show("EPBA_RESET_SETTINGS")
+    end)
+    resetButton:ClearAllPoints()
+    resetButton:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -14, 12)
+
+    self:RefreshSettings()
+end
+
+-- ======================
+-- Interface Options (заглушка)
+-- ======================
+-- В «Интерфейс → Модификации → EP Boss Auction» осталась только кнопка,
+-- которая открывает вкладку «Настройки» главного окна.
+function auction:CreateInterfaceOptionsStub()
     local panel = CreateFrame("Frame", "EPBossAuctionOptionsPanel", UIParent)
     panel.name = "EP Boss Auction"
     panel:Hide()
-    
-    -- Заголовок
+
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("EP Boss Auction - Настройки")
-    
-    -- Создаём контейнер для вкладок
-    local tabContainer = CreateFrame("Frame", nil, panel)
-    tabContainer:SetPoint("TOPLEFT", 16, -50)
-    tabContainer:SetSize(600, 25)
-    
-    -- Создаём контейнер для содержимого вкладок с прокруткой
-    local contentContainer = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    contentContainer:SetPoint("TOPLEFT", tabContainer, "BOTTOMLEFT", 0, -10)
-    contentContainer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 50)
-    contentContainer:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    contentContainer:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
-    contentContainer:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
-    self.contentContainer = contentContainer
+    title:SetText("EP Boss Auction")
 
-    -- Дочерний фрейм для содержимого
-    local contentChild = CreateFrame("Frame", nil, contentContainer)
-    contentChild:SetSize(560, 800)
-    contentContainer:SetScrollChild(contentChild)
-    
-    -- ----------------------------------------------
-    -- Вкладка "Общие" — отладка, минимальная ставка, подтверждение ставок,
-    -- звук перебития, анонс в рейд-варн, коэффициент офф-спека
-    -- Вкладка "Общие" 
-    -- ----------------------------------------------
-    local generalTab = CreateFrame("Frame", nil, contentChild)
-    generalTab:SetPoint("TOPLEFT", 10, -10)
-    generalTab:SetSize(540, 400)
-    self.generalTab = generalTab
+    local info = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    info:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+    info:SetWidth(460)
+    info:SetJustifyH("LEFT")
+    info:SetText("Настройки находятся в главном окне аддона: вкладка с шестерёнкой слева от окна (то же: «Меню» → «Настройки» или команда /epbaoptions).")
 
-    -- Отладка
-    local debugCheck = CreateFrame("CheckButton", "EPBADebugCheck", generalTab, "UICheckButtonTemplate")
-    debugCheck:SetPoint("TOPLEFT", 10, -10)
-    debugCheck.text = _G[debugCheck:GetName() .. "Text"]
-    debugCheck.text:SetText("Режим отладки")
-    debugCheck:SetChecked(self.db.general.debug)
-    debugCheck:SetScript("OnClick", function(self)
-        auction.db.general.debug = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-    
-    -- Минимальная ставка
-    local minBidText = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    minBidText:SetPoint("TOPLEFT", debugCheck, "BOTTOMLEFT", 0, -15)
-    minBidText:SetText("Минимальная ставка:")
-    minBidText:SetWidth(120)
-    
-    local minBidEdit = CreateFrame("EditBox", "EPBAMinBidEdit", generalTab, "InputBoxTemplate")
-    minBidEdit:SetSize(100, 25)
-    minBidEdit:SetPoint("LEFT", minBidText, "RIGHT", 10, 0)
-    minBidEdit:SetAutoFocus(false)
-    minBidEdit:SetNumeric(true)
-    minBidEdit:SetText(self.db.general.minBid)
-    minBidEdit:SetScript("OnEnterPressed", function(self)
-        local value = tonumber(self:GetText()) or auction.defaults.general.minBid
-        value = math.max(0, math.floor(value))
-        auction.db.general.minBid = value
-        self:SetText(value)
-        self:ClearFocus()
-        auction:ApplySettings()
-    end)
-    minBidEdit:SetScript("OnEscapePressed", function(self)
-        self:SetText(auction.db.general.minBid)
-        self:ClearFocus()
-    end)
-    
-    -- Подтверждение ставок
-    local confirmBidCheck = CreateFrame("CheckButton", "EPBAConfirmBidCheck", generalTab, "UICheckButtonTemplate")
-    confirmBidCheck:SetPoint("TOPLEFT", minBidText, "BOTTOMLEFT", 0, -15)
-    confirmBidCheck.text = _G[confirmBidCheck:GetName() .. "Text"]
-    confirmBidCheck.text:SetText("Подтверждать ставки")
-    confirmBidCheck:SetChecked(self.db.general.confirmBid)
-    confirmBidCheck:SetScript("OnClick", function(self)
-        auction.db.general.confirmBid = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-    
-    -- Звук при перебитии ставки
-    local soundCheck = CreateFrame("CheckButton", "EPBASoundCheck", generalTab, "UICheckButtonTemplate")
-    soundCheck:SetPoint("TOPLEFT", confirmBidCheck, "BOTTOMLEFT", 0, -5)
-    soundCheck.text = _G[soundCheck:GetName() .. "Text"]
-    soundCheck.text:SetText("Включить звук при перебитии ставки")
-    soundCheck:SetChecked(self.db.general.soundEnabled)
-    soundCheck:SetScript("OnClick", function(self)
-        auction.db.general.soundEnabled = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-
-    -- Выбор звука для перебитой ставки
-    local soundFileText = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    soundFileText:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 0, -15)
-    soundFileText:SetText("Звук при перебитии:")
-    soundFileText:SetWidth(120)
-
-    local soundFileEdit = CreateFrame("EditBox", "EPBASoundFileEdit", generalTab, "InputBoxTemplate")
-    soundFileEdit:SetSize(250, 25)
-    soundFileEdit:SetPoint("LEFT", soundFileText, "RIGHT", 10, 0)
-    soundFileEdit:SetAutoFocus(false)
-    soundFileEdit:SetText(self.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav")
-    soundFileEdit:SetScript("OnEnterPressed", function(self)
-        local soundFile = self:GetText()
-        auction.db.general.soundFile = soundFile
-        auction:ApplySettings()
-        print("|cff00ff00[EPBA]|r Звук перебитой ставки изменён на: " .. soundFile)
-    end)
-    soundFileEdit:SetScript("OnEscapePressed", function(self)
-        self:SetText(auction.db.general.soundFile or "Sound\\Interface\\RaidWarning.wav")
-    end)
-
-    -- Кнопка тестирования звука
-    local testSoundButton = CreateFrame("Button", nil, generalTab, "UIPanelButtonTemplate")
-    testSoundButton:SetSize(80, 25)
-    testSoundButton:SetPoint("LEFT", soundFileEdit, "RIGHT", 10, 0)
-    testSoundButton:SetText("Тест")
-    testSoundButton:SetScript("OnClick", function()
-        if auction.db.general.soundEnabled then
-            PlaySoundFile(auction.db.general.soundFile)
-        else
-            print("|cffff0000[EPBA]|r Звук отключён в настройках.")
+    local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    button:SetSize(200, 25)
+    button:SetPoint("TOPLEFT", info, "BOTTOMLEFT", 0, -16)
+    button:SetText("Открыть настройки")
+    button:SetScript("OnClick", function()
+        if InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then
+            HideUIPanel(InterfaceOptionsFrame)
         end
+        auction:OpenOptions()
     end)
 
-    -- Анонс в рейд-варн при блокировке/разблокировке ставок и очистке таблицы
-    local announceCheck = CreateFrame("CheckButton", "EPBAAnnounceToRaidCheck", generalTab, "UICheckButtonTemplate")
-    announceCheck:SetPoint("TOPLEFT", soundFileText, "BOTTOMLEFT", 0, -15)
-    announceCheck.text = _G[announceCheck:GetName() .. "Text"]
-    announceCheck.text:SetText("Анонсировать в рейд-варн блокировку и очистку ставок")
-    announceCheck:SetChecked(self.db.general.announceToRaid)
-    announceCheck:SetScript("OnClick", function(self)
-        auction.db.general.announceToRaid = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-
-    -- Коэффициент офф-спек (только для лутера)
-    local offspecTitle = generalTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    offspecTitle:SetPoint("TOPLEFT", announceCheck, "BOTTOMLEFT", 0, -20)
-    offspecTitle:SetText("Офф-спек коэффициент (только Loot Master):")
-    offspecTitle:SetFontObject(GameFontNormalLarge)
-
-    local offspecMultiplierSlider = CreateFrame("Slider", "EPBAOffspecMultiplierSlider", generalTab, "OptionsSliderTemplate")
-    offspecMultiplierSlider:SetPoint("TOPLEFT", offspecTitle, "BOTTOMLEFT", 0, -10)
-    offspecMultiplierSlider:SetSize(200, 15)
-    offspecMultiplierSlider:SetMinMaxValues(0.1, 1.0)
-    offspecMultiplierSlider:SetValueStep(0.05)
-    offspecMultiplierSlider:SetValue(self.db.general.offspecMultiplier or 0.5)
-
-    local sliderName = offspecMultiplierSlider:GetName()
-    local lowText = _G[sliderName .. "Low"]
-    local highText = _G[sliderName .. "High"]
-    local valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("10%") end
-    if highText then highText:SetText("100%") end
-    if valueText then valueText:SetText(math.floor((self.db.general.offspecMultiplier or 0.5) * 100) .. "%") end
-
-    offspecMultiplierSlider:SetScript("OnValueChanged", function(self, value)
-        if not auction:IsLootMaster() then
-            print("|cffff0000[EPBA]|r Только Loot Master может изменять коэффициент офф-спек.")
-            self:SetValue(auction.db.general.offspecMultiplier or 0.5)
-            return
-        end
-        
-        value = math.floor(value * 100) / 100
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(math.floor(value * 100) .. "%") end
-        
-        auction.db.general.offspecMultiplier = value
-        auction.offspecMultiplier = value
-        auction:SaveData()
-        
-        -- Рассылаем новый коэффициент рейду
-        auction:Send("OFFSPEC_MULT;" .. value, "RAID", nil, 0, "OFFSPEC_MULT")
-        
-        -- Обновляем отображение максимальной ставки
-        if auction.myEP > 0 then
-            auction:UpdateMaxBidDisplay()
-        end
-    end)
-
-    -- Если игрок не лутер, отключаем слайдер
-    if not auction:IsLootMaster() then
-        offspecMultiplierSlider:Disable()
-        offspecMultiplierSlider:SetAlpha(0.5)
-    end
-    
-    -- ----------------------------------------------
-    -- Вкладка "Таблица" — шрифты/ширины колонок, число показываемых
-    -- ставок, высота строки, режим окраски, якорь тултипа
-    -- Вкладка "Таблица"
-    -- ----------------------------------------------
-    local tableTab = CreateFrame("Frame", nil, contentChild)
-    tableTab:SetPoint("TOPLEFT", 10, -10)
-    tableTab:SetSize(540, 400)
-    tableTab:Hide()
-    self.tableTab = tableTab
-
-    -- Заголовок "Названия предметов"
-    local itemTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    itemTitle:SetPoint("TOPLEFT", 10, -10)
-    itemTitle:SetText("Названия предметов:")
-    itemTitle:SetFontObject(GameFontNormalLarge)
-    
-    -- Размер шрифта предметов
-    local itemFontSizeText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    itemFontSizeText:SetPoint("TOPLEFT", itemTitle, "BOTTOMLEFT", 0, -20)
-    itemFontSizeText:SetText("Размер шрифта:")
-    itemFontSizeText:SetWidth(100)
-    
-    local itemFontSizeSlider = CreateFrame("Slider", "EPBAItemFontSizeSlider", tableTab, "OptionsSliderTemplate")
-    itemFontSizeSlider:SetPoint("LEFT", itemFontSizeText, "RIGHT", 10, 0)
-    itemFontSizeSlider:SetSize(150, 15)
-    itemFontSizeSlider:SetMinMaxValues(8, 16)
-    itemFontSizeSlider:SetValueStep(1)
-    itemFontSizeSlider:SetValue(self.db.table.itemFontSize)
-    
-    local sliderName = itemFontSizeSlider:GetName()
-    local lowText = _G[sliderName .. "Low"]
-    local highText = _G[sliderName .. "High"]
-    local valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("8") end
-    if highText then highText:SetText("16") end
-    if valueText then valueText:SetText(self.db.table.itemFontSize) end
-    
-    itemFontSizeSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.table.itemFontSize = value
-        auction:ApplySettings()
-    end)
-    
-    -- Ширина колонки предметов
-    local itemWidthText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    itemWidthText:SetPoint("TOPLEFT", itemFontSizeText, "BOTTOMLEFT", 0, -20)
-    itemWidthText:SetText("Ширина колонки:")
-    itemWidthText:SetWidth(100)
-    
-    local itemWidthSlider = CreateFrame("Slider", "EPBAItemWidthSlider", tableTab, "OptionsSliderTemplate")
-    itemWidthSlider:SetPoint("LEFT", itemWidthText, "RIGHT", 10, 0)
-    itemWidthSlider:SetSize(150, 15)
-    itemWidthSlider:SetMinMaxValues(150, 350)
-    itemWidthSlider:SetValueStep(10)
-    itemWidthSlider:SetValue(self.db.table.itemWidth)
-    
-    sliderName = itemWidthSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("150") end
-    if highText then highText:SetText("350") end
-    if valueText then valueText:SetText(self.db.table.itemWidth) end
-    
-    itemWidthSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.table.itemWidth = value
-        auction:ApplySettings()
-    end)
-    
-    -- Заголовок "Ставки"
-    local bidTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bidTitle:SetPoint("TOPLEFT", itemWidthText, "BOTTOMLEFT", 0, -30)
-    bidTitle:SetText("Ставки:")
-    bidTitle:SetFontObject(GameFontNormalLarge)
-    
-    -- Размер шрифта ставок
-    local bidFontSizeText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bidFontSizeText:SetPoint("TOPLEFT", bidTitle, "BOTTOMLEFT", 0, -20)
-    bidFontSizeText:SetText("Размер шрифта:")
-    bidFontSizeText:SetWidth(100)
-    
-    local bidFontSizeSlider = CreateFrame("Slider", "EPBABidFontSizeSlider", tableTab, "OptionsSliderTemplate")
-    bidFontSizeSlider:SetPoint("LEFT", bidFontSizeText, "RIGHT", 10, 0)
-    bidFontSizeSlider:SetSize(150, 15)
-    bidFontSizeSlider:SetMinMaxValues(8, 16)
-    bidFontSizeSlider:SetValueStep(1)
-    bidFontSizeSlider:SetValue(self.db.table.bidFontSize)
-    
-    sliderName = bidFontSizeSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("8") end
-    if highText then highText:SetText("16") end
-    if valueText then valueText:SetText(self.db.table.bidFontSize) end
-    
-    bidFontSizeSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.table.bidFontSize = value
-        auction:ApplySettings()
-    end)
-    
-    -- Количество показываемых ставок
-    local topBidsText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    topBidsText:SetPoint("TOPLEFT", bidFontSizeText, "BOTTOMLEFT", 0, -20)
-    topBidsText:SetText("Показывать ставок:")
-    topBidsText:SetWidth(120)
-    
-    local topBidsSlider = CreateFrame("Slider", "EPBATopBidsSlider", tableTab, "OptionsSliderTemplate")
-    topBidsSlider:SetPoint("LEFT", topBidsText, "RIGHT", 10, 0)
-    topBidsSlider:SetSize(150, 15)
-    topBidsSlider:SetMinMaxValues(1, 5)
-    topBidsSlider:SetValueStep(1)
-    topBidsSlider:SetValue(self.db.table.showTopBids)
-    
-    sliderName = topBidsSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("1") end
-    if highText then highText:SetText("5") end
-    if valueText then valueText:SetText(self.db.table.showTopBids) end
-    
-    topBidsSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.table.showTopBids = value
-        auction:ApplySettings()
-    end)
-
-    -- Скрывать предметы без ставок
-    local hideNoBidsCheck = CreateFrame("CheckButton", "EPBAHideNoBidsCheck", tableTab, "UICheckButtonTemplate")
-    hideNoBidsCheck:SetPoint("TOPLEFT", topBidsText, "BOTTOMLEFT", 0, -18)
-    hideNoBidsCheck.text = _G[hideNoBidsCheck:GetName() .. "Text"]
-    hideNoBidsCheck.text:SetText("Скрывать предметы без ставок")
-    hideNoBidsCheck:SetChecked(self.db.table.hideNoBids == true)
-    hideNoBidsCheck:SetScript("OnClick", function(self)
-        auction.db.table.hideNoBids = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-
-    -- Высота строки
-    local rowHeightTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightTitle:SetPoint("TOPLEFT", hideNoBidsCheck, "BOTTOMLEFT", 0, -16)
-    rowHeightTitle:SetText("Высота строки:")
-    rowHeightTitle:SetFontObject(GameFontNormalLarge)
-
-    local rowHeightText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rowHeightText:SetPoint("TOPLEFT", rowHeightTitle, "BOTTOMLEFT", 0, -15)
-    rowHeightText:SetText("Высота (пикс):")
-    rowHeightText:SetWidth(100)
-
-    local rowHeightSlider = CreateFrame("Slider", "EPBARowHeightSlider", tableTab, "OptionsSliderTemplate")
-    rowHeightSlider:SetPoint("LEFT", rowHeightText, "RIGHT", 10, 0)
-    rowHeightSlider:SetSize(150, 15)
-    rowHeightSlider:SetMinMaxValues(20, 60)
-    rowHeightSlider:SetValueStep(2)
-    rowHeightSlider:SetValue(self.db.table.rowHeight)
-
-    sliderName = rowHeightSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("20") end
-    if highText then highText:SetText("60") end
-    if valueText then valueText:SetText(self.db.table.rowHeight) end
-
-    rowHeightSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.table.rowHeight = value
-        auction:ApplySettings()
-    end)
-    
-    -- Цвет названий предметов
-    local colorTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorTitle:SetPoint("TOPLEFT", rowHeightText, "BOTTOMLEFT", 0, -30)
-    colorTitle:SetText("Цвет названий:")
-    colorTitle:SetFontObject(GameFontNormalLarge)
-
-    local colorModeText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorModeText:SetPoint("TOPLEFT", colorTitle, "BOTTOMLEFT", 0, -15)
-    colorModeText:SetText("Режим цвета:")
-    colorModeText:SetWidth(80)
-
-    local colorModeDropdown = CreateFrame("Frame", "EPBAColorModeDropdown", tableTab, "UIDropDownMenuTemplate")
-    colorModeDropdown:SetPoint("LEFT", colorModeText, "RIGHT", 10, 0)
-    UIDropDownMenu_SetWidth(colorModeDropdown, 100)
-    local currentMode = self.db.table.itemColorMode or "gold"
-    UIDropDownMenu_SetText(colorModeDropdown, currentMode == "gold" and "Золотой" or "По редкости")
-    UIDropDownMenu_Initialize(colorModeDropdown, function()
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "Золотой"
-        info.func = function() auction.db.table.itemColorMode = "gold"; UIDropDownMenu_SetText(colorModeDropdown, "Золотой"); auction:ApplySettings() end
-        info.checked = auction.db.table.itemColorMode == "gold"
-        UIDropDownMenu_AddButton(info)
-        info = UIDropDownMenu_CreateInfo()
-        info.text = "По редкости"
-        info.func = function() auction.db.table.itemColorMode = "quality"; UIDropDownMenu_SetText(colorModeDropdown, "По редкости"); auction:ApplySettings() end
-        info.checked = auction.db.table.itemColorMode == "quality"
-        UIDropDownMenu_AddButton(info)
-    end)
-
-    -- Привязка тултипа
-    local tooltipTitle = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tooltipTitle:SetPoint("TOPLEFT", colorModeText, "BOTTOMLEFT", 0, -30)
-    tooltipTitle:SetText("Тултип:")
-    tooltipTitle:SetFontObject(GameFontNormalLarge)
-
-    local tooltipAnchorText = tableTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tooltipAnchorText:SetPoint("TOPLEFT", tooltipTitle, "BOTTOMLEFT", 0, -15)
-    tooltipAnchorText:SetText("Привязка:")
-    tooltipAnchorText:SetWidth(80)
-
-    local tooltipAnchorDropdown = CreateFrame("Frame", "EPBATooltipAnchorDropdown", tableTab, "UIDropDownMenuTemplate")
-    tooltipAnchorDropdown:SetPoint("LEFT", tooltipAnchorText, "RIGHT", 10, 0)
-    UIDropDownMenu_SetWidth(tooltipAnchorDropdown, 120)
-
-    local anchorNames = {
-        CURSOR = "У курсора",
-        RIGHT = "Справа",
-        LEFT = "Слева",
-        TOP = "Сверху",
-        BOTTOM = "Снизу",
-        TOPRIGHT = "Сверху справа",
-        TOPLEFT = "Сверху слева",
-        BOTTOMRIGHT = "Снизу справа",
-        BOTTOMLEFT = "Снизу слева",
-    }
-    local currentAnchor = self.db.table.tooltipAnchor or "CURSOR"
-    UIDropDownMenu_SetText(tooltipAnchorDropdown, anchorNames[currentAnchor] or "У курсора")
-
-    UIDropDownMenu_Initialize(tooltipAnchorDropdown, function()
-        for anchor, name in pairs(anchorNames) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = name
-            info.func = function()
-                auction.db.table.tooltipAnchor = anchor
-                UIDropDownMenu_SetText(tooltipAnchorDropdown, name)
-                auction:ApplySettings()
-            end
-            info.checked = (auction.db.table.tooltipAnchor == anchor)
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-     
-    -- ----------------------------------------------
-    -- Вкладка "Кнопка миникарты" — показ/скрытие, размер, радиус от центра
-    -- Вкладка "Кнопка миникарты"
-    -- ----------------------------------------------
-    local minimapTab = CreateFrame("Frame", nil, contentChild)
-    minimapTab:SetPoint("TOPLEFT", 10, -10)
-    minimapTab:SetSize(540, 400)
-    minimapTab:Hide()
-    self.minimapTab = minimapTab
-
-    -- Показывать кнопку
-    local showButtonCheck = CreateFrame("CheckButton", "EPBAShowMinimapCheck", minimapTab, "UICheckButtonTemplate")
-    showButtonCheck:SetPoint("TOPLEFT", 10, -10)
-    showButtonCheck.text = _G[showButtonCheck:GetName() .. "Text"]
-    showButtonCheck.text:SetText("Показывать кнопку у миникарты")
-    showButtonCheck:SetChecked(self.db.minimap.show)
-    showButtonCheck:SetScript("OnClick", function(self)
-        auction.db.minimap.show = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-    
-    -- Размер кнопки
-    local buttonSizeText = minimapTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    buttonSizeText:SetPoint("TOPLEFT", showButtonCheck, "BOTTOMLEFT", 0, -20)
-    buttonSizeText:SetText("Размер кнопки:")
-    buttonSizeText:SetWidth(100)
-    
-    local buttonSizeSlider = CreateFrame("Slider", "EPBAButtonSizeSlider", minimapTab, "OptionsSliderTemplate")
-    buttonSizeSlider:SetPoint("LEFT", buttonSizeText, "RIGHT", 10, 0)
-    buttonSizeSlider:SetSize(150, 15)
-    buttonSizeSlider:SetMinMaxValues(20, 40)
-    buttonSizeSlider:SetValueStep(1)
-    buttonSizeSlider:SetValue(self.db.minimap.size)
-    
-    sliderName = buttonSizeSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("20") end
-    if highText then highText:SetText("40") end
-    if valueText then valueText:SetText(self.db.minimap.size) end
-    
-    buttonSizeSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.minimap.size = value
-        auction:ApplySettings()
-    end)
-    
-    -- Радиус от центра
-    local radiusText = minimapTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    radiusText:SetPoint("TOPLEFT", buttonSizeText, "BOTTOMLEFT", 0, -20)
-    radiusText:SetText("Радиус от центра:")
-    radiusText:SetWidth(120)
-    
-    local radiusSlider = CreateFrame("Slider", "EPBARadiusSlider", minimapTab, "OptionsSliderTemplate")
-    radiusSlider:SetPoint("LEFT", radiusText, "RIGHT", 10, 0)
-    radiusSlider:SetSize(150, 15)
-    radiusSlider:SetMinMaxValues(50, 100)
-    radiusSlider:SetValueStep(5)
-    radiusSlider:SetValue(self.db.minimap.radius)
-    
-    sliderName = radiusSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("50") end
-    if highText then highText:SetText("100") end
-    if valueText then valueText:SetText(self.db.minimap.radius) end
-    
-    radiusSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(value) end
-        auction.db.minimap.radius = value
-        auction:ApplySettings()
-    end)
-    
-    -- Сброс позиции
-    local resetPosButton = CreateFrame("Button", nil, minimapTab, "UIPanelButtonTemplate")
-    resetPosButton:SetSize(120, 25)
-    resetPosButton:SetPoint("TOPLEFT", radiusText, "BOTTOMLEFT", 0, -30)
-    resetPosButton:SetText("Сбросить позицию")
-    resetPosButton:SetScript("OnClick", function()
-        auction.db.minimap.position = { angle = 0 }
-        auction.minimapButtonPosition = auction.db.minimap.position
-        auction:ApplySettings()
-        auction:SaveSettings()
-    end)
-    
-    -- ----------------------------------------------
-    -- Вкладка "Окно" — прозрачность, блокировка перетаскивания, масштаб (zoom)
-    -- Вкладка "Окно"
-    -- ----------------------------------------------
-    local windowTab = CreateFrame("Frame", nil, contentChild)
-    windowTab:SetPoint("TOPLEFT", 10, -10)
-    windowTab:SetSize(540, 400)
-    windowTab:Hide()
-    self.windowTab = windowTab
-
-    -- Прозрачность
-    local alphaText = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    alphaText:SetPoint("TOPLEFT", 10, -10)
-    alphaText:SetText("Прозрачность окна:")
-    alphaText:SetWidth(120)
-    
-    local alphaSlider = CreateFrame("Slider", "EPBAAlphaSlider", windowTab, "OptionsSliderTemplate")
-    alphaSlider:SetPoint("LEFT", alphaText, "RIGHT", 10, 0)
-    alphaSlider:SetSize(150, 15)
-    alphaSlider:SetMinMaxValues(0.3, 1.0)
-    alphaSlider:SetValueStep(0.1)
-    alphaSlider:SetValue(self.db.window.alpha)
-    
-    sliderName = alphaSlider:GetName()
-    lowText = _G[sliderName .. "Low"]
-    highText = _G[sliderName .. "High"]
-    valueText = _G[sliderName .. "Text"]
-    if lowText then lowText:SetText("30%") end
-    if highText then highText:SetText("100%") end
-    if valueText then valueText:SetText(math.floor(self.db.window.alpha * 100) .. "%") end
-    
-    alphaSlider:SetScript("OnValueChanged", function(self, value)
-        if value == self.lastValue then return end
-        self.lastValue = value
-        local vt = _G[self:GetName() .. "Text"]
-        if vt then vt:SetText(math.floor(value * 100) .. "%") end
-        auction.db.window.alpha = value
-        auction:ApplySettings()
-    end)
-    
-    -- Масштаб окна (кнопки + - сброс)
-    local scaleTextLabel = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    scaleTextLabel:SetPoint("TOPLEFT", alphaText, "BOTTOMLEFT", 0, -25)
-    scaleTextLabel:SetText("Масштаб окна:")
-    scaleTextLabel:SetWidth(120)
-    
-    local scaleValue = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    scaleValue:SetPoint("LEFT", scaleTextLabel, "RIGHT", 10, 0)
-    scaleValue:SetWidth(60)
-    scaleValue:SetJustifyH("LEFT")
-    scaleValue:SetText(string.format("%d%%", self.db.window.scale * 100))
-    
-    local zoomOutBtn = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
-    zoomOutBtn:SetSize(40, 25)
-    zoomOutBtn:SetPoint("LEFT", scaleValue, "RIGHT", 10, 0)
-    zoomOutBtn:SetText("-")
-    zoomOutBtn:SetScript("OnClick", function()
-        auction:ZoomOut()
-        scaleValue:SetText(string.format("%d%%", auction.windowScale * 100))
-        auction.db.window.scale = auction.windowScale
-    end)
-    
-    local resetZoomBtn = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
-    resetZoomBtn:SetSize(50, 25)
-    resetZoomBtn:SetPoint("LEFT", zoomOutBtn, "RIGHT", 5, 0)
-    resetZoomBtn:SetText("100%")
-    resetZoomBtn:SetScript("OnClick", function()
-        auction:ResetZoom()
-        scaleValue:SetText("100%")
-        auction.db.window.scale = 1.0
-    end)
-    
-    local zoomInBtn = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
-    zoomInBtn:SetSize(40, 25)
-    zoomInBtn:SetPoint("LEFT", resetZoomBtn, "RIGHT", 5, 0)
-    zoomInBtn:SetText("+")
-    zoomInBtn:SetScript("OnClick", function()
-        auction:ZoomIn()
-        scaleValue:SetText(string.format("%d%%", auction.windowScale * 100))
-        auction.db.window.scale = auction.windowScale
-    end)
-    
-    -- Блокировка окна
-    local lockWindowCheck = CreateFrame("CheckButton", "EPBALockWindowCheck", windowTab, "UICheckButtonTemplate")
-    lockWindowCheck:SetPoint("TOPLEFT", scaleTextLabel, "BOTTOMLEFT", 0, -25)
-    lockWindowCheck.text = _G[lockWindowCheck:GetName() .. "Text"]
-    lockWindowCheck.text:SetText("Заблокировать окно (запретить перемещение)")
-    lockWindowCheck:SetChecked(self.db.window.locked)
-    lockWindowCheck:SetScript("OnClick", function(self)
-        auction.db.window.locked = self:GetChecked() and true or false
-        auction:ApplySettings()
-    end)
-    
-    -- Сброс позиции окна
-    local resetWindowPosButton = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
-    resetWindowPosButton:SetSize(150, 25)
-    resetWindowPosButton:SetPoint("TOPLEFT", lockWindowCheck, "BOTTOMLEFT", 0, -30)
-    resetWindowPosButton:SetText("Сбросить позицию окна")
-    resetWindowPosButton:SetScript("OnClick", function()
-        if auction.frame then
-            auction.db.window.point = "CENTER"
-            auction.db.window.relativePoint = "CENTER"
-            auction.db.window.x = 0
-            auction.db.window.y = 0
-            auction.frame:ClearAllPoints()
-            auction.frame:SetPoint("CENTER")
-            auction:SaveSettings()
-        end
-    end)
-
-    -- Информация о растягивании окна
-    local resizeInfo = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    resizeInfo:SetPoint("TOPLEFT", resetWindowPosButton, "BOTTOMLEFT", 0, -20)
-    resizeInfo:SetText("Окно можно растягивать, потянув за правый нижний угол")
-    resizeInfo:SetTextColor(0.7, 0.7, 0.7)
-    resizeInfo:SetWidth(300)
-    resizeInfo:SetJustifyH("LEFT")
-
-    -- Текущие размеры окна
-    local sizeText = windowTab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sizeText:SetPoint("TOPLEFT", resizeInfo, "BOTTOMLEFT", 0, -15)
-    sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", self.db.window.width, self.db.window.height))
-    sizeText:SetTextColor(0.5, 0.5, 0.5)
-
-    -- Кнопка сброса размера
-    local resetSizeButton = CreateFrame("Button", nil, windowTab, "UIPanelButtonTemplate")
-    resetSizeButton:SetSize(150, 25)
-    resetSizeButton:SetPoint("TOPLEFT", sizeText, "BOTTOMLEFT", 0, -15)
-    resetSizeButton:SetText("Сбросить размер")
-    resetSizeButton:SetScript("OnClick", function()
-        if auction.frame then
-            auction.db.window.width = auction.defaults.window.width
-            auction.db.window.height = auction.defaults.window.height
-            auction.frame:SetSize(auction.db.window.width, auction.db.window.height)
-            auction:UpdateScrollFrameSize()
-            auction:RefreshTable()
-            auction:SaveSettings()
-            sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", auction.db.window.width, auction.db.window.height))
-        end
-    end)
-
-    -- Обновляем текст размера при изменении окна
-    if auction.frame then
-        auction.frame:HookScript("OnSizeChanged", function()
-            sizeText:SetText(string.format("Текущий размер: %.0f x %.0f", 
-                auction.frame:GetWidth(), auction.frame:GetHeight()))
-        end)
-    end
-    
-    -- ----------------------------------------------
-    -- Кнопки вкладок
-    -- ----------------------------------------------
-    local tabs = {
-        { text = "Общие", frame = generalTab },
-        { text = "Таблица", frame = tableTab },
-        { text = "Миникарта", frame = minimapTab },
-        { text = "Окно", frame = windowTab },
-    }
-    
-    local tabWidth = 100
-    local tabHeight = 25
-    local tabGap = 10
-    local tabButtons = {}
-    
-    for i, tabData in ipairs(tabs) do
-        local tab = CreateFrame("Button", nil, tabContainer, "UIPanelButtonTemplate")
-        tab:SetSize(tabWidth, tabHeight)
-        tab:SetPoint("LEFT", (i-1) * (tabWidth + tabGap), 0)
-        tab:SetText(tabData.text)
-        tab.frame = tabData.frame
-        
-        tab:SetScript("OnClick", function(self)
-            for _, btn in ipairs(tabButtons) do
-                btn.frame:Hide()
-            end
-            self.frame:Show()
-        end)
-        
-        table.insert(tabButtons, tab)
-    end
-    self.optionsTabButtons = tabButtons
-    
-    -- Показываем первую вкладку
-    if tabButtons[1] then
-        tabButtons[1]:GetScript("OnClick")(tabButtons[1])
-    end
-    
-    -- Кнопки внизу панели
-    local defaultsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    self.optionsDefaultsBtn = defaultsButton
-    defaultsButton:SetSize(120, 25)
-    defaultsButton:SetPoint("BOTTOMLEFT", 16, 16)
-    defaultsButton:SetText("По умолчанию")
-    defaultsButton:SetScript("OnClick", function()
-        auction.db = auction:DeepCopy(auction.defaults)
-        auction:ApplySettings()
-        auction:RefreshOptionsPanelControls()
-    end)
-    
-    local applyButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    self.optionsApplyBtn = applyButton
-    applyButton:SetSize(120, 25)
-    applyButton:SetPoint("BOTTOMRIGHT", -16, 16)
-    applyButton:SetText("Применить")
-    applyButton:SetScript("OnClick", function()
-        auction:SaveSettings()
-        auction:ApplySettings()
-        print("|cff00ff00[EPBA]|r Настройки сохранены")
-    end)
-    
-    local cancelButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    self.optionsCancelBtn = cancelButton
-    cancelButton:SetSize(120, 25)
-    cancelButton:SetPoint("RIGHT", applyButton, "LEFT", -10, 0)
-    cancelButton:SetText("Закрыть")
-    cancelButton:SetScript("OnClick", function()
-        HideUIPanel(panel)
-    end)
-    
     InterfaceOptions_AddCategory(panel)
     self.optionsPanel = panel
-    self:Debug("Панель настроек создана")
-end
-
--- Перечитывает auction.db.* и выставляет текущие значения во ВСЕ виджеты
--- панели (обратное направление от CreateOptionsPanel — там виджет пишет в
--- db, тут db читается в виджет). Вызывается при открытии панели, чтобы
--- значения не расходились, если db поменялся снаружи (например, LOCK
--- пришёл по сети, или настройки поменяли через слэш-команду).
-function auction:RefreshOptionsPanelControls()
-    if not self.optionsPanel then return end
-
-    local db = self.db
-    local function setSlider(name, value, textValue)
-        local slider = _G[name]
-        if slider then slider:SetValue(value) end
-        local text = _G[name .. "Text"]
-        if text then text:SetText(textValue or value) end
-    end
-
-    if _G["EPBADebugCheck"] then _G["EPBADebugCheck"]:SetChecked(db.general.debug) end
-    if _G["EPBAMinBidEdit"] then _G["EPBAMinBidEdit"]:SetText(db.general.minBid) end
-    if _G["EPBAConfirmBidCheck"] then _G["EPBAConfirmBidCheck"]:SetChecked(db.general.confirmBid) end
-    if _G["EPBASoundCheck"] then _G["EPBASoundCheck"]:SetChecked(db.general.soundEnabled) end
-    if _G["EPBAAnnounceToRaidCheck"] then _G["EPBAAnnounceToRaidCheck"]:SetChecked(db.general.announceToRaid) end
-    if _G["EPBASoundFileEdit"] then _G["EPBASoundFileEdit"]:SetText(db.general.soundFile) end
-    setSlider("EPBAOffspecMultiplierSlider", db.general.offspecMultiplier, math.floor(db.general.offspecMultiplier * 100) .. "%")
-
-    setSlider("EPBAItemFontSizeSlider", db.table.itemFontSize)
-    setSlider("EPBAItemWidthSlider", db.table.itemWidth)
-    setSlider("EPBABidFontSizeSlider", db.table.bidFontSize)
-    setSlider("EPBATopBidsSlider", db.table.showTopBids)
-    if _G["EPBAHideNoBidsCheck"] then _G["EPBAHideNoBidsCheck"]:SetChecked(db.table.hideNoBids == true) end
-    setSlider("EPBARowHeightSlider", db.table.rowHeight)
-    if _G["EPBAColorModeDropdown"] then
-        UIDropDownMenu_SetText(_G["EPBAColorModeDropdown"], db.table.itemColorMode == "quality" and "По редкости" or "Золотой")
-    end
-    if _G["EPBATooltipAnchorDropdown"] then
-        local anchorNames = {
-            CURSOR = "У курсора",
-            RIGHT = "Справа",
-            LEFT = "Слева",
-            TOP = "Сверху",
-            BOTTOM = "Снизу",
-            TOPRIGHT = "Сверху справа",
-            TOPLEFT = "Сверху слева",
-            BOTTOMRIGHT = "Снизу справа",
-            BOTTOMLEFT = "Снизу слева",
-        }
-        UIDropDownMenu_SetText(_G["EPBATooltipAnchorDropdown"], anchorNames[db.table.tooltipAnchor] or "У курсора")
-    end
-
-    if _G["EPBAShowMinimapCheck"] then _G["EPBAShowMinimapCheck"]:SetChecked(db.minimap.show) end
-    setSlider("EPBAButtonSizeSlider", db.minimap.size)
-    setSlider("EPBARadiusSlider", db.minimap.radius)
-
-    setSlider("EPBAAlphaSlider", db.window.alpha, math.floor(db.window.alpha * 100) .. "%")
-    if _G["EPBALockWindowCheck"] then _G["EPBALockWindowCheck"]:SetChecked(db.window.locked) end
 end

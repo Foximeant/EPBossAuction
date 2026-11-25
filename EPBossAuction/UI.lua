@@ -1453,7 +1453,9 @@ function auction:SendBidLocal()
         self:ReserveClickNotice()
         return
     end
-    if amount ~= 0 and amount < self.db.general.minBid then
+    -- Минимальную ставку знает и проверяет ЛМ (comm.lua Handle_BID, ответ TOOLOW);
+    -- у остальных своё значение не настраивается, поэтому заранее проверяет только сам ЛМ.
+    if amount ~= 0 and self:IsLootMaster() and amount < self.db.general.minBid then
         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.db.general.minBid.." EP (0 = отмена ставки)")
         return
     end

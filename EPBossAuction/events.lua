@@ -222,18 +222,8 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end
             auction:UpdateLMButtonsState()
             
-            if auction.optionsPanel and auction.optionsPanel:IsShown() then
-                local slider = _G["EPBAOffspecMultiplierSlider"]
-                if slider then
-                    if auction:IsLootMaster() then
-                        slider:Enable()
-                        slider:SetAlpha(1.0)
-                    else
-                        slider:Disable()
-                        slider:SetAlpha(0.5)
-                    end
-                end
-            end
+            -- вкладка «Настройки»: правила рейда доступны только ЛМ (options.lua)
+            auction:RefreshSettingsAccess()
         end, 2)
 
     -- Финальное сохранение перед выходом — подстраховка на случай, если

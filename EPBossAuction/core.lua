@@ -319,25 +319,18 @@ auction.defaults = {
     },
     table = {
         itemFontSize = 12,
-        itemFont = "GameFontNormal",
-        itemColor = {1, 1, 1},
-        itemWidth = 250,
+        itemWidth = 250,      -- ширина колонки предметов (в окне настроек не выводится)
         bidFontSize = 12,
-        bidFont = "GameFontNormal",
-        bidColor = {1, 1, 1},
-        bidWidth = 250,
         rowHeight = 20,
         showIcons = true,
         showTopBids = 2,
         hideNoBids = false,
-        alternatingRows = true,
         evenRowColor = {1, 1, 1, 0.03},
         oddRowColor = {0, 0, 0, 0},
         selectedRowColor = {0.80, 0.62, 0.10, 0.30},
         hoverRowColor = {0.2, 0.2, 0.2, 0.5},
         itemColorMode = "gold",
         tooltipAnchor = "CURSOR",
-        columnSplit = 40,
     },
     minimap = {
         show = true,
@@ -1068,6 +1061,8 @@ function auction:SetWindowScale(scale)
         self.windowScale = scale
         self.db.window.scale = scale
         self.frame:SetScale(scale)
+        -- масштаб могли поменять не из настроек (Ctrl+колесо, /epbazoom+) — обновляем подпись
+        if self.settingsPanel and self.settingsPanel:IsShown() then self:RefreshSettings() end
     end
 end
 
@@ -1138,9 +1133,4 @@ function auction:RequestRefresh()
     end, 0.1)
 end
 
--- Открывает панель настроек. В 3.3.5 первый вызов OpenToCategory в сессии
--- открывает окно, но не выбирает нужную категорию, поэтому вызываем дважды.
-function auction:OpenOptions()
-    InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
-    InterfaceOptionsFrame_OpenToCategory("EP Boss Auction")
-end
+-- auction:OpenOptions (открыть вкладку «Настройки») — в options.lua.

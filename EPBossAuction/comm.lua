@@ -1005,6 +1005,16 @@ function auction:Handle_LOCKED(rest, sender)
     end
 end
 
+-- Ответ ЛМ: моя ставка меньше минимальной (rest = "сумма;минимум"). Раньше ставка
+-- в этом случае отбрасывалась молча — теперь игрок видит, почему.
+function auction:Handle_TOOLOW(rest, sender)
+    local _, minBid = strsplit(";", rest or "")
+    minBid = tonumber(minBid)
+    if minBid then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EPBA]|r Ставка меньше минимальной: Loot Master принимает ставки от "..self:FormatNumber(minBid).." EP")
+    end
+end
+
 -- ======================
 -- Проверка, перебита ли ставка текущего игрока
 -- ======================

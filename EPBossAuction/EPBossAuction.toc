@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: EPBossAuction
 ## Author: Demissa
-## Version: 3.5.10
+## Version: 3.5.11
 ## Notes: Таблица ставок ЕП
 ## SavedVariables: EPBossAuctionDB
 ## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main/EPBossAuction

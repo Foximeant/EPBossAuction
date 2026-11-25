@@ -43,7 +43,7 @@ Loot Master видит список ставок по каждому предм�
 | `events.lua` | Единственная точка входа: один фрейм, один `OnEvent`, реагирует на `ADDON_LOADED`, `PLAYER_ENTERING_WORLD`, `CHAT_MSG_ADDON`, `GROUP_ROSTER_UPDATE`/`RAID_ROSTER_UPDATE`, `PLAYER_LOGOUT`, `EPGP_UPDATE`. |
 | `epgp.lua` | Мост к внешнему EPGP-аддону (EPGP / EPGP_Auction / CEPGP / EPGPCore) — получение EP игрока, с резолвом твинк → мейн. |
 | `theme.lua` | Палитра + хелперы `SkinPanel`/`SkinButton`/`SkinInput`/`SkinCheckbox`/`SkinDropdown`/`SkinScrollBar` для единого тёмного стиля. |
-| `options.lua` | Панель настроек (Interface Options → EPBossAuction). |
+| `options.lua` | Вкладка «Настройки» главного окна (шестерёнка, `OpenOptions`, `RefreshSettings`) и заглушка в Interface Options с кнопкой «Открыть настройки». Только выпадающие списки/галочки/кнопки; правила рейда (офф-спек, мин. ставка, анонс) меняет только ЛМ. |
 | `minimap.lua` | Кнопка на миникарте. |
 | `help.lua` | Окно «Справка» (обучение): страницы в `BuildHelpPages`, листание «Назад»/«Далее». Страница про Attendance/Резерв — только при `HasAttendanceAccess()`; страница про окно добычи — при `IsLootMaster()` или `HasAttendanceAccess()`. Новым пользователям показывается сам один раз (флаг `EPBossAuctionDB.helpSeen`, логика в `events.lua`). **При смене названий кнопок или поведения интерфейса — править текст здесь.** Страница «Если что-то не работает» (про диагностику) — для всех; при изменении вкладок/команд diag.lua правьте и её. |
 | `contacts.lua` | Окно «Сообщить о проблеме» (`/epba bug`): ссылка на GitHub Issues и контакт в Discord (таблица `auction.contacts` в шапке файла — поменять там), строка диагностики (`GetDiagnosticsString`). Поля только для копирования (Ctrl+C). |
@@ -504,9 +504,19 @@ MergeDefaults(EPBossAuctionDB.settings, auction.defaults)` — то есть **�
 добавлении новой настройки просто допиши ключ в `auction.defaults`**, старым
 пользователям он подставится автоматически, ничего больше делать не нужно.
 
-Панель настроек (`options.lua`) читает/пишет `auction.db.*` напрямую;
-`auction:ApplySettings()` (`core.lua`) применяет изменения к уже открытому
-окну на лету.
+Вкладка настроек (`options.lua`, шестерёнка в колонке вкладок) читает/пишет
+`auction.db.*` напрямую; `auction:ApplySettings()` (`core.lua`) применяет изменения
+к уже открытому окну на лету, изменения сохраняются сразу (кнопок «Применить» нет).
+Шестерёнку видят все, остальные вкладки — только с доступом (`UpdateMainTabs` в
+`attendance_ui.lua` раскладывает видимые вкладки в колонку).
+
+**Как добавить настройку:** ключ в `auction.defaults` → виджет в `CreateSettingsPanel`
+(`Check` / `Dropdown` / `NumberBox` / `Button` — каждый сам регистрируется в
+`auction.settingsControls`, поэтому значение подхватится в `RefreshSettings`) →
+применение на лету в `ApplySettings`, если оно меняет вид окна. Настройка Loot
+Master — последний параметр `true` (у остальных виджет станет серым,
+`RefreshSettingsAccess`). Правила рейда личными не бывают: коэффициент офф-спека
+рассылается командой `OFFSPEC_MULT`, минимальную ставку проверяет ЛМ и отвечает `TOOLOW`.
 
 ---
 

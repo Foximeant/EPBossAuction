@@ -113,6 +113,8 @@ local TAB_DEFS = {
       desc = "Предметы, заранее проданные вне гильдии: на них нельзя ставить" },
     { key = "stats",      label = "Статистика", icon = "Interface\\Icons\\INV_Misc_Book_09",
       desc = "Кто и что получил из добычи, сколько ЕП списано" },
+    { key = "settings",   label = "Настройки",  icon = "Interface\\Icons\\INV_Misc_Gear_01",
+      desc = "Окно, миникарта, вид таблицы, звук, правила рейда" },
 }
 
 function auction:CreateMainTabs(frame)
@@ -162,7 +164,15 @@ function auction:CreateMainTabs(frame)
         tab.key = def.key
         tab.label = def.label
         tab.desc = def.desc
-        tab:SetScript("OnClick", function() auction:ShowMainTab(def.key) end)
+        tab:SetScript("OnClick", function()
+            -- Шестерёнка работает как переключатель: повторный клик возвращает на «Ставки»
+            -- (у игроков без доступа других вкладок нет, вернуться больше нечем).
+            if def.key == "settings" and auction.activeTab == "settings" then
+                auction:ShowMainTab("bids")
+            else
+                auction:ShowMainTab(def.key)
+            end
+        end)
         tab:SetScript("OnEnter", function(self)
             self.hover = true
             auction:UpdateMainTabs()
@@ -182,23 +192,34 @@ function auction:CreateMainTabs(frame)
     end
 end
 
--- Перекрашивает вкладки под активную и прячет весь ряд вкладок, если у этого
--- клиента нет доступа к Attendance (тогда окно выглядит как раньше).
--- Если доступ пропал, а открыта вкладка Attendance — возвращает на "Ставки".
+-- Перекрашивает вкладки под активную и раскладывает видимые в колонку.
+-- «Настройки» (шестерёнка) видна всем, остальные вкладки — только тем, у кого
+-- есть доступ к Attendance (у остальных окно выглядит как раньше, плюс шестерёнка).
+-- Шестерёнка отделена от остальных вкладок увеличенным промежутком.
+-- Если доступ пропал, а открыта закрытая вкладка — возвращает на «Ставки».
 function auction:UpdateMainTabs()
     if not self.mainTabs then return end
     local c = self.theme.colors
     local hasAccess = self:HasAttendanceAccess()
 
-    if not hasAccess and self.activeTab ~= "bids" then
+    if not hasAccess and self.activeTab ~= "bids" and self.activeTab ~= "settings" then
         self:ShowMainTab("bids")
         return
     end
 
+    local previous
     for _, tab in ipairs(self.mainTabs) do
-        if not hasAccess then
+        if not (hasAccess or tab.key == "settings") then
             tab:Hide()
         else
+            tab:ClearAllPoints()
+            if previous then
+                local gap = (tab.key == "settings") and (TAB_GAP * 4) or TAB_GAP
+                tab:SetPoint("TOP", previous, "BOTTOM", 0, -gap)
+            else
+                tab:SetPoint("TOPRIGHT", self.frame, "TOPLEFT", 0, -TAB_TOP_OFFSET)
+            end
+            previous = tab
             tab:Show()
             if tab.key == self.activeTab then
                 tab:SetBackdropColor(c.panel[1], c.panel[2], c.panel[3], 1)
@@ -225,14 +246,15 @@ function auction:UpdateMainTabs()
     end
 end
 
--- Переключает содержимое окна: "bids" (левая панель + таблица ставок), "attendance"
--- или "reserve" (одна панель на всю ширину). Без доступа на Attendance/Резерв не пускает.
+-- Переключает содержимое окна: "bids" (левая панель + таблица ставок), "attendance",
+-- "reserve", "stats" или "settings" (одна панель на всю ширину). Без доступа на
+-- Attendance/Резерв/Статистику не пускает; «Настройки» открыты всем.
 function auction:ShowMainTab(tab)
-    if tab ~= "bids" and not self:HasAttendanceAccess() then tab = "bids" end
+    if tab ~= "bids" and tab ~= "settings" and not self:HasAttendanceAccess() then tab = "bids" end
     self.activeTab = tab
 
     -- Прячем панели всех остальных вкладок
-    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel }
+    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, settings = self.settingsPanel }
     for key, panel in pairs(panels) do
         if key ~= tab and panel then panel:Hide() end
     end
@@ -252,6 +274,8 @@ function auction:ShowMainTab(tab)
         elseif tab == "stats" then
             self.statsPanel:Show()
             self:RefreshStats()
+        elseif tab == "settings" then
+            if self.settingsPanel then self.settingsPanel:Show() end
         else
             self.reservePanel:Show()
             if not self.reserveBoss then self.reserveBoss = self.selectedBoss end
