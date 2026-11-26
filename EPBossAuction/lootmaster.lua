@@ -6,8 +6,10 @@ local auction = EPBossAuction
 -- Окно появляется ТОЛЬКО у ЛМ, в рейде, при открытии окна добычи
 -- (LOOT_OPENED). Показывает выпавшие предметы; под каждым — топ ставок
 -- (кликом выбирается победитель) и кнопки «Выдать», «Выдать себе»,
--- «Списать ЕП». В шапке — выбор босса и кнопка массового начисления ЕП
--- (причина = имя босса).
+-- «Списать ЕП». Шапка — две колонки: слева «Массовое начисление» (выбор босса,
+-- сумма ЕП, кнопки x1 / x1.25 / x2; причина = имя босса), справа «Посещаемость»
+-- (кнопка «Создать снимок»). Сумма подставляется сама из списка «ЕП за боссов»
+-- (настройки → «ЕП за боссов», окно bossep.lua; хранится в db.lootmaster.bossEP).
 --
 -- Как это работает (и почему прошлая версия не работала):
 --   * В 3.3.5a GetMasterLootCandidate принимает ОДИН аргумент — индекс
@@ -34,7 +36,7 @@ local auction = EPBossAuction
 --     selected (выбранный победитель), winner (кому выдано), amount (сколько списать)
 --   EPBossAuctionDB.lootLog — журнал выдач и массовых начислений (источник вкладки
 --   «Статистика»), см. LootJournalAdd, LootJournalAddMass и stats.lua.
---   auction.db.lootmaster — позиция окна и последняя сумма «за босса» по боссам.
+--   auction.db.lootmaster — позиция окна и ЕП за босса (bossEP, правится в окне «ЕП за боссов»).
 --
 -- Тест: /epbaloot test — окно с предметами выбранного босса; выдача и
 -- списание только имитируются (в EPGP и в игру ничего не пишется).
@@ -54,14 +56,17 @@ auction.LOOT_IGNORED_ITEMS = {
     -- [12345] = true,
 }
 
--- Сумма массового начисления по умолчанию: [имя босса] = число (необязательно;
--- после первого начисления окно запоминает последнюю введённую сумму по боссу).
+-- Запасная сумма массового начисления: [имя босса] = число. Используется, если
+-- для босса ничего не задано в окне «ЕП за боссов» (настройки, только для ЛМ).
 auction.LOOT_BOSS_EP = {
     -- ["Имя босса"] = 100,
 }
 
 -- Размеры окна
-local WIN_W, HEADER_H   = 520, 104
+local WIN_W, HEADER_H   = 520, 160
+local COL_L_X, COL_L_W  = 16, 290    -- левая колонка шапки («Массовое начисление»)
+local COL_R_X, COL_R_W  = 326, 178   -- правая колонка шапки («Посещаемость»)
+local MASS_MULTIPLIERS  = { 1, 1.25, 2 }   -- коэффициенты кнопок начисления
 local ROW_W, ROW_H      = 474, 146
 local ROW_GAP           = 6
 local MAX_VISIBLE_ROWS  = 4
@@ -97,6 +102,25 @@ local function Db()
     local d = auction.db.lootmaster
     d.bossEP = d.bossEP or {}
     return d
+end
+
+-- ЕП за босса: заданное в окне «ЕП за боссов», иначе запасное из LOOT_BOSS_EP, иначе nil.
+function auction:GetBossEP(boss)
+    if not boss then return nil end
+    local v = tonumber(Db().bossEP[boss]) or tonumber(self.LOOT_BOSS_EP[boss])
+    if v and v > 0 then return v end
+    return nil
+end
+
+-- Записывает ЕП за босса (пусто/0 — стирает значение) и обновляет подстановку в окне добычи.
+function auction:SetBossEP(boss, amount)
+    if not boss then return end
+    amount = math.floor(tonumber(amount) or 0)
+    Db().bossEP[boss] = (amount > 0) and amount or nil
+    if self.lootFrame then
+        self.lootFrame.massFilledFor = nil   -- подставить заново при следующем обновлении
+        if self.lootFrame:IsShown() then self:RefreshLootWindow() end
+    end
 end
 
 local function ReasonFor(e)
@@ -447,12 +471,16 @@ end
 -- ======================
 -- Массовое начисление ЕП
 -- ======================
-function auction:LootConfirmMass()
+-- mult — коэффициент кнопки (1, 1.25, 2): начисляется введённая сумма × mult,
+-- округлённая до целого.
+function auction:LootConfirmMass(mult)
     local f = self.lootFrame
     local boss = self.lootBoss
-    local amount = math.floor(tonumber(f.massBox:GetText()) or 0)
+    mult = tonumber(mult) or 1
+    local base = math.floor(tonumber(f.massBox:GetText()) or 0)
+    local amount = math.floor(base * mult + 0.5)
     if not boss then Say("Босс не определён — выберите его в списке.", true) return end
-    if amount <= 0 then Say("Укажите положительную сумму ЕП за босса.", true) return end
+    if base <= 0 or amount <= 0 then Say("Укажите положительную сумму ЕП за босса.", true) return end
 
     local n
     if not self.lootTest then
@@ -464,6 +492,9 @@ function auction:LootConfirmMass()
         end
     end
     local text = string.format("Начислить %s ЕП рейду?\nПричина: %s", self:FormatNumber(amount), boss)
+    if mult ~= 1 then
+        text = text..string.format("\nРасчёт: %s × %s", self:FormatNumber(base), tostring(mult))
+    end
     if n then text = text.."\nПолучателей: "..tostring(n) end
     local last = self.lootMassAwarded[boss]
     if last and time() - last < MASS_REPEAT_SECONDS then
@@ -487,7 +518,6 @@ function auction:LootDoMass(data)
     end
     self.lootMassAwarded[data.boss] = time()
     self:LootJournalAddMass(data.boss, data.amount, data.n)   -- для статистики (stats.lua)
-    Db().bossEP[data.boss] = data.amount
     Say(string.format("Рейду начислено %s ЕП за: %s.", self:FormatNumber(data.amount), data.boss))
     self:ScheduleTimer(function() auction:CheckAndUpdateEP() end, 2)
 end
@@ -715,14 +745,25 @@ function auction:CreateLootWindow()
     close:SetPoint("TOPRIGHT", -8, -8)
     close:SetScript("OnClick", function() auction:LootHideWindow() end)
 
-    local bossLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    bossLabel:SetPoint("TOPLEFT", 16, -42)
-    bossLabel:SetText("Босс:")
+    -- Заголовок раздела: золотой текст и тонкая линия под ним (как в настройках).
+    local function Section(text, x, width)
+        local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", x, -44)
+        label:SetText(text)
+        label:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
+        local line = f:CreateTexture(nil, "ARTWORK")
+        line:SetTexture(c.accent[1], c.accent[2], c.accent[3], 0.35)
+        line:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -3)
+        line:SetSize(width, 1)
+    end
 
-    local dd = CreateFrame("Frame", "EPBALootBossDropdown", f, "UIDropDownMenuTemplate")
-    dd:SetPoint("TOPLEFT", 52, -34)
-    UIDropDownMenu_SetWidth(dd, 230)
+    -- ---- Левая колонка: «Массовое начисление» ----
+    Section("Массовое начисление", COL_L_X, COL_L_W)
+
+    local H = self.uiHelpers
+    local dd = H.MakeDropdown(f, "EPBALootBossDropdown", COL_L_W - 50, COL_L_X, -66, "— выберите босса —")
     UIDropDownMenu_Initialize(dd, function(selfDD, level)
+        H.LockDropdownHeight(dd)
         for _, name in ipairs(BossChoices()) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = name
@@ -731,13 +772,46 @@ function auction:CreateLootWindow()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
+    H.LockDropdownHeight(dd)
     self:SkinDropdown(dd)
     f.bossDropdown = dd
 
+    local epLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    epLabel:SetPoint("TOPLEFT", COL_L_X, -99)
+    epLabel:SetText("ЕП за босса:")
+    f.massBox = MakeEdit(f, 90, 22)
+    f.massBox:SetPoint("TOPLEFT", COL_L_X + 84, -94)
+    f.massBox:HookScript("OnTextChanged", function() auction:LootUpdateMassHint() end)
+    f.massHint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.massHint:SetPoint("LEFT", f.massBox, "RIGHT", 8, 0)
+    f.massHint:SetWidth(COL_L_W - 84 - 90 - 8)
+    f.massHint:SetJustifyH("LEFT")
+    f.massHint:SetTextColor(0.6, 0.6, 0.6)
+
+    -- Кнопки начисления: сумма из поля × коэффициент.
+    f.massBtns = {}
+    local btnW, btnGap = 92, 7
+    for i, mult in ipairs(MASS_MULTIPLIERS) do
+        local btn = MakeButton(f, btnW, 24, "x"..tostring(mult))
+        btn:SetPoint("TOPLEFT", COL_L_X + (i - 1) * (btnW + btnGap), -124)
+        btn:SetScript("OnClick", function() auction:LootConfirmMass(mult) end)
+        btn:SetScript("OnEnter", function(b)
+            GameTooltip:SetOwner(b, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine("Начислить рейду сумму × "..tostring(mult), 1, 1, 1)
+            GameTooltip:AddLine("Сумма берётся из поля «ЕП за босса», причина — имя босса. Перед начислением будет подтверждение.", 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        f.massBtns[i] = btn
+    end
+
+    -- ---- Правая колонка: «Посещаемость» ----
+    Section("Посещаемость", COL_R_X, COL_R_W)
+
     -- «Создать снимок»: записывает посещаемость на выбранном боссе (состав рейда
     -- сейчас) в историю Attendance — то же, что «Записать килл» на вкладке Attendance.
-    f.snapBtn = MakeButton(f, 164, 24, "Создать снимок")
-    f.snapBtn:SetPoint("TOPLEFT", 338, -36)
+    f.snapBtn = MakeButton(f, COL_R_W, 24, "Создать снимок")
+    f.snapBtn:SetPoint("TOPLEFT", COL_R_X, -66)
     f.snapBtn:SetScript("OnClick", function() auction:LootSnapshot() end)
     f.snapBtn:SetScript("OnEnter", function(btn)
         GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
@@ -747,14 +821,12 @@ function auction:CreateLootWindow()
     end)
     f.snapBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local massLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    massLabel:SetPoint("TOPLEFT", 16, -76)
-    massLabel:SetText("ЕП рейду за босса:")
-    f.massBox = MakeEdit(f, 90, 22)
-    f.massBox:SetPoint("LEFT", massLabel, "RIGHT", 10, 0)
-    f.massBtn = MakeButton(f, 150, 24, "Начислить рейду")
-    f.massBtn:SetPoint("LEFT", f.massBox, "RIGHT", 10, 0)
-    f.massBtn:SetScript("OnClick", function() auction:LootConfirmMass() end)
+    local snapHint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    snapHint:SetPoint("TOPLEFT", COL_R_X, -96)
+    snapHint:SetWidth(COL_R_W)
+    snapHint:SetJustifyH("LEFT")
+    snapHint:SetTextColor(0.6, 0.6, 0.6)
+    snapHint:SetText("Записывает состав рейда как килл босса, выбранного слева.")
 
     local scroll = CreateFrame("ScrollFrame", "EPBossAuctionLootScroll", f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 14, -HEADER_H)
@@ -932,10 +1004,11 @@ function auction:RefreshLootWindow()
     UIDropDownMenu_SetText(f.bossDropdown, self.lootBoss or "— выберите босса —")
     if f.massFilledFor ~= self.lootBoss then
         f.massFilledFor = self.lootBoss
-        local v = self.lootBoss and (Db().bossEP[self.lootBoss] or self.LOOT_BOSS_EP[self.lootBoss])
+        local v = self:GetBossEP(self.lootBoss)   -- подстановка из списка «ЕП за боссов»
         f.massBox:SetText(v and tostring(v) or "")
     end
-    SetBtn(f.massBtn, self.lootBoss ~= nil)
+    self:LootUpdateMassHint()
+    for _, btn in ipairs(f.massBtns) do SetBtn(btn, self.lootBoss ~= nil) end
     SetBtn(f.snapBtn, self.lootBoss ~= nil)
 
     -- Строки (пул: создаются один раз, дальше переиспользуются)
@@ -959,6 +1032,25 @@ function auction:RefreshLootWindow()
     local n = #entries
     f.content:SetHeight(math.max(1, n * (ROW_H + ROW_GAP)))
     f:SetHeight(HEADER_H + math.min(math.max(n, 1), MAX_VISIBLE_ROWS) * (ROW_H + ROW_GAP) + 14)
+end
+
+-- Серая подпись справа от поля суммы: откуда взято число.
+function auction:LootUpdateMassHint()
+    local f = self.lootFrame
+    if not f or not f.massHint then return end
+    local text = ""
+    if self.lootBoss then
+        local configured = self:GetBossEP(self.lootBoss)
+        local typed = tonumber(f.massBox:GetText())
+        if not configured then
+            text = "не задано в настройках"
+        elseif typed == configured then
+            text = "из списка «ЕП за боссов»"
+        else
+            text = "изменено вручную"
+        end
+    end
+    f.massHint:SetText(text)
 end
 
 function auction:LootHideWindow()

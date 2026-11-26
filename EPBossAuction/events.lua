@@ -217,6 +217,8 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
                 auction:UpdateLockCheckbox()
             end
             auction:UpdateLMButtonsState()
+            -- вкладка «Настройки»: раздел «ЕП за боссов» виден только ЛМ (options.lua)
+            if auction.settingsPanel and auction.settingsPanel:IsShown() then auction:RefreshSettings() end
             
         end, 2)
 

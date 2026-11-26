@@ -11,7 +11,8 @@ local auction = EPBossAuction
 --
 -- Разделы (две колонки):
 --   слева   «Окно», «Миникарта», «Таблица ставок»
---   справа  «Ставки и звук», «Мои предметы» (белый список, watchlist.lua)
+--   справа  «Ставки и звук», «Мои предметы» (белый список, watchlist.lua),
+--           «ЕП за боссов» (виден только Loot Master, окно bossep.lua)
 --   внизу   «Режим отладки» и «Сбросить настройки»
 -- Минимальная ставка и коэффициент офф-спека здесь не выводятся: это
 -- константы в core.lua (auction.MIN_BID, auction.OFFSPEC_MULTIPLIER),
@@ -218,6 +219,7 @@ function auction:CreateSettingsPanel(frame)
         line:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -3)
         line:SetSize(COL_W, 1)
         col.y = col.y - 24
+        return label, line
     end
 
     -- Серый поясняющий текст (в несколько строк).
@@ -480,6 +482,25 @@ function auction:CreateSettingsPanel(frame)
     Hint(right, "Звёздочка справа от названия предмета в таблице добавляет его в список. Список общий для всех боссов и хранится только у вас.", 40)
     Button(right, "Очистить список", 136, function()
         StaticPopup_Show("EPBA_CLEAR_WATCHLIST")
+    end)
+
+    -- ---- ЕП за боссов (только Loot Master) ----
+    -- Раздел целиком показывается только ЛМ (RefreshSettings при открытии вкладки
+    -- и при смене состава рейда).
+    local epLabel, epLine = Header(right, "ЕП за боссов (Loot Master)")
+    local epHint = Hint(right, "", 52)
+    local epButton = Button(right, "Настроить", 136, function() auction:ShowBossEPWindow() end)
+    Register(function()
+        local isLM = auction:IsLootMaster()
+        local filled, total = 0, 0
+        for _, boss in ipairs(auction.bossOrder or {}) do
+            total = total + 1
+            if auction:GetBossEP(boss) then filled = filled + 1 end
+        end
+        epHint:SetText("Сколько ЕП рейд получает за каждого босса. Число подставляется в окне добычи в блок «Массовое начисление». Заполнено: " .. filled .. " из " .. total .. ".")
+        for _, widget in ipairs({ epLabel, epLine, epHint, epButton }) do
+            if isLM then widget:Show() else widget:Hide() end
+        end
     end)
 
     -- =====================================================
