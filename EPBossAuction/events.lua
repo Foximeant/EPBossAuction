@@ -130,10 +130,8 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
             end, 2)
         end
 
-        -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
-        auction:ScheduleTimer(function()
-            auction:CleanOutbidNotified()
-        end, 300)
+        -- Флаги «о перебитии уже уведомили» (auction.outbidNotified) по таймеру НЕ чистим:
+        -- иначе то же перебитие всплывало бы снова с очередным SYNC. См. ResetOutbidNotified.
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         auction:Debug("PLAYER_ENTERING_WORLD (pending)")

@@ -342,6 +342,7 @@ function auction:ReserveUIChanged(boss, itemID)
         end
     end
     if self.RefreshReserve then self:RefreshReserve() end
+    self:FavoritesRefreshSoon()   -- резерв закрывает ставки и на вкладке «Избранное»
 end
 
 -- Красит строку таблицы ставок под текущее состояние резерва (в обе стороны:
@@ -359,8 +360,8 @@ function auction:ApplyReserveMark(row, bossName, itemID)
 end
 
 -- Добавляет в уже подготовленный тултип предмета строки про резерв.
-function auction:AppendReserveTooltip(itemID)
-    local boss = self.selectedBoss
+function auction:AppendReserveTooltip(itemID, bossName)
+    local boss = bossName or self.selectedBoss   -- bossName — вкладка «Избранное»
     if not boss or not itemID then return end
     local qty = self:GetReserveQty(boss, itemID)
     if qty <= 0 then return end

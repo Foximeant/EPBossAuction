@@ -598,6 +598,7 @@ function auction:Handle_BID(rest, sender)
                 self:RequestRefresh()
             end
         end
+        self:FavoritesBidsChanged(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
         self:Debug("Отказ от ставки обработан")
         return
@@ -625,6 +626,7 @@ function auction:Handle_BID(rest, sender)
             self:RequestRefresh()
         end
     end
+    self:FavoritesBidsChanged(bossName, itemID)
     self:CheckIfOutbid(bossName, itemID)
     -- BIDOK только очищает поле ввода у ставившего (само состояние приходит в SYNC2), поэтому
     -- при заторе в очереди его можно выбросить (ttl 4 сек)
@@ -713,6 +715,7 @@ function auction:ApplySync(bossName, itemID, newBids, version, sender, omitted)
                 self:RequestRefresh()
             end
         end
+        self:FavoritesBidsChanged(bossName, itemID)
         self:CheckIfOutbid(bossName, itemID)
         self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#newBids)
     else
@@ -910,6 +913,7 @@ function auction:Handle_BIDOK(rest, sender)
     if auction.bidBox then
         auction.bidBox:SetText("")
     end
+    if auction.favBidBox then auction.favBidBox:SetText("") end   -- поле ставки на вкладке «Избранное»
 end
 
 -- Сигнал "синхронизация от ЛМ завершена" — просто финальный Debug-лог/флаг, данные уже применены по ходу отдельных SYNC.
@@ -924,6 +928,7 @@ end
 -- зеркалит уже принятое решение ЛМ.
 function auction:ClearBossLocal_Remote(bossName)
     self.bids[bossName] = {}
+    self:ResetOutbidNotified(bossName)   -- после очистки новое перебитие снова должно уведомить
     self.signups = self.signups or {}
     self.signups[bossName] = nil
     if self.bosses[bossName] then
@@ -995,8 +1000,16 @@ function auction:CheckIfOutbid(bossName, itemID)
     local maxBid = self.maxBidCache[key] or 0
     local myBid = self.myBidCache[key] or 0
 
-    if myBid == 0 or myBid >= maxBid then
-        self.outbidNotified[key] = nil
+    -- Одно уведомление на одно перебитие: флаг outbidNotified[key] живёт, пока игрок не
+    -- вернёт лидерство (или ставок на предмет не останется), и больше нигде не сбрасывается.
+    -- Повторные SYNC/ставки других игроков по этому предмету молчат.
+    if maxBid == 0 or (myBid > 0 and myBid >= maxBid) then
+        self.outbidNotified[key] = nil   -- ставок нет (таблицу очистили) либо я снова лидирую
+        return
+    end
+    if myBid == 0 then
+        -- У меня нет ставки (сам снял, либо в SYNC её временно не оказалось): не перебит,
+        -- но флаг не трогаем, иначе следующий SYNC с моей ставкой уведомил бы повторно.
         return
     end
 

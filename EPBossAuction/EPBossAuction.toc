@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: EPBossAuction
 ## Author: Demissa
-## Version: 3.5.12
+## Version: 3.6.0
 ## Notes: Таблица ставок ЕП
 ## SavedVariables: EPBossAuctionDB
 ## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main/EPBossAuction
@@ -22,9 +22,12 @@ attendance_ui.lua
 reserve.lua
 reserve_ui.lua
 watchlist.lua
+favorites.lua
 bossep.lua
 stats.lua
 stats_ui.lua
+bis.lua
+bis_ui.lua
 lootmaster.lua
 options.lua
 events.lua

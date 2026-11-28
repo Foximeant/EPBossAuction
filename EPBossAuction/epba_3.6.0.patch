@@ -1,0 +1,3027 @@
+diff --git a/EPBossAuction/DEVELOPER_GUIDE.md b/EPBossAuction/DEVELOPER_GUIDE.md
+index a3e36c1..f9df52d 100644
+--- a/EPBossAuction/DEVELOPER_GUIDE.md
++++ b/EPBossAuction/DEVELOPER_GUIDE.md
+@@ -46,6 +46,9 @@ Loot Master видит список ставок по каждому предм
+ | `options.lua` | Вкладка «Настройки» главного окна (шестерёнка, `OpenOptions`, `RefreshSettings`) и заглушка в Interface Options с кнопкой «Открыть настройки». Только выпадающие списки/галочки/кнопки. |
+ | `bossep.lua` | Окно «ЕП за боссов» (только ЛМ): по каждому боссу — сколько ЕП рейд получает. Открывается из настроек (раздел «ЕП за боссов»), читается/пишется через `auction:GetBossEP/SetBossEP` (`lootmaster.lua`), значение подставляется в блок «Массовое начисление» окна добычи. |
+ | `watchlist.lua` | Белый список предметов: звёздочка ★ в строке таблицы, кнопка «★ Мои» в шапке, фильтр «только отмеченные» (`auction.db.watchlist`, `db.table.watchlistOnly`). Личный, в сеть не уходит. |
++| `favorites.lua` | Вкладка «Избранные предметы»: все предметы из `watchlist` со всех боссов, сгруппированы по боссам, со ставками; снизу поле ставки (`PlaceBid` из `UI.lua`), «Снять ставку» (= ставка 0) и «Обновить ставки» (HELLO ЛМу по каждому боссу с избранным, с интервалом 1,2 с: ЛМ копит HELLO от одного игрока 1 с). Снаружи уведомляется через `FavoritesBidsChanged` / `FavoritesRefreshSoon` / `FavoritesUpdateBar` (вызовы есть в `UI.lua`, `comm.lua`, `reserve.lua`, `watchlist.lua`). `selectedBoss` не использует и не меняет. |
++| `bis.lua` | BiS-конструктор: данные (`EPBossAuctionDB.bis.lists`), 10 классов × 3 специализации, 17 слотов, до 3 предметов в слоте, заметки к списку и слоту, строка экспорта/импорта `EPBIS1~…` (контрольная сумма, без символа `|`). Только локально, в сеть не уходит. |
++| `bis_ui.lua` | Вкладка «BiS-листы» (классы → специализации → списки → редактор слотов), окно заметки, окно экспорта/импорта. Предметы добавляются Shift+кликом (хук `ChatEdit_InsertLink`) или вводом itemID. |
+ | `minimap.lua` | Кнопка на миникарте. |
+ | `help.lua` | Окно «Справка» (обучение): страницы в `BuildHelpPages`, листание «Назад»/«Далее». Страница про Attendance/Резерв — только при `HasAttendanceAccess()`; страница про окно добычи — при `IsLootMaster()` или `HasAttendanceAccess()`. Новым пользователям показывается сам один раз (флаг `EPBossAuctionDB.helpSeen`, логика в `events.lua`). **При смене названий кнопок или поведения интерфейса — править текст здесь.** Страница «Если что-то не работает» (про диагностику) — для всех; при изменении вкладок/команд diag.lua правьте и её. |
+ | `contacts.lua` | Окно «Сообщить о проблеме» (`/epba bug`): ссылка на GitHub Issues и контакт в Discord (таблица `auction.contacts` в шапке файла — поменять там), строка диагностики (`GetDiagnosticsString`). Поля только для копирования (Ctrl+C). |
+@@ -558,6 +561,9 @@ MergeDefaults(EPBossAuctionDB.settings, auction.defaults)` — то есть **
+ ---
+ 
+ ## Известные особенности и грабли
++- **Уведомление о перебитой ставке (`CheckIfOutbid`, `comm.lua`) — одно на перебитие.** Флаг `auction.outbidNotified[boss:item]` сбрасывается только когда игрок снова лидирует, ставок на предмет не осталось или очищена таблица босса (`ResetOutbidNotified` в `ClearBossLocal` и `ClearBossLocal_Remote`). Сбрасывать его по таймеру нельзя: `CheckIfOutbid` вызывается на каждый SYNC (ЛМ шлёт их при входе/перезагрузке любого игрока), и сброс вернёт повторные уведомления.- **Новые окна аддона — только через `auction:SetupWindow(frame)` (`theme.lua`)**, сразу после `CreateFrame`, до дочерних элементов. Главное окно лежит в `DIALOG` на уровне `MAIN_FRAME_LEVEL` (100); окна из `SetupWindow` — на `WINDOW_FRAME_LEVEL` (200) в той же страте и дополнительно поднимаются `Raise()` при каждом `Show()`, поэтому всегда поверх него. Страту окон НЕ повышать до `FULLSCREEN_DIALOG`: выпадающие списки (`UIDropDownMenu`, окно лута, отчёты) и `StaticPopup` лежат в `DIALOG` и спрятались бы под окном. Голый `SetFrameStrata("DIALOG")` прячет окно под главным.
++- **Ставка из любого места — `auction:PlaceBid(boss, itemID, amount, isOffspec, onSent)`** (`UI.lua`), а не прямая отправка `BID`: там проверки (блок, резерв, минимум, максимум по ЕП) и подтверждение. `SendBidLocal` (основная таблица) и вкладка «Избранное» — оболочки над ней.
++- **Окно выдачи: «Выдать себе»** (`LootGive(e, player, true)`, флаг `e.toSelf`) после очистки слота удаляет запись из окна (журнал пишется); если записей не осталось, окно закрывается. Обычная «Выдать» запись оставляет, чтобы можно было списать ЕП.
+ 
+ - **`GetConfiguredItemName`/`self.itemNames`** (`core.lua`) — мёртвый код,
+   наследие старой системы кастомных названий предметов (до явки на босса).
+diff --git a/EPBossAuction/EPBossAuction.toc b/EPBossAuction/EPBossAuction.toc
+index fd36f29..d813c66 100644
+--- a/EPBossAuction/EPBossAuction.toc
++++ b/EPBossAuction/EPBossAuction.toc
+@@ -1,7 +1,7 @@
+ ## Interface: 30300
+ ## Title: EPBossAuction
+ ## Author: Demissa
+-## Version: 3.5.12
++## Version: 3.6.0
+ ## Notes: Таблица ставок ЕП
+ ## SavedVariables: EPBossAuctionDB
+ ## X-Sirus-Update: https://github.com/Foximeant/EPBossAuction/tree/main/EPBossAuction
+@@ -22,9 +22,12 @@ attendance_ui.lua
+ reserve.lua
+ reserve_ui.lua
+ watchlist.lua
++favorites.lua
+ bossep.lua
+ stats.lua
+ stats_ui.lua
++bis.lua
++bis_ui.lua
+ lootmaster.lua
+ options.lua
+ events.lua
+diff --git a/EPBossAuction/UI.lua b/EPBossAuction/UI.lua
+index ace495d..2b60172 100644
+--- a/EPBossAuction/UI.lua
++++ b/EPBossAuction/UI.lua
+@@ -77,7 +77,7 @@ function auction:CreateUI()
+ 	end)
+     frame:Hide()
+     frame:SetFrameStrata("DIALOG")
+-    frame:SetFrameLevel(100)
++    frame:SetFrameLevel(self.MAIN_FRAME_LEVEL)   -- вторичные окна: auction:SetupWindow (theme.lua)
+     tinsert(UISpecialFrames, "EPBossAuctionFrame")
+     self.frame = frame
+     self:SkinPanel(frame)
+@@ -630,6 +630,7 @@ function auction:UpdateMaxBidDisplay()
+     else
+         self.maxBidText:SetTextColor(0.7, 0.7, 0.7)
+     end
++    self:FavoritesUpdateBar()   -- та же информация на вкладке «Избранное»
+ end
+ 
+ -- ======================
+@@ -651,6 +652,7 @@ function auction:SetBidsLocked(state)
+             self.bidButton:SetAlpha(1.0)
+         end
+     end
++    self:FavoritesUpdateBar()   -- кнопка ставки на вкладке «Избранное»
+     self:Debug("Блокировка ставок: "..tostring(state))
+ end
+ 
+@@ -1189,14 +1191,15 @@ end
+ -- топ-N из таблицы) — цвет EP игрока красный/зелёный в зависимости от
+ -- того, хватает ли ему EP на собственную ставку. Вызывается по наведению
+ -- на правую зону строки (rightClick в CreateRowTemplate).
+-function auction:ShowBidsTooltip(itemID)
+-    if self.selectedBoss and self:IsReserved(self.selectedBoss, itemID) then
++function auction:ShowBidsTooltip(itemID, bossName)
++    local boss = bossName or self.selectedBoss   -- bossName — вкладка «Избранное» (предметы разных боссов)
++    if boss and self:IsReserved(boss, itemID) then
+         GameTooltip:AddLine("Предмет зарезервирован", 1, 0.5, 0.2)
+         GameTooltip:AddLine("Ставки на него закрыты.", 0.8, 0.8, 0.8)
+         GameTooltip:Show()
+         return
+     end
+-    local bids = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
++    local bids = self.sortedBids[boss] and self.sortedBids[boss][itemID] or {}
+     if #bids == 0 then
+         GameTooltip:SetText("Нет ставок")
+         return
+@@ -1439,11 +1442,22 @@ end
+ -- подтверждение (если confirmBid включён в настройках), либо сразу шлёт
+ -- через SendBidAfterConfirm.
+ function auction:SendBidLocal()
+-    if self.bidsLocked then return end
+     if not self.selectedBoss or not self.selectedItem then return end
+     local amount = tonumber(self.bidBox:GetText())
++    local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
++    self:PlaceBid(self.selectedBoss, self.selectedItem, amount, isOffspec)
++end
++
++-- Общая точка ставки: проверки (блок, резерв, минимум, максимум по ЕП), подтверждение и
++-- отправка. Её зовут и основная таблица (SendBidLocal), и вкладка «Избранное»
++-- (favorites.lua), где предметы разных боссов, поэтому босс и предмет передаются явно.
++-- onSent необязателен: что сделать после отправки (по умолчанию очищается поле ставки
++-- в левой панели).
++function auction:PlaceBid(bossName, itemID, amount, isOffspec, onSent)
++    if self.bidsLocked then return end
++    if not bossName or not itemID then return end
+     if not amount or amount < 0 then return end
+-    if amount > 0 and self:IsReserved(self.selectedBoss, self.selectedItem) then
++    if amount > 0 and self:IsReserved(bossName, itemID) then
+         self:ReserveClickNotice()
+         return
+     end
+@@ -1451,7 +1465,6 @@ function auction:SendBidLocal()
+         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.MIN_BID.." EP (0 = отмена ставки)")
+         return
+     end
+-    local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
+     self:ForceEPUpdate(function(success, currentEP)
+         if not success then
+             print("|cffff0000[EPBA]|r Не удалось получить ваш ЕП (EPGP-аддон не найден или не отвечает) — ставка не отправлена")
+@@ -1465,24 +1478,25 @@ function auction:SendBidLocal()
+         end
+         if self.db.general.confirmBid and amount > 0 then
+             StaticPopupDialogs["EPBA_CONFIRM_BID"] = {
+-                text = "Подтвердите ставку\nПредмет: "..self:GetCachedItemName(self.selectedItem, self.selectedBoss).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
++                text = "Подтвердите ставку\nПредмет: "..self:GetCachedItemName(itemID, bossName).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
+                 button1 = "Да", button2 = "Нет",
+-                OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec) end,
++                OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent) end,
+                 timeout = 0, whileDead = true, hideOnEscape = true,
+             }
+             StaticPopup_Show("EPBA_CONFIRM_BID")
+         else
+-            self:SendBidAfterConfirm(amount, currentEP, isOffspec)
++            self:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent)
+         end
+     end)
+ end
+ 
+ -- Фактическая отправка ставки после (не)обязательного подтверждения:
+ -- если я сам ЛМ — применяю локально (ApplyBidChange) без похода в сеть,
+--- иначе шлю BID лутеру (SendToLootMaster).
+-function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
+-    local bossName = auction.selectedBoss
+-    local itemID = auction.selectedItem
++-- иначе шлю BID лутеру (SendToLootMaster). bossName/itemID по умолчанию — выбранные
++-- в основной таблице; onSent — что сделать после отправки (по умолчанию очистить поле ставки).
++function auction:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent)
++    bossName = bossName or auction.selectedBoss
++    itemID = itemID or auction.selectedItem
+     local playerName = UnitName("player")
+     if auction:IsLootMaster() then
+         auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
+@@ -1490,7 +1504,7 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
+         local offspecStr = isOffspec and "true" or "false"
+         auction:SendToLootMaster("BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr)
+     end
+-    auction.bidBox:SetText("")
++    if onSent then onSent() else auction.bidBox:SetText("") end
+ end
+ 
+ -- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
+@@ -1508,6 +1522,7 @@ end
+ -- Общая часть очистки одного босса (без Refresh/Save — вызывающий сам решает, когда их дергать)
+ function auction:ClearBossLocal(bossName)
+     self.bids[bossName] = {}
++    self:ResetOutbidNotified(bossName)   -- после очистки новое перебитие снова должно уведомить
+     self.signups = self.signups or {}
+     self.signups[bossName] = nil
+     if self.bosses[bossName] then
+@@ -1603,6 +1618,7 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
+             self:RequestRefresh()
+         end
+     end
++    self:FavoritesBidsChanged(bossName, itemID)   -- вкладка «Избранное» (favorites.lua)
+     self:RequestSaveData()
+ 
+     if self:IsLootMaster() then
+@@ -1655,7 +1671,7 @@ function auction:ShowWhatsNewWindow(manual)
+         -- Окно «Что нового?» в 1.5 раза больше исходного 420x360
+         frame:SetSize(630, 540)
+         frame:SetPoint("CENTER")
+-        frame:SetFrameStrata("DIALOG")
++        self:SetupWindow(frame)
+         self:SkinPanel(frame)
+         frame:SetMovable(true)
+         frame:EnableMouse(true)
+diff --git a/EPBossAuction/attendance_ui.lua b/EPBossAuction/attendance_ui.lua
+index e154404..7af200f 100644
+--- a/EPBossAuction/attendance_ui.lua
++++ b/EPBossAuction/attendance_ui.lua
+@@ -85,6 +85,8 @@ function auction:CreateAttendanceUI(frame)
+     self:CreateAttendancePanel(frame)
+     self:CreateReservePanel(frame)    -- вкладка «Резерв» (reserve_ui.lua)
+     self:CreateStatsPanel(frame)      -- вкладка «Статистика» (stats_ui.lua)
++    self:CreateFavoritesPanel(frame)  -- вкладка «Избранные предметы» (favorites.lua)
++    self:CreateBisPanel(frame)        -- вкладка «BiS» (bis_ui.lua)
+     self.activeTab = "bids"
+     self:UpdateMainTabs()
+ end
+@@ -104,6 +106,11 @@ local TAB_ICON_INSET = 3   -- отступ иконки от рамки кноп
+ local TAB_FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+ 
+ -- desc — краткое пояснение вкладки (вторая строка тултипа, как у кнопок шапки).
++-- Вкладки, доступные всем игрокам (остальные — только с доступом к Attendance), и вкладки,
++-- повторный клик по которым возвращает на «Ставки» (у игроков без доступа других вкладок нет).
++local PUBLIC_TABS = { bids = true, settings = true, bis = true, favorites = true }
++local TOGGLE_TABS = { settings = true, bis = true, favorites = true }
++
+ local TAB_DEFS = {
+     { key = "bids",       label = "Ставки",     icon = "Interface\\Icons\\INV_Misc_Coin_01",
+       desc = "Таблица ставок на предметы выбранного босса" },
+@@ -113,6 +120,10 @@ local TAB_DEFS = {
+       desc = "Предметы, заранее проданные вне гильдии: на них нельзя ставить" },
+     { key = "stats",      label = "Статистика", icon = "Interface\\Icons\\INV_Misc_Book_09",
+       desc = "Кто и что получил из добычи, сколько ЕП списано" },
++    { key = "favorites",  label = "Избранные предметы", icon = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1",
++      desc = "Все предметы, отмеченные звёздочкой, со всех боссов сразу: ставки на них и возможность поставить прямо отсюда" },
++    { key = "bis",        label = "BiS-листы",  icon = "Interface\\Icons\\INV_Helmet_01",
++      desc = "Конструктор BiS-листов: лучшие предметы по слотам для класса и специализации, заметки, экспорт и импорт" },
+     { key = "settings",   label = "Настройки",  icon = "Interface\\Icons\\INV_Misc_Gear_01",
+       desc = "Окно, миникарта, вид таблицы, звук, правила рейда" },
+ }
+@@ -167,7 +178,7 @@ function auction:CreateMainTabs(frame)
+         tab:SetScript("OnClick", function()
+             -- Шестерёнка работает как переключатель: повторный клик возвращает на «Ставки»
+             -- (у игроков без доступа других вкладок нет, вернуться больше нечем).
+-            if def.key == "settings" and auction.activeTab == "settings" then
++            if TOGGLE_TABS[def.key] and auction.activeTab == def.key then
+                 auction:ShowMainTab("bids")
+             else
+                 auction:ShowMainTab(def.key)
+@@ -202,14 +213,14 @@ function auction:UpdateMainTabs()
+     local c = self.theme.colors
+     local hasAccess = self:HasAttendanceAccess()
+ 
+-    if not hasAccess and self.activeTab ~= "bids" and self.activeTab ~= "settings" then
++    if not hasAccess and not PUBLIC_TABS[self.activeTab] then
+         self:ShowMainTab("bids")
+         return
+     end
+ 
+     local previous
+     for _, tab in ipairs(self.mainTabs) do
+-        if not (hasAccess or tab.key == "settings") then
++        if not (hasAccess or PUBLIC_TABS[tab.key]) then
+             tab:Hide()
+         else
+             tab:ClearAllPoints()
+@@ -250,7 +261,7 @@ end
+ -- "reserve", "stats" или "settings" (одна панель на всю ширину). Без доступа на
+ -- Attendance/Резерв/Статистику не пускает; «Настройки» открыты всем.
+ function auction:ShowMainTab(tab)
+-    if tab ~= "bids" and tab ~= "settings" and not self:HasAttendanceAccess() then tab = "bids" end
++    if not PUBLIC_TABS[tab] and not self:HasAttendanceAccess() then tab = "bids" end
+     self.activeTab = tab
+ 
+     -- Кнопка «★ Мои» (белый список, watchlist.lua) нужна только над таблицей ставок
+@@ -259,7 +270,7 @@ function auction:ShowMainTab(tab)
+     end
+ 
+     -- Прячем панели всех остальных вкладок
+-    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, settings = self.settingsPanel }
++    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, favorites = self.favPanel, bis = self.bisPanel, settings = self.settingsPanel }
+     for key, panel in pairs(panels) do
+         if key ~= tab and panel then panel:Hide() end
+     end
+@@ -279,6 +290,11 @@ function auction:ShowMainTab(tab)
+         elseif tab == "stats" then
+             self.statsPanel:Show()
+             self:RefreshStats()
++        elseif tab == "favorites" then
++            self.favPanel:Show()   -- OnShow панели обновляет список и запрашивает ставки
++        elseif tab == "bis" then
++            self.bisPanel:Show()
++            self:RefreshBis()
+         elseif tab == "settings" then
+             if self.settingsPanel then self.settingsPanel:Show() end
+         else
+@@ -1043,7 +1059,7 @@ function auction:ShowAttendanceReportWindow()
+         frame = CreateFrame("Frame", "EPBossAuctionAttendanceReportFrame", UIParent)
+         frame:SetSize(560, 400)
+         frame:SetPoint("CENTER")
+-        frame:SetFrameStrata("DIALOG")
++        self:SetupWindow(frame)
+         self:SkinPanel(frame)
+         frame:SetMovable(true)
+         frame:EnableMouse(true)
+diff --git a/EPBossAuction/bis.lua b/EPBossAuction/bis.lua
+new file mode 100644
+index 0000000..932ebbd
+--- /dev/null
++++ b/EPBossAuction/bis.lua
+@@ -0,0 +1,537 @@
++local auction = EPBossAuction
++
++-- ============================================================
++-- bis.lua — BiS-конструктор: данные, правила, экспорт/импорт
++-- ============================================================
++-- Интерфейс (вкладка «BiS») — в bis_ui.lua. Здесь только данные и логика.
++--
++-- Список — самостоятельный объект, не привязанный к персонажу и к тому, какие
++-- предметы у игрока есть. Предметы хранятся только как itemID, их названия и иконки
++-- подтягиваются из кэша клиента (BisItemInfo).
++--
++--   EPBossAuctionDB.bis.lists[id] = {
++--       id      = "1a2b3c4d5e6f",       -- уникален, создаётся при создании/импорте
++--       name    = "Название",
++--       author  = "Ник автора",
++--       class   = "WARRIOR",            -- токен класса (RAID_CLASS_COLORS)
++--       spec    = 1,                    -- 1..3 (порядок как в auction.bisClasses[..].specs)
++--       comment = "Заметка к списку",
++--       updated = <unix-время правки>,
++--       slots   = { [1..17] = { items = { itemID, ... (до 3) }, note = "Заметка к слоту" } },
++--   }
++--
++-- Данные лежат прямо в EPBossAuctionDB.bis (SaveData их не трогает, клиент сохраняет
++-- всю таблицу при выходе), в сеть списки не уходят — только через строку экспорта.
++--
++-- Формат строки обмена (одна строка, без символа «|», поэтому безопасна в EditBox
++-- и мессенджерах):
++--   EPBIS1~имя~автор~КЛАСС~спек~заметка_списка~слот1;слот2;...;слот17~контрольная_сумма
++-- слот = id,id,id или id,id^заметка_слота (пустой слот — пустая строка).
++-- Текстовые поля кодируются %XX для символов % ~ ; , ^ | и управляющих (в т.ч. перенос строки).
++-- Контрольная сумма считается по всему тексту до последней «~» и ловит обрезанную
++-- или испорченную при копировании строку.
++-- ============================================================
++
++auction.BIS_FORMAT = "EPBIS1"
++auction.BIS_MAX_PER_SLOT = 3        -- предметов в слоте: первый — основной, остальные запасные
++auction.BIS_NAME_LEN = 40
++auction.BIS_AUTHOR_LEN = 24
++auction.BIS_LIST_NOTE_LEN = 500
++auction.BIS_SLOT_NOTE_LEN = 200
++auction.BIS_MAX_LISTS = 300
++
++-- ======================
++-- Классы и специализации
++-- ======================
++-- Порядок классов = CLASS_SORT_ORDER (07_constants). Иконки специализаций — штатные
++-- иконки клиента; если на сервере какой-то нет, интерфейс подставит знак вопроса.
++auction.bisClasses = {
++    { token = "WARRIOR", name = "Воин", specs = {
++        { name = "Оружие",       icon = "Interface\\Icons\\Ability_Rogue_Eviscerate" },
++        { name = "Неистовство",  icon = "Interface\\Icons\\Ability_Warrior_InnerRage" },
++        { name = "Защита",       icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance" } } },
++    { token = "DEATHKNIGHT", name = "Рыцарь смерти", specs = {
++        { name = "Кровь",        icon = "Interface\\Icons\\Spell_Deathknight_BloodPresence" },
++        { name = "Лёд",          icon = "Interface\\Icons\\Spell_Deathknight_FrostPresence" },
++        { name = "Нечестивость", icon = "Interface\\Icons\\Spell_Deathknight_UnholyPresence" } } },
++    { token = "PALADIN", name = "Паладин", specs = {
++        { name = "Свет",         icon = "Interface\\Icons\\Spell_Holy_HolyBolt" },
++        { name = "Защита",       icon = "Interface\\Icons\\Spell_Holy_DevotionAura" },
++        { name = "Возмездие",    icon = "Interface\\Icons\\Spell_Holy_AuraOfLight" } } },
++    { token = "PRIEST", name = "Жрец", specs = {
++        { name = "Послушание",   icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
++        { name = "Свет",         icon = "Interface\\Icons\\Spell_Holy_GuardianSpirit" },
++        { name = "Тьма",         icon = "Interface\\Icons\\Spell_Shadow_ShadowWordPain" } } },
++    { token = "SHAMAN", name = "Шаман", specs = {
++        { name = "Стихии",       icon = "Interface\\Icons\\Spell_Nature_Lightning" },
++        { name = "Совершенствование", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
++        { name = "Исцеление",    icon = "Interface\\Icons\\Spell_Nature_MagicImmunity" } } },
++    { token = "DRUID", name = "Друид", specs = {
++        { name = "Баланс",       icon = "Interface\\Icons\\Spell_Nature_StarFall" },
++        { name = "Сила зверя",   icon = "Interface\\Icons\\Ability_Racial_BearForm" },
++        { name = "Исцеление",    icon = "Interface\\Icons\\Spell_Nature_HealingTouch" } } },
++    { token = "ROGUE", name = "Разбойник", specs = {
++        { name = "Убийство",     icon = "Interface\\Icons\\Ability_Rogue_Eviscerate" },
++        { name = "Бой",          icon = "Interface\\Icons\\Ability_BackStab" },
++        { name = "Скрытность",   icon = "Interface\\Icons\\Ability_Stealth" } } },
++    { token = "MAGE", name = "Маг", specs = {
++        { name = "Тайная магия", icon = "Interface\\Icons\\Spell_Holy_MagicalSentry" },
++        { name = "Огонь",        icon = "Interface\\Icons\\Spell_Fire_FireBolt02" },
++        { name = "Лёд",          icon = "Interface\\Icons\\Spell_Frost_FrostBolt02" } } },
++    { token = "WARLOCK", name = "Чернокнижник", specs = {
++        { name = "Колдовство",   icon = "Interface\\Icons\\Spell_Shadow_DeathCoil" },
++        { name = "Демонология",  icon = "Interface\\Icons\\Spell_Shadow_Metamorphosis" },
++        { name = "Разрушение",   icon = "Interface\\Icons\\Spell_Shadow_RainOfFire" } } },
++    { token = "HUNTER", name = "Охотник", specs = {
++        { name = "Повелитель зверей", icon = "Interface\\Icons\\Ability_Hunter_BeastTaming" },
++        { name = "Стрельба",     icon = "Interface\\Icons\\Ability_Marksmanship" },
++        { name = "Выживание",    icon = "Interface\\Icons\\Ability_Hunter_SwiftStrike" } } },
++}
++
++local classByToken = {}
++for _, c in ipairs(auction.bisClasses) do classByToken[c.token] = c end
++
++function auction:BisClass(token)
++    return classByToken[token]
++end
++
++-- ======================
++-- Слоты (17 штук; порядок зашит в формат экспорта — НЕ менять местами)
++-- ======================
++-- slot — имя слота для GetInventorySlotInfo (оттуда берём иконку пустого слота).
++auction.bisSlots = {
++    { slot = "HeadSlot",          name = "Голова" },
++    { slot = "NeckSlot",          name = "Шея" },
++    { slot = "ShoulderSlot",      name = "Плечи" },
++    { slot = "BackSlot",          name = "Спина" },
++    { slot = "ChestSlot",         name = "Грудь" },
++    { slot = "WristSlot",         name = "Запястья" },
++    { slot = "HandsSlot",         name = "Кисти" },
++    { slot = "WaistSlot",         name = "Пояс" },
++    { slot = "LegsSlot",          name = "Ноги" },
++    { slot = "FeetSlot",          name = "Ступни" },
++    { slot = "Finger0Slot",       name = "Кольцо 1" },
++    { slot = "Finger1Slot",       name = "Кольцо 2" },
++    { slot = "Trinket0Slot",      name = "Аксессуар 1" },
++    { slot = "Trinket1Slot",      name = "Аксессуар 2" },
++    { slot = "MainHandSlot",      name = "Правая рука" },
++    { slot = "SecondaryHandSlot", name = "Левая рука" },
++    { slot = "RangedSlot",        name = "Дальний бой" },
++}
++auction.BIS_NUM_SLOTS = #auction.bisSlots
++
++-- ======================
++-- Хранилище
++-- ======================
++
++local function Utf8Cut(s, n)
++    if auction.Utf8Prefix then return auction.Utf8Prefix(s, n) end
++    return s:sub(1, n)
++end
++
++-- Убирает управляющие символы (кроме переноса строки, если keepNewlines) и обрезает.
++local function CleanText(s, maxChars, keepNewlines)
++    s = tostring(s or "")
++    if keepNewlines then
++        s = s:gsub("\r\n", "\n"):gsub("\r", "\n"):gsub("[\1-\9\11-\31]", "")
++    else
++        s = s:gsub("[\1-\31]", " ")
++    end
++    s = s:gsub("|", "")   -- коды цвета/ссылок в названиях и заметках не нужны, а ломают отображение
++    return Utf8Cut(s, maxChars)
++end
++auction.BisCleanText = CleanText
++
++local function NewId(existing)
++    local id
++    repeat
++        id = string.format("%x%04x%04x", time(), math.random(0, 65535), math.random(0, 65535))
++    until not existing[id]
++    return id
++end
++
++local function ValidItemID(n)
++    return type(n) == "number" and n >= 1 and n <= 999999999 and n == math.floor(n)
++end
++
++-- Чистит и нормализует один список; возвращает false, если список негоден.
++local function SanitizeList(list)
++    if type(list) ~= "table" then return false end
++    if not classByToken[list.class] then return false end
++    list.spec = tonumber(list.spec)
++    if not list.spec or list.spec < 1 or list.spec > 3 or list.spec ~= math.floor(list.spec) then return false end
++    list.name = CleanText(list.name, auction.BIS_NAME_LEN)
++    if list.name == "" then list.name = "Без названия" end
++    list.author = CleanText(list.author, auction.BIS_AUTHOR_LEN)
++    list.comment = CleanText(list.comment, auction.BIS_LIST_NOTE_LEN, true)
++    list.updated = tonumber(list.updated) or 0
++    if type(list.slots) ~= "table" then list.slots = {} end
++    local clean = {}
++    for i = 1, auction.BIS_NUM_SLOTS do
++        local s = list.slots[i]
++        if type(s) == "table" then
++            local items, seen = {}, {}
++            for _, id in ipairs(type(s.items) == "table" and s.items or {}) do
++                id = tonumber(id)
++                if ValidItemID(id) and not seen[id] and #items < auction.BIS_MAX_PER_SLOT then
++                    seen[id] = true
++                    items[#items + 1] = id
++                end
++            end
++            local note = CleanText(s.note, auction.BIS_SLOT_NOTE_LEN, true)
++            if #items > 0 or note ~= "" then
++                clean[i] = { items = items, note = note }
++            end
++        end
++    end
++    list.slots = clean
++    return true
++end
++
++-- Возвращает таблицу {lists = {...}}; при первом обращении за сессию чистит данные
++-- (на случай ручной правки SavedVariables или будущих изменений формата).
++function auction:BisData()
++    local db = self:GetDB()
++    if type(db.bis) ~= "table" then db.bis = {} end
++    local bis = db.bis
++    if type(bis.lists) ~= "table" then bis.lists = {} end
++    if not self._bisSanitized then
++        self._bisSanitized = true
++        for id, list in pairs(bis.lists) do
++            if type(id) ~= "string" or not SanitizeList(list) then
++                bis.lists[id] = nil
++            else
++                list.id = id
++            end
++        end
++    end
++    return bis
++end
++
++function auction:BisGetList(id)
++    return id and self:BisData().lists[id] or nil
++end
++
++function auction:BisListCount()
++    local n = 0
++    for _ in pairs(self:BisData().lists) do n = n + 1 end
++    return n
++end
++
++-- Число списков: по классу (spec = nil) или по классу и специализации.
++function auction:BisCountLists(class, spec)
++    local n = 0
++    for _, list in pairs(self:BisData().lists) do
++        if list.class == class and (not spec or list.spec == spec) then n = n + 1 end
++    end
++    return n
++end
++
++-- Списки класса и специализации: новые правки сверху.
++function auction:BisGetLists(class, spec)
++    local res = {}
++    for _, list in pairs(self:BisData().lists) do
++        if list.class == class and list.spec == spec then res[#res + 1] = list end
++    end
++    table.sort(res, function(a, b)
++        if a.updated ~= b.updated then return a.updated > b.updated end
++        return a.id < b.id
++    end)
++    return res
++end
++
++-- Сколько всего предметов в списке.
++function auction:BisItemCount(list)
++    local n = 0
++    for _, s in pairs(list.slots) do n = n + #s.items end
++    return n
++end
++
++-- Сколько слотов с заметкой.
++function auction:BisNoteCount(list)
++    local n = 0
++    for _, s in pairs(list.slots) do if s.note and s.note ~= "" then n = n + 1 end end
++    return n
++end
++
++local function Touch(list) list.updated = time() end
++
++function auction:BisCreateList(class, spec, name, author)
++    local bis = self:BisData()
++    if self:BisListCount() >= self.BIS_MAX_LISTS then
++        return nil, "Достигнут предел: "..self.BIS_MAX_LISTS.." списков. Удалите ненужные."
++    end
++    if not classByToken[class] or not spec or spec < 1 or spec > 3 then return nil, "Неизвестный класс или специализация" end
++    local list = {
++        class = class, spec = spec,
++        name = CleanText(name, self.BIS_NAME_LEN),
++        author = CleanText(author or UnitName("player") or "", self.BIS_AUTHOR_LEN),
++        comment = "", slots = {}, updated = time(),
++    }
++    if list.name == "" then list.name = "Новый список" end
++    list.id = NewId(bis.lists)
++    bis.lists[list.id] = list
++    return list
++end
++
++function auction:BisCopyList(id)
++    local src = self:BisGetList(id)
++    if not src then return nil end
++    if self:BisListCount() >= self.BIS_MAX_LISTS then
++        return nil, "Достигнут предел: "..self.BIS_MAX_LISTS.." списков. Удалите ненужные."
++    end
++    local bis = self:BisData()
++    local copy = self.DeepCopy and self:DeepCopy(src) or src
++    copy.id = NewId(bis.lists)
++    copy.name = CleanText("Копия: "..src.name, self.BIS_NAME_LEN)
++    copy.updated = time()
++    bis.lists[copy.id] = copy
++    return copy
++end
++
++function auction:BisDeleteList(id)
++    self:BisData().lists[id] = nil
++end
++
++function auction:BisSetName(list, text)
++    local name = CleanText(text, self.BIS_NAME_LEN)
++    if name == "" then name = list.name end
++    if name ~= list.name then list.name = name; Touch(list) end
++    return list.name
++end
++
++function auction:BisSetAuthor(list, text)
++    local author = CleanText(text, self.BIS_AUTHOR_LEN)
++    if author ~= list.author then list.author = author; Touch(list) end
++    return list.author
++end
++
++function auction:BisSetComment(list, text)
++    list.comment = CleanText(text, self.BIS_LIST_NOTE_LEN, true)
++    Touch(list)
++end
++
++local function DropIfEmpty(list, slot)
++    local s = list.slots[slot]
++    if s and #s.items == 0 and (not s.note or s.note == "") then list.slots[slot] = nil end
++end
++
++function auction:BisSetSlotNote(list, slot, text)
++    if slot < 1 or slot > self.BIS_NUM_SLOTS then return end
++    local note = CleanText(text, self.BIS_SLOT_NOTE_LEN, true)
++    local s = list.slots[slot]
++    if not s then
++        if note == "" then return end
++        s = { items = {}, note = "" }
++        list.slots[slot] = s
++    end
++    s.note = note
++    DropIfEmpty(list, slot)
++    Touch(list)
++end
++
++-- Добавляет предмет в конец слота. Возвращает true или false + причину.
++function auction:BisAddItem(list, slot, itemID)
++    if slot < 1 or slot > self.BIS_NUM_SLOTS then return false, "Выберите слот" end
++    if not ValidItemID(itemID) then return false, "Некорректный itemID" end
++    local s = list.slots[slot]
++    if not s then
++        s = { items = {}, note = "" }
++        list.slots[slot] = s
++    end
++    for _, id in ipairs(s.items) do
++        if id == itemID then return false, "Этот предмет уже есть в слоте" end
++    end
++    if #s.items >= self.BIS_MAX_PER_SLOT then
++        DropIfEmpty(list, slot)
++        return false, "В слоте максимум "..self.BIS_MAX_PER_SLOT.." предмета: уберите лишний (ПКМ по иконке)"
++    end
++    s.items[#s.items + 1] = itemID
++    Touch(list)
++    return true
++end
++
++function auction:BisRemoveItem(list, slot, pos)
++    local s = list.slots[slot]
++    if not s or not s.items[pos] then return end
++    table.remove(s.items, pos)
++    DropIfEmpty(list, slot)
++    Touch(list)
++end
++
++-- Делает предмет на позиции pos основным (остальные сдвигаются).
++function auction:BisPromoteItem(list, slot, pos)
++    local s = list.slots[slot]
++    if not s or pos <= 1 or not s.items[pos] then return end
++    local id = table.remove(s.items, pos)
++    table.insert(s.items, 1, id)
++    Touch(list)
++end
++
++function auction:BisClearSlot(list, slot)
++    if list.slots[slot] then
++        list.slots[slot] = nil
++        Touch(list)
++    end
++end
++
++-- ======================
++-- Предметы: ввод и кэш клиента
++-- ======================
++
++-- Достаёт itemID из текста: все ссылки |Hitem:ID:...|h, иначе «item:ID», иначе число.
++-- Возвращает список id (в порядке появления, без повторов).
++function auction:BisExtractItemIDs(text)
++    local ids, seen = {}, {}
++    local function add(n)
++        n = tonumber(n)
++        if ValidItemID(n) and not seen[n] then
++            seen[n] = true
++            ids[#ids + 1] = n
++        end
++    end
++    text = tostring(text or "")
++    for n in text:gmatch("[Ii]tem:(%d+)") do add(n) end
++    if #ids == 0 then
++        for n in text:gmatch("%d+") do add(n) end
++    end
++    return ids
++end
++
++local scanTip
++-- Просит клиент (и сервер) прислать предмет, которого нет в кэше: скрытый тултип.
++-- События GET_ITEM_INFO_RECEIVED в 3.3.5 нет, поэтому интерфейс просто перечитывает кэш позже.
++local function PrimeItem(id)
++    if not scanTip then
++        scanTip = CreateFrame("GameTooltip", "EPBossAuctionBisScanTip", UIParent, "GameTooltipTemplate")
++    end
++    scanTip:SetOwner(UIParent, "ANCHOR_NONE")
++    pcall(scanTip.SetHyperlink, scanTip, "item:"..id)
++end
++
++-- name, quality, icon, known. Если предмета нет в кэше клиента: nil, nil, nil, false.
++function auction:BisItemInfo(id)
++    local name, _, quality, _, _, _, _, _, _, icon = GetItemInfo(id)
++    if name then return name, quality or 1, icon, true end
++    PrimeItem(id)
++    return nil, nil, nil, false
++end
++
++-- ======================
++-- Экспорт / импорт
++-- ======================
++
++local function Enc(s)
++    return (tostring(s or ""):gsub("[%%~;,%^|\1-\31]", function(ch)
++        return string.format("%%%02X", ch:byte())
++    end))
++end
++
++local function Dec(s)
++    return (s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
++end
++
++local function Checksum(s)
++    local h = 5381
++    for i = 1, #s do h = (h * 33 + s:byte(i)) % 4294967296 end
++    return string.format("%08x", h)
++end
++
++function auction:BisExport(list)
++    local slotFields = {}
++    for i = 1, self.BIS_NUM_SLOTS do
++        local s = list.slots[i]
++        local f = ""
++        if s then
++            f = table.concat(s.items, ",")
++            if s.note and s.note ~= "" then f = f.."^"..Enc(s.note) end
++        end
++        slotFields[i] = f
++    end
++    local body = table.concat({
++        self.BIS_FORMAT, Enc(list.name), Enc(list.author), list.class, tostring(list.spec),
++        Enc(list.comment), table.concat(slotFields, ";"),
++    }, "~")
++    return body.."~"..Checksum(body)
++end
++
++-- Разбирает строку. Возвращает data или nil + текст ошибки (пустая строка — «пока ничего не введено»).
++-- data = { name, author, class, spec, comment, slots, items (число предметов) }.
++function auction:BisParse(text)
++    text = strtrim(tostring(text or ""))
++    if text == "" then return nil, "" end
++    local fields = { strsplit("~", text) }
++    if fields[1] ~= self.BIS_FORMAT then
++        if text:sub(1, 5) == "EPBIS" then
++            return nil, "Эта строка создана более новой версией аддона — обновите аддон"
++        end
++        return nil, "Это не строка BiS-листа (она должна начинаться с "..self.BIS_FORMAT..")"
++    end
++    if #fields ~= 8 then
++        return nil, "Строка повреждена или обрезана: не хватает данных"
++    end
++    local body = text:sub(1, #text - #fields[8] - 1)
++    if Checksum(body) ~= fields[8]:lower() then
++        return nil, "Контрольная сумма не сошлась: строка испорчена при копировании"
++    end
++    local cls = fields[4]
++    if not classByToken[cls] then return nil, "Неизвестный класс: "..cls end
++    local spec = tonumber(fields[5])
++    if not spec or spec < 1 or spec > 3 or spec ~= math.floor(spec) then
++        return nil, "Некорректная специализация"
++    end
++    local slotParts = { strsplit(";", fields[7]) }
++    if #slotParts ~= self.BIS_NUM_SLOTS then
++        return nil, "Некорректное число слотов ("..#slotParts..", нужно "..self.BIS_NUM_SLOTS..")"
++    end
++
++    local data = {
++        name = CleanText(Dec(fields[2]), self.BIS_NAME_LEN),
++        author = CleanText(Dec(fields[3]), self.BIS_AUTHOR_LEN),
++        class = cls, spec = spec,
++        comment = CleanText(Dec(fields[6]), self.BIS_LIST_NOTE_LEN, true),
++        slots = {}, items = 0,
++    }
++    for i, part in ipairs(slotParts) do
++        local p = part:find("^", 1, true)
++        local idsStr = p and part:sub(1, p - 1) or part
++        local note = p and CleanText(Dec(part:sub(p + 1)), self.BIS_SLOT_NOTE_LEN, true) or ""
++        local items, seen = {}, {}
++        for token in idsStr:gmatch("[^,]+") do
++            if not token:match("^%d+$") or #token > 9 then
++                return nil, "Некорректный itemID в слоте "..i.." ("..self.bisSlots[i].name..")"
++            end
++            local n = tonumber(token)
++            if not ValidItemID(n) then return nil, "Некорректный itemID в слоте "..i end
++            if not seen[n] then
++                if #items >= self.BIS_MAX_PER_SLOT then
++                    return nil, "Слишком много предметов в слоте "..i.." ("..self.bisSlots[i].name..")"
++                end
++                seen[n] = true
++                items[#items + 1] = n
++            end
++        end
++        if #items > 0 or note ~= "" then
++            data.slots[i] = { items = items, note = note }
++            data.items = data.items + #items
++        end
++    end
++    return data
++end
++
++-- Создаёт новый список из разобранных данных (старые списки никогда не перезаписываются).
++function auction:BisImport(data)
++    if self:BisListCount() >= self.BIS_MAX_LISTS then
++        return nil, "Достигнут предел: "..self.BIS_MAX_LISTS.." списков. Удалите ненужные."
++    end
++    local bis = self:BisData()
++    local list = {
++        class = data.class, spec = data.spec,
++        name = data.name ~= "" and data.name or "Без названия",
++        author = data.author, comment = data.comment,
++        slots = data.slots, updated = time(),
++    }
++    list.id = NewId(bis.lists)
++    bis.lists[list.id] = list
++    return list
++end
+diff --git a/EPBossAuction/bis_ui.lua b/EPBossAuction/bis_ui.lua
+new file mode 100644
+index 0000000..ffefdeb
+--- /dev/null
++++ b/EPBossAuction/bis_ui.lua
+@@ -0,0 +1,1155 @@
++local auction = EPBossAuction
++
++-- ============================================================
++-- bis_ui.lua — вкладка «BiS»: интерфейс конструктора
++-- ============================================================
++-- Данные, формат обмена и правила — в bis.lua. Вкладку видят все игроки.
++--
++-- Четыре экрана в одной панели (состояние — auction.bisState):
++--   classes — 10 иконок классов;
++--   specs   — три специализации выбранного класса;
++--   lists   — списки этой специализации (свои и импортированные), «Новый список», «Импорт»;
++--   editor  — слоты экипировки выбранного списка.
++--
++-- Редактор: клик по слоту выбирает его; предмет добавляется Shift+кликом по ссылке/предмету
++-- (чат, окно лута и т.п.) или вводом itemID в поле. В слоте до 3 предметов: первый основной,
++-- остальные запасные (ЛКМ по запасному — сделать основным, ПКМ по любому — убрать).
++-- Заметки: к списку (полоса под панелью инструментов) и к каждому слоту. Слот с заметкой
++-- подсвечен золотом и помечен значком, текст — в тултипе и в строке внизу.
++-- ============================================================
++
++local WHITE = "Interface\\Buttons\\WHITE8x8"
++local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
++local NOTE_ICON = "Interface\\Buttons\\UI-GuildButton-PublicNote-Up"
++local CLASS_TEXTURE = "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes"
++
++local CELL_W, CELL_H, ROW_H = 300, 40, 42
++local COL_X = { 6, 312 }
++local GRID_TOP = -104
++-- Раскладка слотов как на окне персонажа: левая колонка — броня сверху вниз, затем оружие;
++-- правая — перчатки, пояс, ноги, ступни, кольца, аксессуары. {колонка, строка}
++local LAYOUT = {
++    [1] = { 1, 0 }, [2] = { 1, 1 }, [3] = { 1, 2 }, [4] = { 1, 3 }, [5] = { 1, 4 }, [6] = { 1, 5 },
++    [7] = { 2, 0 }, [8] = { 2, 1 }, [9] = { 2, 2 }, [10] = { 2, 3 }, [11] = { 2, 4 }, [12] = { 2, 5 },
++    [13] = { 2, 6 }, [14] = { 2, 7 },
++    [15] = { 1, 6 }, [16] = { 1, 7 }, [17] = { 1, 8 },
++}
++local LIST_ROW_H = 44
++local LIST_CONTENT_W = 590
++local RETRY_DELAY, MAX_RETRIES = 1.5, 12
++local ITEMNAME_W = 176   -- ширина названия предмета в ячейке слота
++local LISTNAME_W = 320
++
++auction.bisState = auction.bisState or { screen = "classes" }
++auction.bisListRows = auction.bisListRows or {}
++
++-- ======================
++-- Мелочи
++-- ======================
++
++local function Notice(text)
++    UIErrorsFrame:AddMessage(text, 1.0, 0.5, 0.0, 3)
++end
++
++local function Backdrop(frame, bg, border)
++    frame:SetBackdrop({
++        bgFile = WHITE, edgeFile = WHITE, edgeSize = 1,
++        insets = { left = 1, right = 1, top = 1, bottom = 1 },
++    })
++    frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4] or 1)
++    frame:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
++end
++
++local function ClassRGB(token)
++    local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
++    if c then return c.r, c.g, c.b end
++    return 0.8, 0.8, 0.8
++end
++
++local function ClassHex(token)
++    local r, g, b = ClassRGB(token)
++    return string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
++end
++
++local function SetClassIcon(tex, token)
++    tex:SetTexture(CLASS_TEXTURE)
++    local t = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[token]
++    if t then tex:SetTexCoord(t[1], t[2], t[3], t[4]) else tex:SetTexCoord(0, 1, 0, 1) end
++end
++
++local function Utf8Len(s)
++    local n = 0
++    for i = 1, #s do
++        local b = s:byte(i)
++        if b < 0x80 or b >= 0xC0 then n = n + 1 end
++    end
++    return n
++end
++
++local function Truncate(text, maxChars)
++    if auction.Utf8Prefix(text, maxChars) == text then return text end
++    return auction.Utf8Prefix(text, maxChars - 1).."..."
++end
++
++-- Подгоняет текст под ширину строки по её реальному размеру (а не по числу символов):
++-- иначе длинное название переносится на вторую строку. prefix/suffix — цветовые коды.
++local function FitText(fs, text, maxWidth, prefix, suffix)
++    prefix, suffix = prefix or "", suffix or ""
++    fs:SetText(prefix..text..suffix)
++    if fs:GetStringWidth() <= maxWidth then return end
++    local n = Utf8Len(text)
++    while n > 1 do
++        n = n - 1
++        fs:SetText(prefix..auction.Utf8Prefix(text, n).."..."..suffix)
++        if fs:GetStringWidth() <= maxWidth then return end
++    end
++end
++
++-- Заметку — в одну строку для превью (переносы заменяем).
++local function OneLine(text, maxChars)
++    return Truncate((text or ""):gsub("\n", " / "), maxChars)
++end
++
++-- Кнопка тулбара с произвольной точкой привязки (H.MakeButton привязывает только к TOPLEFT).
++local function MakeBtn(parent, text, width, point, x, y, onClick)
++    local b = CreateFrame("Button", nil, parent)
++    b:SetSize(width, 22)
++    b:SetPoint(point, parent, point, x, y)
++    b:SetText(text)
++    b:SetNormalFontObject(GameFontNormal)
++    auction:SkinButton(b)
++    b:SetScript("OnClick", onClick)
++    return b
++end
++
++local function MakeEdit(parent, width, x, y, maxLetters, hintText)
++    local edit = CreateFrame("EditBox", nil, parent)
++    edit:SetSize(width, 22)
++    edit:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
++    edit:SetAutoFocus(false)
++    edit:SetFontObject(GameFontHighlightSmall)
++    edit:SetTextInsets(6, 6, 0, 0)
++    edit:SetMaxLetters(maxLetters)
++    auction:SkinInput(edit)
++    edit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
++    if hintText then
++        local hint = edit:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++        hint:SetPoint("LEFT", edit, "LEFT", 6, 0)
++        hint:SetTextColor(0.5, 0.5, 0.5)
++        hint:SetText(hintText)
++        local function UpdateHint()
++            if edit:GetText() == "" and not edit:HasFocus() then hint:Show() else hint:Hide() end
++        end
++        edit:HookScript("OnTextChanged", UpdateHint)
++        edit:HookScript("OnEditFocusGained", UpdateHint)
++        edit:HookScript("OnEditFocusLost", UpdateHint)
++        edit.UpdateHint = UpdateHint
++    end
++    return edit
++end
++
++-- Многострочное поле ввода в рамке: видно, куда кликать. EditBox растянут на всю область
++-- рамки, поэтому клик в любом её месте ставит курсор. Возвращает edit и scroll.
++local function MakeMultilineBox(parent, scrollName, left, top, right, bottom, width, height, maxLetters)
++    local c = auction.theme.colors
++    local box = CreateFrame("Frame", nil, parent)
++    box:SetPoint("TOPLEFT", parent, "TOPLEFT", left, top)
++    box:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", right, bottom)
++    Backdrop(box, c.inputBg, c.border)
++    local scroll = CreateFrame("ScrollFrame", scrollName, parent, "UIPanelScrollFrameTemplate")
++    scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
++    scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -24, 4)
++    local scrollBar = _G[scrollName.."ScrollBar"]
++    if scrollBar then
++        scrollBar:ClearAllPoints()
++        scrollBar:SetPoint("TOPRIGHT", box, "TOPRIGHT", -4, -20)
++        scrollBar:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -4, 20)
++        auction:SkinScrollBar(scrollBar)
++    end
++    local edit = CreateFrame("EditBox", nil, scroll)
++    edit:SetMultiLine(true)
++    edit:SetFontObject(ChatFontNormal)
++    edit:SetTextInsets(4, 4, 2, 2)
++    edit:SetWidth(width)
++    edit:SetHeight(height)
++    edit:SetAutoFocus(false)
++    if maxLetters then edit:SetMaxLetters(maxLetters) end
++    scroll:SetScrollChild(edit)
++    -- Клик по рамке за пределами EditBox (отступы) тоже ставит курсор
++    box:EnableMouse(true)
++    box:SetScript("OnMouseDown", function() edit:SetFocus() end)
++    return edit, scroll
++end
++
++-- Большая кнопка-карточка (класс / специализация): иконка, название, счётчик списков.
++local function MakePickButton(parent, w, h, iconSize)
++    local c = auction.theme.colors
++    local b = CreateFrame("Button", nil, parent)
++    b:SetSize(w, h)
++    Backdrop(b, c.inputBg, c.border)
++    b.icon = b:CreateTexture(nil, "ARTWORK")
++    b.icon:SetSize(iconSize, iconSize)
++    b.icon:SetPoint("TOP", b, "TOP", 0, -10)
++    b.name = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    b.name:SetPoint("TOP", b.icon, "BOTTOM", 0, -6)
++    b.name:SetWidth(w - 8)
++    b.count = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    b.count:SetPoint("BOTTOM", b, "BOTTOM", 0, 8)
++    b.count:SetTextColor(0.6, 0.6, 0.6)
++    b:SetScript("OnEnter", function(self)
++        local ac = auction.theme.colors.accent
++        self:SetBackdropBorderColor(ac[1], ac[2], ac[3], 1)
++    end)
++    b:SetScript("OnLeave", function(self)
++        local bc = auction.theme.colors.border
++        self:SetBackdropBorderColor(bc[1], bc[2], bc[3], bc[4])
++    end)
++    return b
++end
++
++local function CountText(n)
++    if n == 0 then return "списков нет" end
++    local m10, m100 = n % 10, n % 100
++    local word = "списков"
++    if m100 < 11 or m100 > 14 then
++        if m10 == 1 then word = "список" elseif m10 >= 2 and m10 <= 4 then word = "списка" end
++    end
++    return n.." "..word
++end
++
++-- ======================
++-- Состояние и навигация
++-- ======================
++
++function auction:BisShow(screen, class, spec, listId)
++    local st = self.bisState
++    st.screen = screen
++    if class ~= nil then st.class = class end
++    if spec ~= nil then st.spec = spec end
++    if listId ~= nil then st.listId = listId end
++    if screen ~= "editor" then st.slot = nil end
++    self:RefreshBis()
++end
++
++local function CurrentList()
++    local st = auction.bisState
++    return st.listId and auction:BisGetList(st.listId) or nil
++end
++
++local function GoBack()
++    local st = auction.bisState
++    if st.screen == "editor" then auction:BisShow("lists")
++    elseif st.screen == "lists" then auction:BisShow("specs")
++    elseif st.screen == "specs" then auction:BisShow("classes") end
++end
++
++-- ======================
++-- Панель
++-- ======================
++
++function auction:CreateBisPanel(frame)
++    local c = self.theme.colors
++    local panel = CreateFrame("Frame", "EPBossAuctionBisPanel", frame)
++    panel:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -45)
++    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 16)
++    panel:SetBackdrop({
++        bgFile = WHITE, edgeFile = WHITE, edgeSize = 1,
++    })
++    panel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
++    panel:SetBackdropBorderColor(0, 0, 0, 1)
++    self:SkinPanel(panel)
++    panel:Hide()
++    self.bisPanel = panel
++
++    -- Шапка: «Назад», хлебные крошки, «Импорт»
++    self.bisBackBtn = MakeBtn(panel, "< Назад", 70, "TOPLEFT", 6, -6, GoBack)
++    local crumb = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    crumb:SetPoint("LEFT", self.bisBackBtn, "RIGHT", 10, 0)
++    crumb:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
++    self.bisCrumb = crumb
++    self.bisImportBtn = MakeBtn(panel, "Импорт", 90, "TOPRIGHT", -6, -6, function()
++        auction:BisShowTransfer("import")
++    end)
++
++    local function NewScreen()
++        local s = CreateFrame("Frame", nil, panel)
++        s:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -34)
++        s:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
++        s:Hide()
++        return s
++    end
++    self.bisScreens = {
++        classes = NewScreen(), specs = NewScreen(), lists = NewScreen(), editor = NewScreen(),
++    }
++
++    self:BuildBisClasses(self.bisScreens.classes)
++    self:BuildBisSpecs(self.bisScreens.specs)
++    self:BuildBisLists(self.bisScreens.lists)
++    self:BuildBisEditor(self.bisScreens.editor)
++
++    -- Shift+клик по ссылке на предмет добавляет его в выбранный слот редактора.
++    -- hooksecurefunc безопасен для защищённого кода. Побочный эффект: при Shift+клике по
++    -- стаку в сумке WoW может параллельно начать разделение стака — берите ссылки из чата.
++    if hooksecurefunc and ChatEdit_InsertLink and not self._bisLinkHooked then
++        self._bisLinkHooked = true
++        hooksecurefunc("ChatEdit_InsertLink", function(link)
++            if not link or not auction.bisPanel or not auction.bisPanel:IsVisible() then return end
++            if auction.bisState.screen ~= "editor" then return end
++            if not link:find("|Hitem:", 1, true) then return end
++            local e = auction.bisItemEdit
++            if e and e:HasFocus() then e:Insert(link); return end
++            -- Активный чат: игрок делится ссылкой, а не собирает список.
++            if ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow() then return end
++            auction:BisAddFromText(link)
++        end)
++    end
++end
++
++-- ======================
++-- Экран 1: классы
++-- ======================
++
++function auction:BuildBisClasses(screen)
++    local title = screen:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++    title:SetPoint("TOP", screen, "TOP", 0, -18)
++    title:SetText("Выберите класс")
++    local hint = screen:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    hint:SetPoint("BOTTOM", screen, "BOTTOM", 0, 12)
++    hint:SetTextColor(0.6, 0.6, 0.6)
++    hint:SetText("BiS-листы — ваши наброски комплектов: их можно составлять без предметов на руках и делиться строкой через «Экспорт» / «Импорт».")
++    hint:SetWidth(580)
++
++    self.bisClassButtons = {}
++    for i, cls in ipairs(self.bisClasses) do
++        local b = MakePickButton(screen, 104, 130, 64)
++        local row = (i <= 5) and 0 or 1
++        local col = (i - 1) % 5 + 1
++        b:SetPoint("TOP", screen, "TOP", (col - 3) * 112, -56 - row * 142)
++        SetClassIcon(b.icon, cls.token)
++        b.name:SetText(cls.name)
++        b.name:SetTextColor(ClassRGB(cls.token))
++        b.cls = cls
++        b:SetScript("OnClick", function(self)
++            auction:BisShow("specs", self.cls.token)
++        end)
++        self.bisClassButtons[i] = b
++    end
++end
++
++function auction:RefreshBisClasses()
++    for _, b in ipairs(self.bisClassButtons) do
++        local n = self:BisCountLists(b.cls.token)
++        b.count:SetText(CountText(n))
++        if n > 0 then b.count:SetTextColor(0.85, 0.85, 0.85) else b.count:SetTextColor(0.5, 0.5, 0.5) end
++    end
++end
++
++-- ======================
++-- Экран 2: специализации
++-- ======================
++
++function auction:BuildBisSpecs(screen)
++    local title = screen:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++    title:SetPoint("TOP", screen, "TOP", 0, -18)
++    self.bisSpecTitle = title
++    self.bisSpecButtons = {}
++    for i = 1, 3 do
++        local b = MakePickButton(screen, 150, 160, 64)
++        b:SetPoint("TOP", screen, "TOP", (i - 2) * 166, -60)
++        b.spec = i
++        b:SetScript("OnClick", function(self)
++            auction:BisShow("lists", nil, self.spec)
++        end)
++        self.bisSpecButtons[i] = b
++    end
++end
++
++function auction:RefreshBisSpecs()
++    local st = self.bisState
++    local cls = self:BisClass(st.class)
++    self.bisSpecTitle:SetText("Класс: "..ClassHex(cls.token)..cls.name.."|r. Выберите специализацию")
++    for i, b in ipairs(self.bisSpecButtons) do
++        local spec = cls.specs[i]
++        b.icon:SetTexture(spec.icon)
++        if not b.icon:GetTexture() then b.icon:SetTexture(QUESTION) end
++        b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
++        b.name:SetText(spec.name)
++        local n = self:BisCountLists(cls.token, i)
++        b.count:SetText(CountText(n))
++        if n > 0 then b.count:SetTextColor(0.85, 0.85, 0.85) else b.count:SetTextColor(0.5, 0.5, 0.5) end
++    end
++end
++
++-- ======================
++-- Экран 3: списки
++-- ======================
++
++function auction:BuildBisLists(screen)
++    MakeBtn(screen, "Новый список", 130, "TOPLEFT", 6, 0, function()
++        local st = auction.bisState
++        local list, err = auction:BisCreateList(st.class, st.spec, "Новый список")
++        if not list then Notice(err) return end
++        auction:BisShow("editor", nil, nil, list.id)
++        local e = auction.bisNameEdit
++        if e then e:SetFocus(); e:HighlightText() end
++    end)
++    local info = screen:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    info:SetPoint("TOPRIGHT", screen, "TOPRIGHT", -8, -5)
++    info:SetTextColor(0.7, 0.7, 0.7)
++    self.bisListsInfo = info
++
++    local scroll = CreateFrame("ScrollFrame", "EPBossAuctionBisListScroll", screen, "UIPanelScrollFrameTemplate")
++    scroll:SetPoint("TOPLEFT", screen, "TOPLEFT", 6, -32)
++    scroll:SetPoint("BOTTOMRIGHT", screen, "BOTTOMRIGHT", -26, 8)
++    local content = CreateFrame("Frame", nil, scroll)
++    content:SetSize(LIST_CONTENT_W, 1)
++    scroll:SetScrollChild(content)
++    self.bisListContent = content
++    local scrollBar = _G["EPBossAuctionBisListScrollScrollBar"]
++    if scrollBar then
++        scrollBar:ClearAllPoints()
++        scrollBar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 22, -17)
++        scrollBar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 22, 17)
++        self:SkinScrollBar(scrollBar)
++    end
++
++    local empty = screen:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    empty:SetPoint("CENTER", screen, "CENTER", 0, 10)
++    empty:SetWidth(420)
++    empty:SetJustifyH("CENTER")
++    empty:SetTextColor(0.6, 0.6, 0.6)
++    empty:SetText("Списков пока нет.\nСоздайте свой кнопкой «Новый список» или импортируйте чужой.")
++    self.bisListsEmpty = empty
++end
++
++local function CreateListRow(index)
++    local c = auction.theme.colors
++    local row = CreateFrame("Button", nil, auction.bisListContent)
++    row:SetSize(LIST_CONTENT_W, LIST_ROW_H - 2)
++    row:SetPoint("TOPLEFT", auction.bisListContent, "TOPLEFT", 0, -(index - 1) * LIST_ROW_H)
++    Backdrop(row, c.inputBg, c.border)
++
++    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
++    row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -6)
++    row.name:SetWidth(LISTNAME_W + 4)
++    row.name:SetJustifyH("LEFT")
++    row.meta = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    row.meta:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -23)
++    row.meta:SetWidth(LISTNAME_W + 4)
++    row.meta:SetJustifyH("LEFT")
++    row.meta:SetTextColor(0.6, 0.6, 0.6)
++
++    -- Заметка списка: значок + первые слова. Золотой штрих слева — тоже признак заметки.
++    row.accent = row:CreateTexture(nil, "OVERLAY")
++    row.accent:SetTexture(c.accent[1], c.accent[2], c.accent[3], 1)
++    row.accent:SetPoint("TOPLEFT", 1, -1)
++    row.accent:SetPoint("BOTTOMLEFT", 1, 1)
++    row.accent:SetWidth(3)
++    row.noteIcon = row:CreateTexture(nil, "ARTWORK")
++    row.noteIcon:SetSize(14, 14)
++    row.noteIcon:SetPoint("TOPLEFT", row, "TOPLEFT", 336, -6)
++    row.noteIcon:SetTexture(NOTE_ICON)
++    row.note = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    row.note:SetPoint("TOPLEFT", row, "TOPLEFT", 354, -6)
++    row.note:SetSize(166, 30)
++    row.note:SetJustifyH("LEFT")
++    row.note:SetJustifyV("TOP")
++    row.note:SetTextColor(1, 0.9, 0.55)
++
++    row.copyBtn = MakeBtn(row, "Копия", 42, "TOPRIGHT", -24, -10, function(btn)
++        local r = btn:GetParent()
++        local copy, err = auction:BisCopyList(r.listId)
++        if not copy then Notice(err or "Не удалось скопировать") return end
++        auction:RefreshBis()
++    end)
++    row.delBtn = MakeBtn(row, "x", 18, "TOPRIGHT", -4, -10, function(btn)
++        local r = btn:GetParent()
++        local list = auction:BisGetList(r.listId)
++        if list then StaticPopup_Show("EPBA_BIS_DELETE", list.name, nil, list.id) end
++    end)
++
++    row:SetScript("OnClick", function(self)
++        auction:BisShow("editor", nil, nil, self.listId)
++    end)
++    row:SetScript("OnEnter", function(self)
++        local ac = auction.theme.colors.accent
++        self:SetBackdropBorderColor(ac[1], ac[2], ac[3], 1)
++        local list = auction:BisGetList(self.listId)
++        if not list then return end
++        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
++        GameTooltip:AddLine(list.name)
++        GameTooltip:AddLine("Автор: "..(list.author ~= "" and list.author or "—"), 0.7, 0.7, 0.7)
++        if list.comment ~= "" then
++            GameTooltip:AddLine(" ")
++            GameTooltip:AddLine("Заметка:", 1, 0.82, 0)
++            GameTooltip:AddLine(list.comment, 1, 1, 1, true)
++        end
++        local notes = auction:BisNoteCount(list)
++        if notes > 0 then
++            GameTooltip:AddLine(" ")
++            GameTooltip:AddLine("Заметок к слотам: "..notes, 1, 0.82, 0)
++        end
++        GameTooltip:Show()
++    end)
++    row:SetScript("OnLeave", function(self)
++        local bc = auction.theme.colors.border
++        self:SetBackdropBorderColor(bc[1], bc[2], bc[3], bc[4])
++        GameTooltip:Hide()
++    end)
++    return row
++end
++
++function auction:RefreshBisLists()
++    local st = self.bisState
++    local lists = self:BisGetLists(st.class, st.spec)
++    self.bisListsInfo:SetText("Списков: "..#lists)
++    self.bisListsEmpty[#lists == 0 and "Show" or "Hide"](self.bisListsEmpty)
++    for i, list in ipairs(lists) do
++        local row = self.bisListRows[i]
++        if not row then
++            row = CreateListRow(i)
++            self.bisListRows[i] = row
++        end
++        row.listId = list.id
++        FitText(row.name, list.name, LISTNAME_W)
++        local meta = "Автор: "..(list.author ~= "" and Truncate(list.author, 16) or "—")
++            .."  ·  предметов: "..self:BisItemCount(list)
++        if list.updated > 0 then meta = meta.."  ·  "..date("%d.%m.%y", list.updated) end
++        FitText(row.meta, meta, LISTNAME_W)
++        if list.comment ~= "" then
++            row.note:SetText(OneLine(list.comment, 70))
++            row.note:Show(); row.noteIcon:Show(); row.accent:Show()
++        else
++            row.note:Hide(); row.noteIcon:Hide(); row.accent:Hide()
++        end
++        row:Show()
++    end
++    for i = #lists + 1, #self.bisListRows do self.bisListRows[i]:Hide() end
++    self.bisListContent:SetHeight(math.max(1, #lists * LIST_ROW_H))
++end
++
++StaticPopupDialogs["EPBA_BIS_DELETE"] = {
++    text = "Удалить список «%s»?\nЭто нельзя отменить.",
++    button1 = "Удалить", button2 = "Отмена",
++    OnAccept = function(self, data)
++        if data then auction:BisDeleteList(data) end
++        if auction.bisState.listId == data then auction.bisState.listId = nil end
++        auction:RefreshBis()
++    end,
++    timeout = 0, whileDead = true, hideOnEscape = true,
++}
++
++-- ======================
++-- Экран 4: редактор
++-- ======================
++
++local function SelectSlot(idx)
++    auction.bisState.slot = idx
++    auction:RefreshBisEditor()
++end
++
++local function ItemButtonClick(self, button)
++    local cell = self.cell
++    local list = CurrentList()
++    if not list then return end
++    auction.bisState.slot = cell.idx
++    if self.itemID then
++        if button == "RightButton" then
++            auction:BisRemoveItem(list, cell.idx, self.pos)
++        elseif self.pos > 1 then
++            auction:BisPromoteItem(list, cell.idx, self.pos)
++        end
++    end
++    auction:RefreshBisEditor()
++end
++
++local function ItemButtonEnter(self)
++    local list = CurrentList()
++    local cell = self.cell
++    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
++    if self.itemID then
++        GameTooltip:SetHyperlink("item:"..self.itemID)
++        if GameTooltip:NumLines() == 0 then
++            GameTooltip:AddLine("Предмет "..self.itemID, 1, 1, 1)
++            GameTooltip:AddLine("Нет в кэше клиента — наведите ещё раз через пару секунд.", 1, 0.5, 0.5, true)
++        end
++        GameTooltip:AddLine(" ")
++        if self.pos == 1 then
++            GameTooltip:AddLine("Основной предмет слота", 0.5, 1, 0.5)
++        else
++            GameTooltip:AddLine("Запасной предмет. ЛКМ — сделать основным", 0.5, 1, 0.5)
++        end
++        GameTooltip:AddLine("ПКМ — убрать из слота", 0.5, 1, 0.5)
++    else
++        GameTooltip:AddLine(auction.bisSlots[cell.idx].name, 1, 1, 1)
++        GameTooltip:AddLine("Пусто. Выберите слот и Shift+кликните по предмету или введите itemID.", 0.7, 0.7, 0.7, true)
++    end
++    local s = list and list.slots[cell.idx]
++    if s and s.note and s.note ~= "" then
++        GameTooltip:AddLine(" ")
++        GameTooltip:AddLine("Заметка к слоту:", 1, 0.82, 0)
++        GameTooltip:AddLine(s.note, 1, 1, 1, true)
++    end
++    GameTooltip:Show()
++end
++
++local function CreateItemButton(cell, size, x, y, pos)
++    local b = CreateFrame("Button", nil, cell)
++    b:SetSize(size, size)
++    b:SetPoint("TOPLEFT", cell, "TOPLEFT", x, y)
++    b:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
++    b:SetBackdropColor(0, 0, 0, 1)
++    b:SetBackdropBorderColor(0.1, 0.1, 0.1, 1)
++    b.tex = b:CreateTexture(nil, "ARTWORK")
++    b.tex:SetPoint("TOPLEFT", 1, -1)
++    b.tex:SetPoint("BOTTOMRIGHT", -1, 1)
++    b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
++    b.cell = cell
++    b.pos = pos
++    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
++    b:SetScript("OnClick", ItemButtonClick)
++    b:SetScript("OnEnter", ItemButtonEnter)
++    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
++    return b
++end
++
++local function CreateCell(parent, idx)
++    local c = auction.theme.colors
++    local cell = CreateFrame("Button", nil, parent)
++    cell:SetSize(CELL_W, CELL_H)
++    local pos = LAYOUT[idx]
++    cell:SetPoint("TOPLEFT", parent, "TOPLEFT", COL_X[pos[1]], GRID_TOP - pos[2] * ROW_H)
++    Backdrop(cell, c.inputBg, c.border)
++    cell.idx = idx
++
++    local ok, _, tex = pcall(GetInventorySlotInfo, auction.bisSlots[idx].slot)
++    cell.slotTexture = (ok and tex) or QUESTION
++
++    cell.accent = cell:CreateTexture(nil, "OVERLAY")
++    cell.accent:SetTexture(c.accent[1], c.accent[2], c.accent[3], 1)
++    cell.accent:SetPoint("TOPLEFT", 1, -1)
++    cell.accent:SetPoint("BOTTOMLEFT", 1, 1)
++    cell.accent:SetWidth(3)
++
++    cell.main = CreateItemButton(cell, 36, 6, -2, 1)
++    cell.alts = {
++        CreateItemButton(cell, 24, 48, -8, 2),
++        CreateItemButton(cell, 24, 76, -8, 3),
++    }
++
++    cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    cell.label:SetPoint("TOPLEFT", cell, "TOPLEFT", 108, -6)
++    cell.label:SetTextColor(0.6, 0.6, 0.6)
++    cell.label:SetText(auction.bisSlots[idx].name)
++    cell.itemName = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
++    cell.itemName:SetPoint("TOPLEFT", cell, "TOPLEFT", 108, -22)
++    cell.itemName:SetWidth(ITEMNAME_W + 4)
++    cell.itemName:SetJustifyH("LEFT")
++
++    cell.noteBtn = CreateFrame("Button", nil, cell)
++    cell.noteBtn:SetSize(16, 16)
++    cell.noteBtn:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -4)
++    cell.noteBtn.tex = cell.noteBtn:CreateTexture(nil, "ARTWORK")
++    cell.noteBtn.tex:SetAllPoints()
++    cell.noteBtn.tex:SetTexture(NOTE_ICON)
++    cell.noteBtn:SetScript("OnClick", function()
++        SelectSlot(idx)
++        auction:BisEditSlotNote()
++    end)
++    cell.noteBtn:SetScript("OnEnter", function(self)
++        local list = CurrentList()
++        local s = list and list.slots[idx]
++        if not s or not s.note or s.note == "" then return end
++        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
++        GameTooltip:AddLine(auction.bisSlots[idx].name..": заметка", 1, 0.82, 0)
++        GameTooltip:AddLine(s.note, 1, 1, 1, true)
++        GameTooltip:AddLine("Клик — изменить", 0.5, 1, 0.5)
++        GameTooltip:Show()
++    end)
++    cell.noteBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
++
++    cell:SetScript("OnClick", function() SelectSlot(idx) end)
++    return cell
++end
++
++function auction:BuildBisEditor(screen)
++    local c = self.theme.colors
++
++    -- Ряд 1: название, автор, экспорт
++    local nameEdit = MakeEdit(screen, 230, 6, 0, auction.BIS_NAME_LEN, "Название списка")
++    local authorEdit = MakeEdit(screen, 130, 242, 0, auction.BIS_AUTHOR_LEN, "Автор")
++    local function RevertFields()
++        local list = CurrentList()
++        if not list then return end
++        nameEdit:SetText(list.name)
++        authorEdit:SetText(list.author)
++        if nameEdit.UpdateHint then nameEdit.UpdateHint(); authorEdit.UpdateHint() end
++    end
++    local function SaveFields()
++        local list = CurrentList()
++        if not list then return end
++        auction:BisSetName(list, nameEdit:GetText())
++        auction:BisSetAuthor(list, authorEdit:GetText())
++        RevertFields()
++        auction:RefreshBisCrumb()
++    end
++    for _, e in ipairs({ nameEdit, authorEdit }) do
++        e:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
++        e:HookScript("OnEditFocusLost", SaveFields)
++        e:SetScript("OnEscapePressed", function(box) RevertFields(); box:ClearFocus() end)
++    end
++    self.bisNameEdit, self.bisAuthorEdit = nameEdit, authorEdit
++    self.bisRevertFields = RevertFields
++
++    MakeBtn(screen, "Экспорт", 90, "TOPLEFT", 378, 0, function()
++        local list = CurrentList()
++        if list then auction:BisShowTransfer("export", list) end
++    end)
++
++    -- Ряд 2: ввод предмета и заметки
++    local itemEdit = MakeEdit(screen, 200, 6, -28, 500, "Shift+клик или itemID")
++    itemEdit:SetScript("OnEnterPressed", function() auction:BisAddFromEdit() end)
++    self.bisItemEdit = itemEdit
++    self.bisAddBtn = MakeBtn(screen, "Добавить", 72, "TOPLEFT", 212, -28, function() auction:BisAddFromEdit() end)
++    self.bisSlotNoteBtn = MakeBtn(screen, "Заметка слота", 112, "TOPLEFT", 290, -28, function() auction:BisEditSlotNote() end)
++    self.bisListNoteBtn = MakeBtn(screen, "Заметка списка", 118, "TOPLEFT", 408, -28, function() auction:BisEditListNote() end)
++    self.bisClearBtn = MakeBtn(screen, "Очистить", 80, "TOPLEFT", 532, -28, function()
++        local list, slot = CurrentList(), auction.bisState.slot
++        if list and slot then
++            auction:BisClearSlot(list, slot)
++            auction:RefreshBisEditor()
++        end
++    end)
++
++    -- Полоса с заметкой списка
++    local strip = CreateFrame("Button", nil, screen)
++    strip:SetSize(606, 40)
++    strip:SetPoint("TOPLEFT", screen, "TOPLEFT", 6, -58)
++    Backdrop(strip, { 0.12, 0.10, 0.04, 1 }, c.border)
++    strip.accent = strip:CreateTexture(nil, "OVERLAY")
++    strip.accent:SetTexture(c.accent[1], c.accent[2], c.accent[3], 1)
++    strip.accent:SetPoint("TOPLEFT", 1, -1)
++    strip.accent:SetPoint("BOTTOMLEFT", 1, 1)
++    strip.accent:SetWidth(3)
++    strip.icon = strip:CreateTexture(nil, "ARTWORK")
++    strip.icon:SetSize(16, 16)
++    strip.icon:SetPoint("TOPLEFT", strip, "TOPLEFT", 10, -5)
++    strip.icon:SetTexture(NOTE_ICON)
++    strip.text = strip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
++    strip.text:SetPoint("TOPLEFT", strip, "TOPLEFT", 32, -4)
++    strip.text:SetPoint("BOTTOMRIGHT", strip, "BOTTOMRIGHT", -8, 4)
++    strip.text:SetJustifyH("LEFT")
++    strip.text:SetJustifyV("TOP")
++    strip:SetScript("OnClick", function() auction:BisEditListNote() end)
++    strip:SetScript("OnEnter", function(self)
++        local list = CurrentList()
++        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
++        GameTooltip:AddLine("Заметка к списку", 1, 0.82, 0)
++        if list and list.comment ~= "" then GameTooltip:AddLine(list.comment, 1, 1, 1, true) end
++        GameTooltip:AddLine("Клик — изменить", 0.5, 1, 0.5)
++        GameTooltip:Show()
++    end)
++    strip:SetScript("OnLeave", function() GameTooltip:Hide() end)
++    self.bisStrip = strip
++
++    -- Сетка слотов
++    self.bisCells = {}
++    for i = 1, self.BIS_NUM_SLOTS do
++        self.bisCells[i] = CreateCell(screen, i)
++    end
++
++    -- Строка внизу: подсказка или заметка выбранного слота
++    local info = screen:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    info:SetPoint("BOTTOMLEFT", screen, "BOTTOMLEFT", 8, 4)
++    info:SetWidth(596)
++    info:SetJustifyH("LEFT")
++    info:SetJustifyV("BOTTOM")
++    info:SetTextColor(0.65, 0.65, 0.65)
++    self.bisInfo = info
++end
++
++-- Добавляет предметы из текста (ссылки или id) в выбранный слот.
++function auction:BisAddFromText(text)
++    local list, slot = CurrentList(), self.bisState.slot
++    if not list then return 0 end
++    if not slot then Notice("Сначала выберите слот в списке") return 0 end
++    local ids = self:BisExtractItemIDs(text)
++    if #ids == 0 then Notice("Не нашёл itemID в «"..tostring(text).."»") return 0 end
++    local added, lastWhy = 0, nil
++    for _, id in ipairs(ids) do
++        local ok, why = self:BisAddItem(list, slot, id)
++        if ok then added = added + 1 else lastWhy = why end
++    end
++    if lastWhy and added < #ids then Notice(lastWhy) end
++    self:RefreshBisEditor()
++    return added
++end
++
++function auction:BisAddFromEdit()
++    local e = self.bisItemEdit
++    local text = e:GetText()
++    if text == "" then return end
++    if self:BisAddFromText(text) > 0 then
++        e:SetText("")
++        e:ClearFocus()
++    end
++end
++
++function auction:BisEditSlotNote()
++    local list, slot = CurrentList(), self.bisState.slot
++    if not list or not slot then Notice("Сначала выберите слот") return end
++    local s = list.slots[slot]
++    self:BisShowNoteEditor("Заметка: "..self.bisSlots[slot].name, s and s.note or "", self.BIS_SLOT_NOTE_LEN, function(text)
++        auction:BisSetSlotNote(list, slot, text)
++        auction:RefreshBisEditor()
++    end)
++end
++
++function auction:BisEditListNote()
++    local list = CurrentList()
++    if not list then return end
++    self:BisShowNoteEditor("Заметка к списку «"..Truncate(list.name, 30).."»", list.comment, self.BIS_LIST_NOTE_LEN, function(text)
++        auction:BisSetComment(list, text)
++        auction:RefreshBisEditor()
++    end)
++end
++
++local function ScheduleRetry()
++    if auction._bisRetryTimer or (auction._bisRetries or 0) >= MAX_RETRIES then return end
++    auction._bisRetries = (auction._bisRetries or 0) + 1
++    auction._bisRetryTimer = auction:ScheduleTimer(function()
++        auction._bisRetryTimer = nil
++        if auction.bisPanel and auction.bisPanel:IsVisible() then auction:RefreshBis(true) end
++    end, RETRY_DELAY)
++end
++
++local function QualityHex(quality)
++    local col = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
++    if not col then return "|cffffffff", 0.4, 0.4, 0.4 end
++    return string.format("|cff%02x%02x%02x", math.floor(col.r * 255 + 0.5), math.floor(col.g * 255 + 0.5), math.floor(col.b * 255 + 0.5)),
++        col.r, col.g, col.b
++end
++
++-- Рисует один слот. Возвращает true, если какие-то предметы ещё не пришли из кэша.
++local function RenderCell(cell, list, selected)
++    local c = auction.theme.colors
++    local data = list.slots[cell.idx]
++    local items = data and data.items or {}
++    local note = data and data.note or ""
++    local pending = false
++
++    for pos = 1, auction.BIS_MAX_PER_SLOT do
++        local btn = (pos == 1) and cell.main or cell.alts[pos - 1]
++        local id = items[pos]
++        btn.itemID = id
++        if id then
++            local name, quality, icon, known = auction:BisItemInfo(id)
++            btn.tex:SetTexture(icon or QUESTION)
++            btn.tex:SetDesaturated(false)
++            btn.tex:SetAlpha(1)
++            local hex, r, g, b = QualityHex(quality)
++            btn:SetBackdropBorderColor(r, g, b, 1)
++            btn:Show()
++            if not known then pending = true end
++            if pos == 1 then
++                if known then
++                    FitText(cell.itemName, name, ITEMNAME_W, hex, "|r")
++                else
++                    FitText(cell.itemName, "Предмет "..id.." (загрузка...)", ITEMNAME_W, "|cff888888", "|r")
++                end
++            end
++        else
++            if pos == 1 then
++                btn.tex:SetTexture(cell.slotTexture)
++                btn.tex:SetDesaturated(true)
++                btn.tex:SetAlpha(0.45)
++                btn:SetBackdropBorderColor(0.1, 0.1, 0.1, 1)
++                btn:Show()
++                cell.itemName:SetText("|cff666666— пусто —|r")
++            elseif pos == #items + 1 then
++                -- Свободное место под запасной предмет
++                btn.tex:SetTexture(cell.slotTexture)
++                btn.tex:SetDesaturated(true)
++                btn.tex:SetAlpha(0.25)
++                btn:SetBackdropBorderColor(0.1, 0.1, 0.1, 1)
++                btn:Show()
++            else
++                btn:Hide()
++            end
++        end
++    end
++
++    -- Заметка: золотая полоска, значок и тёплый фон
++    local hasNote = note ~= ""
++    if hasNote then cell.accent:Show(); cell.noteBtn:Show() else cell.accent:Hide(); cell.noteBtn:Hide() end
++    if selected then
++        cell:SetBackdropColor(0.16, 0.13, 0.05, 1)
++        cell:SetBackdropBorderColor(c.accent[1], c.accent[2], c.accent[3], 1)
++    elseif hasNote then
++        cell:SetBackdropColor(0.12, 0.10, 0.04, 1)
++        cell:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
++    else
++        cell:SetBackdropColor(c.inputBg[1], c.inputBg[2], c.inputBg[3], c.inputBg[4])
++        cell:SetBackdropBorderColor(c.border[1], c.border[2], c.border[3], c.border[4])
++    end
++    return pending
++end
++
++function auction:RefreshBisEditor()
++    local list = CurrentList()
++    if not list then return end
++    local st = self.bisState
++
++    if not self.bisNameEdit:HasFocus() and not self.bisAuthorEdit:HasFocus() then
++        self.bisRevertFields()
++    end
++
++    -- Полоса заметки списка
++    local strip = self.bisStrip
++    if list.comment ~= "" then
++        strip.text:SetTextColor(1, 0.9, 0.55)
++        strip.text:SetText(OneLine(list.comment, 280))
++        strip.icon:SetAlpha(1)
++        strip.accent:Show()
++    else
++        strip.text:SetTextColor(0.5, 0.5, 0.5)
++        strip.text:SetText("Заметка к списку не задана — нажмите здесь или «Заметка списка».")
++        strip.icon:SetAlpha(0.4)
++        strip.accent:Hide()
++    end
++
++    local pending = false
++    for i, cell in ipairs(self.bisCells) do
++        if RenderCell(cell, list, st.slot == i) then pending = true end
++    end
++    if pending then ScheduleRetry() end
++
++    local hasSlot = st.slot ~= nil
++    for _, b in ipairs({ self.bisAddBtn, self.bisSlotNoteBtn, self.bisClearBtn }) do
++        if hasSlot then b:Enable() else b:Disable() end
++    end
++
++    if hasSlot then
++        local s = list.slots[st.slot]
++        local note = s and s.note or ""
++        self.bisInfo:SetText("|cffffd200Слот «"..self.bisSlots[st.slot].name.."»:|r "
++            ..(note ~= "" and ("|cffffe58c"..OneLine(note, 150).."|r") or "заметки нет")
++            .."   |cff888888Shift+клик по предмету — добавить.|r")
++    else
++        self.bisInfo:SetText("Клик по слоту выбирает его. ЛКМ по запасному предмету — сделать основным, ПКМ по предмету — убрать.")
++    end
++end
++
++-- ======================
++-- Общее обновление
++-- ======================
++
++function auction:RefreshBisCrumb()
++    local st = self.bisState
++    local parts = { "BiS-листы" }
++    local cls = st.class and self:BisClass(st.class)
++    if st.screen ~= "classes" and cls then
++        parts[#parts + 1] = ClassHex(cls.token)..cls.name.."|r"
++        if (st.screen == "lists" or st.screen == "editor") and st.spec and cls.specs[st.spec] then
++            parts[#parts + 1] = cls.specs[st.spec].name
++        end
++        if st.screen == "editor" then
++            local list = CurrentList()
++            if list then parts[#parts + 1] = Truncate(list.name, 24) end
++        end
++    end
++    self.bisCrumb:SetText(table.concat(parts, "  >  "))
++end
++
++function auction:RefreshBis(fromRetry)
++    if not self.bisPanel then return end
++    if not fromRetry then self._bisRetries = 0 end
++    local st = self.bisState
++
++    -- Состояние могло устареть (список удалён, данные очищены)
++    if st.screen == "editor" and not CurrentList() then st.screen = "lists" end
++    if st.screen ~= "classes" and not (st.class and self:BisClass(st.class)) then st.screen = "classes" end
++    if (st.screen == "lists" or st.screen == "editor") and not st.spec then st.screen = "specs" end
++
++    for key, screen in pairs(self.bisScreens) do
++        if key == st.screen then screen:Show() else screen:Hide() end
++    end
++    if st.screen == "classes" then self.bisBackBtn:Hide() else self.bisBackBtn:Show() end
++    self:RefreshBisCrumb()
++
++    if st.screen == "classes" then self:RefreshBisClasses()
++    elseif st.screen == "specs" then self:RefreshBisSpecs()
++    elseif st.screen == "lists" then self:RefreshBisLists()
++    else self:RefreshBisEditor() end
++end
++
++-- ======================
++-- Окно заметки
++-- ======================
++
++function auction:BisShowNoteEditor(title, text, limit, onSave)
++    local f = self.bisNoteFrame
++    if not f then
++        local c = self.theme.colors
++        f = CreateFrame("Frame", "EPBossAuctionBisNoteFrame", UIParent)
++        f:SetSize(440, 250)
++        f:SetPoint("CENTER")
++        self:SetupWindow(f)
++        self:SkinPanel(f)
++        f:SetMovable(true)
++        f:EnableMouse(true)
++        f:RegisterForDrag("LeftButton")
++        f:SetScript("OnDragStart", f.StartMoving)
++        f:SetScript("OnDragStop", f.StopMovingOrSizing)
++
++        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++        f.title:SetPoint("TOP", 0, -14)
++        f.title:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
++
++        -- Поле в рамке: 440 - отступы 16+16 - рамка/полоса прокрутки = 372 x 142
++        local edit = MakeMultilineBox(f, "EPBossAuctionBisNoteScroll", 16, -46, -16, 54, 372, 140)
++        edit:SetScript("OnEscapePressed", function() f:Hide() end)
++        f.edit = edit
++
++        f.counter = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++        f.counter:SetPoint("BOTTOMLEFT", 18, 24)
++        f.counter:SetTextColor(0.6, 0.6, 0.6)
++        edit:SetScript("OnTextChanged", function(box)
++            f.counter:SetText(Utf8Len(box:GetText()).." / "..(f.limit or 0))
++        end)
++
++        local save = CreateFrame("Button", nil, f)
++        save:SetSize(110, 24)
++        save:SetPoint("BOTTOMRIGHT", -132, 16)
++        save:SetText("Сохранить")
++        save:SetNormalFontObject(GameFontNormal)
++        self:SkinButton(save)
++        save:SetScript("OnClick", function()
++            local cb = f.onSave
++            f:Hide()
++            if cb then cb(f.edit:GetText()) end
++        end)
++        local cancel = CreateFrame("Button", nil, f)
++        cancel:SetSize(110, 24)
++        cancel:SetPoint("BOTTOMRIGHT", -16, 16)
++        cancel:SetText("Отмена")
++        cancel:SetNormalFontObject(GameFontNormal)
++        self:SkinButton(cancel)
++        cancel:SetScript("OnClick", function() f:Hide() end)
++
++        self.bisNoteFrame = f
++    end
++    f.onSave = onSave
++    f.limit = limit
++    f.title:SetText(title)
++    f.edit:SetMaxLetters(limit)
++    f.edit:SetText(text or "")
++    f:Show()
++    f.edit:SetFocus()
++end
++
++-- ======================
++-- Окно экспорта / импорта
++-- ======================
++
++function auction:BisShowTransfer(mode, list)
++    local f = self.bisTransferFrame
++    if not f then
++        local c = self.theme.colors
++        f = CreateFrame("Frame", "EPBossAuctionBisTransferFrame", UIParent)
++        f:SetSize(560, 360)
++        f:SetPoint("CENTER")
++        self:SetupWindow(f)
++        self:SkinPanel(f)
++        f:SetMovable(true)
++        f:EnableMouse(true)
++        f:RegisterForDrag("LeftButton")
++        f:SetScript("OnDragStart", f.StartMoving)
++        f:SetScript("OnDragStop", f.StopMovingOrSizing)
++
++        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++        f.title:SetPoint("TOP", 0, -14)
++        f.title:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
++        f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++        f.hint:SetPoint("TOP", f.title, "BOTTOM", 0, -4)
++        f.hint:SetTextColor(0.7, 0.7, 0.7)
++
++        -- 560 - 16*2 - рамка/полоса прокрутки = 492 x 196
++        local edit = MakeMultilineBox(f, "EPBossAuctionBisTransferScroll", 16, -56, -16, 96, 492, 196, 200000)
++        edit:SetScript("OnEscapePressed", function() f:Hide() end)
++        f.edit = edit
++
++        f.status = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++        f.status:SetPoint("BOTTOMLEFT", 18, 58)
++        f.status:SetWidth(520)
++        f.status:SetHeight(30)
++        f.status:SetJustifyH("LEFT")
++        f.status:SetJustifyV("TOP")
++
++        edit:SetScript("OnTextChanged", function(box)
++            if f.mode ~= "import" then return end
++            local data, err = auction:BisParse(box:GetText())
++            f.parsed = data
++            if data then
++                local cls = auction:BisClass(data.class)
++                f.status:SetTextColor(0.3, 0.9, 0.3)
++                f.status:SetText(ClassHex(data.class)..cls.name.."|r › "..cls.specs[data.spec].name
++                    ..": «"..data.name.."», автор "..(data.author ~= "" and data.author or "—")
++                    ..", предметов: "..data.items..(data.comment ~= "" and ", есть заметка" or ""))
++                f.importBtn:Enable()
++            else
++                f.status:SetTextColor(0.9, 0.35, 0.3)
++                f.status:SetText(err or "")
++                f.importBtn:Disable()
++            end
++        end)
++
++        f.importBtn = CreateFrame("Button", nil, f)
++        f.importBtn:SetSize(130, 24)
++        f.importBtn:SetPoint("BOTTOMRIGHT", -152, 16)
++        f.importBtn:SetText("Импортировать")
++        f.importBtn:SetNormalFontObject(GameFontNormal)
++        self:SkinButton(f.importBtn)
++        f.importBtn:SetScript("OnClick", function()
++            if not f.parsed then return end
++            local list2, err = auction:BisImport(f.parsed)
++            if not list2 then Notice(err) return end
++            f:Hide()
++            DEFAULT_CHAT_FRAME:AddMessage("|cffff9900[EPBA]|r BiS-список «"..list2.name.."» импортирован.")
++            auction:BisShow("editor", list2.class, list2.spec, list2.id)
++        end)
++
++        local close = CreateFrame("Button", nil, f)
++        close:SetSize(130, 24)
++        close:SetPoint("BOTTOMRIGHT", -16, 16)
++        close:SetText("Закрыть")
++        close:SetNormalFontObject(GameFontNormal)
++        self:SkinButton(close)
++        close:SetScript("OnClick", function() f:Hide() end)
++
++        self.bisTransferFrame = f
++    end
++
++    f.mode = mode
++    f.parsed = nil
++    if mode == "export" then
++        f.title:SetText("Экспорт: "..Truncate(list.name, 30))
++        f.hint:SetText("Текст выделен: Ctrl+C — скопировать, Esc — закрыть")
++        f.status:SetTextColor(0.7, 0.7, 0.7)
++        f.status:SetText("Отправьте эту строку другому игроку (Discord, форум, личное сообщение вне игры): он вставит её через «Импорт».")
++        f.importBtn:Hide()
++        f.edit:SetText(self:BisExport(list))
++        f:Show()
++        f.edit:HighlightText()
++        f.edit:SetFocus()
++    else
++        f.title:SetText("Импорт BiS-листа")
++        f.hint:SetText("Вставьте строку (Ctrl+V). Список появится новым, ваши списки не изменятся.")
++        f.status:SetText("")
++        f.importBtn:Show()
++        f.importBtn:Disable()
++        f.edit:SetText("")
++        f:Show()
++        f.edit:SetFocus()
++    end
++end
+diff --git a/EPBossAuction/bossep.lua b/EPBossAuction/bossep.lua
+index f26cf24..569972b 100644
+--- a/EPBossAuction/bossep.lua
++++ b/EPBossAuction/bossep.lua
+@@ -109,7 +109,7 @@ function auction:CreateBossEPWindow()
+     local f = CreateFrame("Frame", "EPBossAuctionBossEPFrame", UIParent)
+     f:SetSize(WIN_W, WIN_H)
+     f:SetPoint("CENTER")
+-    f:SetFrameStrata("DIALOG")
++    auction:SetupWindow(f)
+     f:SetMovable(true)
+     f:EnableMouse(true)
+     f:RegisterForDrag("LeftButton")
+diff --git a/EPBossAuction/changelog.lua b/EPBossAuction/changelog.lua
+index b268959..10fd22b 100644
+--- a/EPBossAuction/changelog.lua
++++ b/EPBossAuction/changelog.lua
+@@ -168,5 +168,13 @@ auction.changelog = {
+         "Окно добычи: шапка переделана в две колонки. Слева «Массовое начисление»: выбор босса, поле «ЕП за босса» и три кнопки x1, x1.25 и x2 (начисляется введённая сумма, умноженная на коэффициент, с подтверждением). Справа «Посещаемость» с кнопкой «Создать снимок»",
+         "ЕП за босса подставляется в окно добычи автоматически при выборе босса. Список задаётся в настройках: раздел «ЕП за боссов» (виден только Loot Master), кнопка «Настроить» открывает окно со всеми боссами (Tab — к следующему). Подпись рядом с полем показывает, откуда число. Сумма, введённая вручную, больше не запоминается по боссу и не затирает список",
+     },
++    ["3.6.0"] = {
++        "Новая вкладка «BiS»: конструктор BiS-листов. Класс, затем специализация, затем списки; в редакторе 17 слотов, в каждом до трёх предметов (основной и запасные). Предметы добавляются Shift+кликом по ссылке или вводом itemID, наличие предмета не нужно. Вкладка доступна всем",
++        "К списку и к каждому слоту можно добавить заметку: слот с заметкой подсвечен золотом и помечен значком, текст виден в тултипе и под сеткой",
++        "Исправлено: уведомление «Вашу ставку перебил…» больше не повторяется спустя время (его вызывал периодический сброс флагов и очередной SYNC от ЛМ). Теперь одно уведомление на одно перебитие: следующее придёт, только когда вы вернёте лидерство и вас перебьют снова, либо после очистки таблицы босса",
++        "Новая вкладка «Избранные предметы» (звёздочка ★ слева): все отмеченные предметы со всех боссов сразу, со ставками, с возможностью поставить, изменить или снять ставку прямо оттуда и убрать предмет из избранного. Основная таблица и «★ Мои» работают как раньше",
++        "Окно выдачи добычи: «Выдать себе» теперь убирает предмет из окна сразу после выдачи (в журнал выдача записывается) и он не переезжает в окно следующего босса",
++        "Все окна аддона (справка, «Что нового?», отчёты, окно лута, диагностика, BiS-окна) теперь открываются поверх главного окна, а не под ним",
++        "Экспорт и импорт: список превращается в одну строку (с названием, автором, заметками), которую можно отправить через Discord или форум. При импорте строка проверяется, показывается превью, список всегда создаётся новым",
++    },
+ }
+-
+diff --git a/EPBossAuction/comm.lua b/EPBossAuction/comm.lua
+index ded8c4d..89b121d 100644
+--- a/EPBossAuction/comm.lua
++++ b/EPBossAuction/comm.lua
+@@ -598,6 +598,7 @@ function auction:Handle_BID(rest, sender)
+                 self:RequestRefresh()
+             end
+         end
++        self:FavoritesBidsChanged(bossName, itemID)
+         self:CheckIfOutbid(bossName, itemID)
+         self:Debug("Отказ от ставки обработан")
+         return
+@@ -625,6 +626,7 @@ function auction:Handle_BID(rest, sender)
+             self:RequestRefresh()
+         end
+     end
++    self:FavoritesBidsChanged(bossName, itemID)
+     self:CheckIfOutbid(bossName, itemID)
+     -- BIDOK только очищает поле ввода у ставившего (само состояние приходит в SYNC2), поэтому
+     -- при заторе в очереди его можно выбросить (ttl 4 сек)
+@@ -713,6 +715,7 @@ function auction:ApplySync(bossName, itemID, newBids, version, sender, omitted)
+                 self:RequestRefresh()
+             end
+         end
++        self:FavoritesBidsChanged(bossName, itemID)
+         self:CheckIfOutbid(bossName, itemID)
+         self:Debug("SYNC для босса "..bossName.." обработан, ставок: "..#newBids)
+     else
+@@ -910,6 +913,7 @@ function auction:Handle_BIDOK(rest, sender)
+     if auction.bidBox then
+         auction.bidBox:SetText("")
+     end
++    if auction.favBidBox then auction.favBidBox:SetText("") end   -- поле ставки на вкладке «Избранное»
+ end
+ 
+ -- Сигнал "синхронизация от ЛМ завершена" — просто финальный Debug-лог/флаг, данные уже применены по ходу отдельных SYNC.
+@@ -924,6 +928,7 @@ end
+ -- зеркалит уже принятое решение ЛМ.
+ function auction:ClearBossLocal_Remote(bossName)
+     self.bids[bossName] = {}
++    self:ResetOutbidNotified(bossName)   -- после очистки новое перебитие снова должно уведомить
+     self.signups = self.signups or {}
+     self.signups[bossName] = nil
+     if self.bosses[bossName] then
+@@ -995,8 +1000,16 @@ function auction:CheckIfOutbid(bossName, itemID)
+     local maxBid = self.maxBidCache[key] or 0
+     local myBid = self.myBidCache[key] or 0
+ 
+-    if myBid == 0 or myBid >= maxBid then
+-        self.outbidNotified[key] = nil
++    -- Одно уведомление на одно перебитие: флаг outbidNotified[key] живёт, пока игрок не
++    -- вернёт лидерство (или ставок на предмет не останется), и больше нигде не сбрасывается.
++    -- Повторные SYNC/ставки других игроков по этому предмету молчат.
++    if maxBid == 0 or (myBid > 0 and myBid >= maxBid) then
++        self.outbidNotified[key] = nil   -- ставок нет (таблицу очистили) либо я снова лидирую
++        return
++    end
++    if myBid == 0 then
++        -- У меня нет ставки (сам снял, либо в SYNC её временно не оказалось): не перебит,
++        -- но флаг не трогаем, иначе следующий SYNC с моей ставкой уведомил бы повторно.
+         return
+     end
+ 
+diff --git a/EPBossAuction/contacts.lua b/EPBossAuction/contacts.lua
+index 058d745..09e7c85 100644
+--- a/EPBossAuction/contacts.lua
++++ b/EPBossAuction/contacts.lua
+@@ -80,7 +80,7 @@ function auction:ShowContactsWindow()
+         local frame = CreateFrame("Frame", "EPBossAuctionContactsFrame", UIParent)
+         frame:SetSize(440, 300)
+         frame:SetPoint("CENTER")
+-        frame:SetFrameStrata("DIALOG")
++        self:SetupWindow(frame)
+         self:SkinPanel(frame)
+         frame:SetMovable(true)
+         frame:EnableMouse(true)
+diff --git a/EPBossAuction/core.lua b/EPBossAuction/core.lua
+index a7c4dfb..46bda1e 100644
+--- a/EPBossAuction/core.lua
++++ b/EPBossAuction/core.lua
+@@ -1068,17 +1068,25 @@ function auction:SetWindowScale(scale)
+     end
+ end
+ 
+--- Раз в 5 минут (сама себя перепланирует через ScheduleTimer) очищает
+--- outbidNotified/outbidThrottle — чтобы повторная ставка на тот же предмет
+--- через долгое время снова могла вызвать уведомление о перебитии.
+-function auction:CleanOutbidNotified()
+-    self.outbidNotified = {}
+-    self.outbidThrottle = {}
+-    self:Debug("Очищены уведомления о перебитых ставках")
+-    if self.fullyLoaded then
+-        self:ScheduleTimer(function()
+-            auction:CleanOutbidNotified()
+-        end, 300)
++-- Сбрасывает «уже уведомили о перебитии» по таблице босса (bossName) или по всем боссам
++-- (без аргумента). Вызывается при очистке таблицы ставок: после неё следующее перебитие
++-- на этом предмете — новое событие и должно снова уведомить.
++-- ВАЖНО: флаги НЕЛЬЗЯ сбрасывать по таймеру. Раньше раз в 5 минут флаги стирались, и первый же
++-- SYNC по этому предмету (его шлёт ЛМ каждый раз, когда кто-то входит в игру или
++-- перезагружает интерфейс) снова показывал уведомление о том же самом перебитии.
++-- Нормальный сброс — в CheckIfOutbid, когда игрок снова лидирует или ставок не осталось.
++function auction:ResetOutbidNotified(bossName)
++    if not bossName then
++        self.outbidNotified = {}
++        self.outbidThrottle = {}
++        return
++    end
++    local prefix = bossName..":"
++    for key in pairs(self.outbidNotified) do
++        if key:sub(1, #prefix) == prefix then self.outbidNotified[key] = nil end
++    end
++    for key in pairs(self.outbidThrottle) do
++        if key:sub(1, #prefix) == prefix then self.outbidThrottle[key] = nil end
+     end
+ end
+ 
+diff --git a/EPBossAuction/diag.lua b/EPBossAuction/diag.lua
+index d3b3396..94ce925 100644
+--- a/EPBossAuction/diag.lua
++++ b/EPBossAuction/diag.lua
+@@ -1255,7 +1255,7 @@ local function BuildWindow()
+     local f = CreateFrame("Frame", "EPBossAuctionDiagFrame", UIParent)
+     f:SetSize(760, 580)
+     f:SetPoint("CENTER")
+-    f:SetFrameStrata("DIALOG")
++    auction:SetupWindow(f)
+     auction:SkinPanel(f)
+     f:SetMovable(true)
+     f:EnableMouse(true)
+diff --git a/EPBossAuction/events.lua b/EPBossAuction/events.lua
+index 16d58a5..4d29dee 100644
+--- a/EPBossAuction/events.lua
++++ b/EPBossAuction/events.lua
+@@ -130,10 +130,8 @@ f:SetScript("OnEvent", function(selfF, event, arg1, ...)
+             end, 2)
+         end
+ 
+-        -- Периодическая очистка устаревших уведомлений (раз в 5 минут)
+-        auction:ScheduleTimer(function()
+-            auction:CleanOutbidNotified()
+-        end, 300)
++        -- Флаги «о перебитии уже уведомили» (auction.outbidNotified) по таймеру НЕ чистим:
++        -- иначе то же перебитие всплывало бы снова с очередным SYNC. См. ResetOutbidNotified.
+ 
+     elseif event == "PLAYER_ENTERING_WORLD" then
+         auction:Debug("PLAYER_ENTERING_WORLD (pending)")
+diff --git a/EPBossAuction/favorites.lua b/EPBossAuction/favorites.lua
+new file mode 100644
+index 0000000..9127580
+--- /dev/null
++++ b/EPBossAuction/favorites.lua
+@@ -0,0 +1,611 @@
++local auction = EPBossAuction
++
++-- ============================================================
++-- favorites.lua — вкладка «Избранные предметы»
++-- ============================================================
++-- Показывает ВСЕ предметы, отмеченные звёздочкой ★ (auction.db.watchlist, см.
++-- watchlist.lua), сразу со всех боссов: сгруппированы по боссам, у каждого — топ ставок
++-- (как в основной таблице), клик по предмету выбирает его, снизу — поле ставки, галочка
++-- офф-спека, «Сделать ставку» и «Снять ставку». Звёздочка справа в строке убирает предмет
++-- из избранного. Основная таблица и фильтр «★ Мои» работают как раньше.
++--
++-- Вкладка видна всем игрокам (квадратная кнопка слева, см. TAB_DEFS в attendance_ui.lua).
++--
++-- Ставки: общая логика — auction:PlaceBid (UI.lua): те же проверки, подтверждение и отправка,
++-- что и у основной таблицы; босс и предмет передаются явно, потому что на этой вкладке
++-- предметы разных боссов, а auction.selectedBoss не используется и не меняется.
++--
++-- Данные: ставки по всем боссам хранятся у каждого клиента (SYNC от ЛМ принимается по любому
++-- боссу), но при входе в игру клиент запрашивает у ЛМ только выбранного босса. Поэтому при
++-- открытии вкладки (не чаще раза в REQUEST_THROTTLE секунд) и по кнопке «Обновить ставки»
++-- шлём ЛМ HELLO по каждому боссу с избранным. ЛМ копит HELLO от одного игрока 1 секунду
++-- (LM_REPLY_DELAY в comm.lua) и запоминает только последний, поэтому запросы идут с
++-- интервалом REQUEST_STAGGER и с разными ключами очереди.
++--
++-- Что вызывает эту вкладку снаружи (все вызовы безопасны, пока окно не создано):
++--   FavoritesBidsChanged   — ставки изменились (ApplyBidChange, Handle_BID, Handle_SYNC);
++--   FavoritesRefreshSoon   — изменился список избранного или резерв;
++--   FavoritesUpdateBar     — изменились ЕП / блокировка ставок (нижняя панель).
++-- ============================================================
++
++local BAR_H = 76
++local REQUEST_THROTTLE = 120    -- сек: не чаще при открытии вкладки (кнопка «Обновить ставки» — без ограничения)
++local REQUEST_STAGGER = 1.2     -- сек между запросами по разным боссам (см. шапку)
++local MAX_REQUEST_BOSSES = 8
++local ITEM_RETRY, ITEM_RETRY_MAX = 0.6, 12
++local STAR_GOLD = { 1.0, 0.82, 0.0 }
++
++auction.favState = auction.favState or {}   -- { boss, itemID } — выбранный предмет
++auction.favRows = auction.favRows or {}
++
++local function Notice(text)
++    UIErrorsFrame:AddMessage(text, 1.0, 0.5, 0.0, 3)
++end
++
++local function Backdrop(frame, bg, border)
++    frame:SetBackdrop({
++        bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8",
++        edgeSize = 1, insets = { left = 1, right = 1, top = 1, bottom = 1 },
++    })
++    frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4] or 1)
++    frame:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
++end
++
++local function MakeBtn(parent, text, width, point, x, y, onClick)
++    local b = CreateFrame("Button", nil, parent)
++    b:SetSize(width, 24)
++    b:SetPoint(point, parent, point, x, y)
++    b:SetText(text)
++    b:SetNormalFontObject(GameFontNormal)
++    auction:SkinButton(b)
++    b:SetScript("OnClick", onClick)
++    return b
++end
++
++-- ======================
++-- Данные
++-- ======================
++
++-- Группы избранного: { { boss, instance, items = {itemID, ...} }, ... } — боссы в порядке
++-- подземелий из auction.instanceOrder, предметы — в порядке таблицы босса. Предмет, который
++-- есть в таблицах нескольких боссов, попадёт в каждую группу (ставки у боссов раздельные).
++function auction:GetFavoriteGroups()
++    local groups, seen = {}, {}
++    local watch = self:GetWatchlist()
++    local function addBoss(boss)
++        if seen[boss] then return end
++        seen[boss] = true
++        local items = self.bosses[boss]
++        if not items then return end
++        local list = {}
++        for _, id in ipairs(items) do
++            if watch[id] then list[#list + 1] = id end
++        end
++        if #list > 0 then
++            groups[#groups + 1] = { boss = boss, instance = self.bossToInstance[boss], items = list }
++        end
++    end
++    for _, instanceName in ipairs(self.instanceOrder) do
++        for _, boss in ipairs(self.instances[instanceName] or {}) do addBoss(boss) end
++    end
++    -- Боссы, которых нет в instances (на всякий случай): по алфавиту, чтобы порядок был стабильным
++    local rest = {}
++    for boss in pairs(self.bosses) do
++        if not seen[boss] then rest[#rest + 1] = boss end
++    end
++    table.sort(rest)
++    for _, boss in ipairs(rest) do addBoss(boss) end
++    return groups
++end
++
++local function MyBid(boss, itemID)
++    local bids = auction.bids[boss] and auction.bids[boss][itemID]
++    local me = UnitName("player")
++    for _, b in ipairs(bids or {}) do
++        if b.player == me then return b end
++    end
++    return nil
++end
++
++-- Топ ставок строкой: «Игрок - 500 | Игрок - 450 (O)», как в основной таблице.
++local function BidsText(boss, itemID)
++    local n = auction.db.table.showTopBids or 2
++    local bids = auction.sortedBids[boss] and auction.sortedBids[boss][itemID] or {}
++    local text = ""
++    for j = 1, n do
++        local b = bids[j]
++        if not b then break end
++        local part = auction:FormatColoredName(b.player).." - "..auction:FormatNumber(b.amount)..(b.isOffspec and " (O)" or "")
++        text = (j == 1) and part or (text.." | "..part)
++    end
++    return text
++end
++
++-- ======================
++-- Запрос ставок у ЛМ
++-- ======================
++function auction:FavoritesRequestData(force)
++    if self:IsLootMaster() then return end   -- у ЛМ данные и так полные
++    if GetNumRaidMembers() == 0 and GetNumPartyMembers() == 0 then return end
++    local now = GetTime()
++    if not force and self._favRequestedAt and (now - self._favRequestedAt) < REQUEST_THROTTLE then return end
++    self._favRequestedAt = now
++
++    local bosses = {}
++    for _, g in ipairs(self:GetFavoriteGroups()) do
++        if #bosses < MAX_REQUEST_BOSSES then bosses[#bosses + 1] = g.boss end
++    end
++    for i, boss in ipairs(bosses) do
++        self:ScheduleTimer(function()
++            auction:SendToLootMaster("HELLO;"..boss, 2, "HELLO:"..boss)
++        end, (i - 1) * REQUEST_STAGGER)
++    end
++    if force then
++        DEFAULT_CHAT_FRAME:AddMessage("|cffff9900[EPBA]|r Запрошены ставки у ЛМ по боссам с избранным: "..#bosses..".")
++    end
++end
++
++-- ======================
++-- Панель
++-- ======================
++function auction:CreateFavoritesPanel(frame)
++    local c = self.theme.colors
++    local panel = CreateFrame("Frame", "EPBossAuctionFavPanel", frame)
++    panel:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -45)
++    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 16)
++    panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
++    panel:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
++    panel:SetBackdropBorderColor(0, 0, 0, 1)
++    self:SkinPanel(panel)
++    panel:Hide()
++    self.favPanel = panel
++
++    -- Шапка
++    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
++    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -9)
++    title:SetTextColor(c.accent[1], c.accent[2], c.accent[3])
++    title:SetText("Избранные предметы")
++    local count = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    count:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -30)
++    count:SetTextColor(0.65, 0.65, 0.65)
++    self.favCount = count
++
++    local refresh = MakeBtn(panel, "Обновить ставки", 130, "TOPRIGHT", -10, -8, function()
++        auction:FavoritesRequestData(true)
++        auction:RefreshFavorites()
++    end)
++    refresh:HookScript("OnEnter", function(btn)
++        GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
++        GameTooltip:AddLine("Запросить ставки у ЛМ")
++        GameTooltip:AddLine("Просит ЛМ прислать ставки по всем боссам, у которых есть избранные предметы. Обычно не нужно: ставки приходят сами.", 0.5, 1, 0.5, true)
++        GameTooltip:Show()
++    end)
++    refresh:HookScript("OnLeave", function() GameTooltip:Hide() end)
++    self.favRefreshBtn = refresh
++
++    -- Таблица
++    local bg = panel:CreateTexture(nil, "BACKGROUND")
++    bg:SetTexture(0, 0, 0, 0.25)
++    bg:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -52)
++    bg:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, BAR_H + 6)
++
++    local scroll = CreateFrame("ScrollFrame", "EPBossAuctionFavScroll", panel, "UIPanelScrollFrameTemplate")
++    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -52)
++    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, BAR_H + 6)
++    local content = CreateFrame("Frame", nil, scroll)
++    content:SetSize(580, 1)
++    scroll:SetScrollChild(content)
++    self.favScroll, self.favContent = scroll, content
++    local scrollBar = _G["EPBossAuctionFavScrollScrollBar"]
++    if scrollBar then
++        scrollBar:ClearAllPoints()
++        scrollBar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 22, -17)
++        scrollBar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 22, 17)
++        self:SkinScrollBar(scrollBar)
++    end
++
++    local empty = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    empty:SetPoint("CENTER", panel, "CENTER", 0, 20)
++    empty:SetWidth(460)
++    empty:SetJustifyH("CENTER")
++    empty:SetTextColor(0.6, 0.6, 0.6)
++    empty:SetText("Избранных предметов пока нет.\nОтметьте нужные звёздочкой справа от названия в таблице на вкладке «Ставки»: они появятся здесь, со всех боссов сразу.")
++    self.favEmpty = empty
++
++    self:BuildFavoritesBar(panel)
++
++    panel:SetScript("OnShow", function()
++        auction:RefreshFavorites()
++        auction:FavoritesRequestData(false)
++    end)
++end
++
++-- Нижняя панель: выбранный предмет, поле ставки, офф-спек, кнопки.
++function auction:BuildFavoritesBar(panel)
++    local c = self.theme.colors
++    local bar = CreateFrame("Frame", nil, panel)
++    bar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 6, 6)
++    bar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 6)
++    bar:SetHeight(BAR_H)
++    Backdrop(bar, c.inputBg, c.border)
++    self.favBar = bar
++
++    self.favSelText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    self.favSelText:SetPoint("TOPLEFT", bar, "TOPLEFT", 10, -10)
++    self.favSelText:SetWidth(400)
++    self.favSelText:SetJustifyH("LEFT")
++    self.favSelText:SetWordWrap(false)
++    self.favMyBid = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    self.favMyBid:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -10, -12)
++    self.favMyBid:SetJustifyH("RIGHT")
++
++    local box = CreateFrame("EditBox", "EPBossAuctionFavBidBox", bar, "InputBoxTemplate")
++    box:SetSize(100, 25)
++    box:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 16, 10)
++    box:SetAutoFocus(false)
++    box:SetNumeric(true)
++    box:SetMaxLetters(6)
++    box:SetScript("OnEnterPressed", function() auction:FavoritesSendBid() end)
++    box:SetScript("OnEscapePressed", function(b) b:ClearFocus() end)
++    box:SetScript("OnTextChanged", function() auction:FavoritesUpdateBar() end)
++    self:SkinInput(box)
++    self.favBidBox = box
++
++    local cb = CreateFrame("CheckButton", "EPBossAuctionFavOffspec", bar, "UICheckButtonTemplate")
++    cb:SetSize(20, 20)
++    cb:SetPoint("LEFT", box, "RIGHT", 12, 0)
++    local cbText = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    cbText:SetPoint("LEFT", cb, "RIGHT", 2, 0)
++    cbText:SetText("Офф-спек")
++    cb:SetChecked(false)
++    cb:SetScript("OnClick", function() auction:FavoritesUpdateBar() end)
++    self:SkinCheckbox(cb)
++    self.favOffspec = cb
++
++    self.favMaxText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    self.favMaxText:SetPoint("LEFT", cbText, "RIGHT", 14, 0)
++    self.favMaxText:SetJustifyH("LEFT")
++
++    self.favCancelBtn = MakeBtn(bar, "Снять ставку", 100, "BOTTOMRIGHT", -10, 10, function()
++        auction:FavoritesSendBid(0)
++    end)
++    self.favBidBtn = MakeBtn(bar, "Сделать ставку", 130, "BOTTOMRIGHT", -116, 10, function()
++        auction:FavoritesSendBid()
++    end)
++end
++
++-- Ставка на выбранный предмет. amount = 0 — снять свою ставку.
++function auction:FavoritesSendBid(amount)
++    local st = self.favState
++    if not (st.boss and st.itemID) then
++        Notice("Сначала выберите предмет в списке")
++        return
++    end
++    local isOffspec = false
++    if amount == nil then
++        amount = tonumber(self.favBidBox:GetText())
++        if not amount then
++            Notice("Введите сумму ставки")
++            return
++        end
++        isOffspec = self.favOffspec:GetChecked() and true or false
++    end
++    self:PlaceBid(st.boss, st.itemID, amount, isOffspec, function()
++        auction.favBidBox:SetText("")
++    end)
++end
++
++-- Обновляет нижнюю панель: выбранный предмет, моя ставка, максимум по ЕП, доступность кнопок.
++function auction:FavoritesUpdateBar()
++    if not self.favBar then return end
++    local st = self.favState
++    local has = st.boss and st.itemID
++
++    local mine
++    if has then
++        local name = self:GetCachedItemName(st.itemID, st.boss)
++        self.favSelText:SetText("Выбрано: |cffffd200"..name.."|r  |cff999999"..st.boss.."|r")
++        mine = MyBid(st.boss, st.itemID)
++        if mine then
++            self.favMyBid:SetTextColor(0.5, 1, 0.5)
++            self.favMyBid:SetText("Ваша ставка: "..self:FormatNumber(mine.amount)..(mine.isOffspec and " (офф-спек)" or ""))
++        else
++            self.favMyBid:SetTextColor(0.65, 0.65, 0.65)
++            self.favMyBid:SetText("Вашей ставки нет")
++        end
++    else
++        self.favSelText:SetText("|cff999999Кликните по предмету в списке, чтобы сделать ставку|r")
++        self.favMyBid:SetText("")
++    end
++
++    local isOffspec = self.favOffspec:GetChecked() and true or false
++    local maxBid = self:GetMaxBidAmount(isOffspec)
++    local typed = tonumber(self.favBidBox:GetText()) or 0
++    self.favMaxText:SetText("Макс. ставка: "..self:FormatNumber(maxBid))
++    if typed > 0 and typed > maxBid then
++        self.favMaxText:SetTextColor(1, 0, 0)
++        self.favBidBox:SetTextColor(1, 0, 0)
++    else
++        self.favMaxText:SetTextColor(0.7, 0.7, 0.7)
++        self.favBidBox:SetTextColor(1, 1, 1)
++    end
++
++    local locked = self.bidsLocked and true or false
++    self.favBidBtn:SetText(locked and "Ставки закрыты" or "Сделать ставку")
++    if has and not locked then self.favBidBtn:Enable() else self.favBidBtn:Disable() end
++    if has and mine and not locked then self.favCancelBtn:Enable() else self.favCancelBtn:Disable() end
++end
++
++-- ======================
++-- Строки списка
++-- ======================
++local function SelectFavorite(boss, itemID)
++    if auction:IsReserved(boss, itemID) then
++        auction:ReserveClickNotice()
++        return
++    end
++    local st = auction.favState
++    st.boss, st.itemID = boss, itemID
++    auction:RefreshFavorites()
++    auction.favBidBox:SetFocus()
++end
++
++local function RowBgColor(row)
++    local t = auction.db.table
++    if row.isHeader then return { 0.8, 0.62, 0.1, 0.14 } end
++    local st = auction.favState
++    if st.boss == row.boss and st.itemID == row.itemID then
++        return t.selectedRowColor or { 0.80, 0.62, 0.10, 0.30 }
++    end
++    if row.index % 2 == 0 then return t.evenRowColor or { 1, 1, 1, 0.03 } end
++    return t.oddRowColor or { 0, 0, 0, 0 }
++end
++
++local function PaintRow(row)
++    local c = RowBgColor(row)
++    row.bg:SetTexture(c[1], c[2], c[3], c[4])
++end
++
++local function CreateFavRow()
++    local row = CreateFrame("Button", nil, auction.favContent)
++    row.bg = row:CreateTexture(nil, "BACKGROUND")
++    row.bg:SetAllPoints()
++
++    row.headText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    row.headText:SetPoint("LEFT", row, "LEFT", 8, 0)
++    row.headText:SetJustifyH("LEFT")
++
++    row.icon = row:CreateTexture(nil, "ARTWORK")
++    row.icon:SetPoint("LEFT", row, "LEFT", 8, 0)
++    row.itemName = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    row.itemName:SetJustifyH("LEFT")
++    row.itemName:SetWordWrap(false)
++    row.bidsStr = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
++    row.bidsStr:SetJustifyH("LEFT")
++    row.bidsStr:SetWordWrap(false)
++
++    local function hover(r)
++        local t = auction.db.table.hoverRowColor or { 1, 1, 1, 0.08 }
++        if not (auction.favState.boss == r.boss and auction.favState.itemID == r.itemID) then
++            r.bg:SetTexture(t[1], t[2], t[3], t[4])
++        end
++    end
++
++    -- Левая зона (предмет): выбор и тултип предмета
++    row.left = CreateFrame("Button", nil, row)
++    row.left:RegisterForClicks("LeftButtonUp")
++    row.left:SetScript("OnClick", function() if row.itemID then SelectFavorite(row.boss, row.itemID) end end)
++    row.left:SetScript("OnEnter", function(z)
++        if not row.itemID then return end
++        GameTooltip:SetOwner(z, auction:GetTooltipAnchor())
++        GameTooltip:SetHyperlink("item:"..row.itemID)
++        auction:AppendReserveTooltip(row.itemID, row.boss)
++        GameTooltip:Show()
++        hover(row)
++    end)
++    row.left:SetScript("OnLeave", function() GameTooltip:Hide(); PaintRow(row) end)
++
++    -- Правая зона (ставки): выбор и тултип со всеми ставками
++    row.right = CreateFrame("Button", nil, row)
++    row.right:RegisterForClicks("LeftButtonUp")
++    row.right:SetScript("OnClick", function() if row.itemID then SelectFavorite(row.boss, row.itemID) end end)
++    row.right:SetScript("OnEnter", function(z)
++        if not row.itemID then return end
++        GameTooltip:SetOwner(z, auction:GetTooltipAnchor())
++        auction:ShowBidsTooltip(row.itemID, row.boss)
++        hover(row)
++    end)
++    row.right:SetScript("OnLeave", function() GameTooltip:Hide(); PaintRow(row) end)
++
++    -- Звёздочка: убрать из избранного
++    row.star = CreateFrame("Button", nil, row)
++    row.star:SetSize(18, 18)
++    row.star:SetPoint("RIGHT", row, "RIGHT", -6, 0)
++    row.star:SetFrameLevel(row:GetFrameLevel() + 5)
++    local mark = row.star:CreateFontString(nil, "OVERLAY")
++    mark:SetPoint("CENTER", 0, 0)
++    if auction:TrySetSymbolFont(mark, 14) then
++        mark:SetText("★")
++    else
++        mark:SetFontObject(GameFontNormal)
++        mark:SetText("*")
++    end
++    mark:SetTextColor(STAR_GOLD[1], STAR_GOLD[2], STAR_GOLD[3])
++    row.star:SetScript("OnClick", function()
++        if row.itemID then
++            auction:SetWatched(row.itemID, false)
++            auction:AfterWatchlistChanged()
++        end
++    end)
++    row.star:SetScript("OnEnter", function(s)
++        GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
++        GameTooltip:AddLine("В избранном")
++        GameTooltip:AddLine("Нажмите, чтобы убрать предмет из избранного", 0.5, 1, 0.5, true)
++        GameTooltip:Show()
++    end)
++    row.star:SetScript("OnLeave", function() GameTooltip:Hide() end)
++    return row
++end
++
++-- Заполняет строку. Возвращает true, если название предмета ещё не пришло из кэша клиента.
++local function FillFavRow(row, entry, index, m)
++    row.index = index
++    row.boss, row.itemID = entry.boss, entry.itemID
++    row.isHeader = entry.header and true or nil
++    row:SetSize(m.width, m.rowHeight)
++    row:ClearAllPoints()
++    row:SetPoint("TOPLEFT", auction.favContent, "TOPLEFT", 0, -(index - 1) * m.rowHeight)
++
++    if entry.header then
++        row.headText:SetText(entry.boss
++            ..(entry.instance and ("  |cff888888"..entry.instance.."|r") or "")
++            .."  |cff999999("..entry.count..")|r")
++        row.headText:Show()
++        row.icon:Hide(); row.itemName:SetText(""); row.bidsStr:SetText("")
++        row.left:Hide(); row.right:Hide(); row.star:Hide()
++        row.itemName:SetAlpha(1); row.icon:SetAlpha(1)
++        PaintRow(row)
++        return false
++    end
++
++    row.headText:Hide()
++    row.left:Show(); row.right:Show(); row.star:Show()
++    row.left:ClearAllPoints()
++    row.left:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
++    row.left:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", m.itemWidth, 0)
++    row.right:ClearAllPoints()
++    row.right:SetPoint("TOPLEFT", row, "TOPLEFT", m.itemWidth, 0)
++    row.right:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -28, 0)
++
++    local name, icon = auction:GetCachedItemInfo(entry.itemID, entry.boss)
++    local pending = not name
++    row.itemName:SetText(name or "Загрузка...")
++    row.itemName:SetFont(GameFontNormal:GetFont(), m.itemFontSize)
++    row.itemName:ClearAllPoints()
++    row.itemName:SetWidth(m.itemWidth - (m.showIcons and 32 or 12))
++    if m.colorMode == "gold" then
++        row.itemName:SetTextColor(1, 0.8, 0)
++    else
++        local _, _, quality = GetItemInfo(entry.itemID)
++        local qc = quality and ITEM_QUALITY_COLORS[quality]
++        if qc then row.itemName:SetTextColor(qc.r, qc.g, qc.b) else row.itemName:SetTextColor(1, 1, 1) end
++    end
++    if m.showIcons and icon then
++        local size = math.max(12, m.rowHeight - 4)
++        row.icon:SetSize(size, size)
++        row.icon:SetTexture(icon)
++        row.icon:Show()
++        row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
++    else
++        row.icon:Hide()
++        row.itemName:SetPoint("LEFT", row, "LEFT", 8, 0)
++    end
++
++    row.bidsStr:SetText(BidsText(entry.boss, entry.itemID))
++    row.bidsStr:SetFont(GameFontNormal:GetFont(), m.bidFontSize)
++    row.bidsStr:ClearAllPoints()
++    row.bidsStr:SetPoint("LEFT", row, "LEFT", m.itemWidth + 10, 0)
++    row.bidsStr:SetWidth(math.max(10, m.width - m.itemWidth - 44))
++    auction:ApplyReserveMark(row, entry.boss, entry.itemID)   -- резерв: приглушает строку и пишет «Резерв»
++
++    PaintRow(row)
++    return pending
++end
++
++function auction:RefreshFavorites()
++    if not self.favPanel then return end
++    local groups = self:GetFavoriteGroups()
++    local entries, total = {}, 0
++    for _, g in ipairs(groups) do
++        entries[#entries + 1] = { header = true, boss = g.boss, instance = g.instance, count = #g.items }
++        for _, id in ipairs(g.items) do
++            entries[#entries + 1] = { boss = g.boss, itemID = id }
++            total = total + 1
++        end
++    end
++
++    -- Выбранный предмет мог пропасть из избранного
++    local st = self.favState
++    if st.itemID then
++        local found = false
++        for _, e in ipairs(entries) do
++            if e.itemID == st.itemID and e.boss == st.boss then found = true break end
++        end
++        if not found then st.boss, st.itemID = nil, nil end
++    end
++
++    local orphans = self:GetWatchedCount()
++    local distinct = {}
++    for _, e in ipairs(entries) do if e.itemID then distinct[e.itemID] = true end end
++    local distinctCount = 0
++    for _ in pairs(distinct) do distinctCount = distinctCount + 1 end
++    orphans = orphans - distinctCount
++    local countText = total == 0 and "Список пуст" or (total.." предм. у "..#groups.." боссов")
++    if orphans > 0 then
++        countText = countText.."  |cffff9955(ещё "..orphans.." отмеченных нет в таблицах боссов)|r"
++    end
++    self.favCount:SetText(countText)
++    if total == 0 then self.favEmpty:Show() else self.favEmpty:Hide() end
++
++    local t = self.db.table
++    local scrollWidth = self.favScroll:GetWidth()
++    if scrollWidth < 100 then scrollWidth = 580 end
++    local width = scrollWidth - 4
++    local itemWidth = math.max(150, math.min(math.floor(width * 0.45), width - 100))
++    local m = {
++        width = width, itemWidth = itemWidth, rowHeight = math.max(20, t.rowHeight or 20),
++        showIcons = t.showIcons ~= false, itemFontSize = t.itemFontSize or 12,
++        bidFontSize = t.bidFontSize or 12, colorMode = t.itemColorMode or "gold",
++    }
++    self.favContent:SetWidth(width)
++
++    local pending = false
++    for i, entry in ipairs(entries) do
++        local row = self.favRows[i]
++        if not row then
++            row = CreateFavRow()
++            self.favRows[i] = row
++        end
++        if FillFavRow(row, entry, i, m) then pending = true end
++        row:Show()
++    end
++    for i = #entries + 1, #self.favRows do
++        local row = self.favRows[i]
++        row.itemID, row.boss, row.isHeader = nil, nil, nil
++        row:Hide()
++    end
++    self.favContent:SetHeight(math.max(1, #entries * m.rowHeight))
++
++    if pending then self:FavoritesScheduleItemRetry() end
++    self:FavoritesUpdateBar()
++end
++
++-- Предметы, которых нет в кэше клиента: перечитываем позже (как это делает основная таблица).
++function auction:FavoritesScheduleItemRetry()
++    if self._favItemTimer or (self._favRetries or 0) >= ITEM_RETRY_MAX then return end
++    self._favRetries = (self._favRetries or 0) + 1
++    self._favItemTimer = self:ScheduleTimer(function()
++        auction._favItemTimer = nil
++        if auction.favPanel and auction.favPanel:IsVisible() then auction:RefreshFavorites() end
++    end, ITEM_RETRY)
++end
++
++-- ======================
++-- Уведомления извне (безопасно вызывать, пока вкладка не создана или закрыта)
++-- ======================
++-- Перерисовка с задержкой 0.15 с: серия входящих SYNC схлопывается в одну.
++function auction:FavoritesRefreshSoon()
++    if not (self.favPanel and self.favPanel:IsVisible()) then return end
++    if self._favRefreshTimer then return end
++    self._favRefreshTimer = self:ScheduleTimer(function()
++        auction._favRefreshTimer = nil
++        if auction.favPanel and auction.favPanel:IsVisible() then
++            auction._favRetries = 0
++            auction:RefreshFavorites()
++        end
++    end, 0.15)
++end
++
++function auction:FavoritesBidsChanged()
++    self:FavoritesRefreshSoon()
++end
+diff --git a/EPBossAuction/help.lua b/EPBossAuction/help.lua
+index 12be024..bb0131a 100644
+--- a/EPBossAuction/help.lua
++++ b/EPBossAuction/help.lua
+@@ -46,6 +46,7 @@ function auction:BuildHelpPages()
+             .."• Если ЛМ включил «Блок», ставки не принимаются.\n"
+             .."• Минимальная ставка — "..self.MIN_BID.." ЕП (0 — отмена своей ставки).\n"
+             .."• Звёздочка справа от названия предмета отмечает его «своим»; кнопка «★ Мои» в шапке окна оставляет в таблице только отмеченные предметы.\n"
++            .."• Вкладка «Избранные предметы» (звёздочка слева) собирает все отмеченные предметы со всех боссов в один список со ставками: выберите предмет, введите сумму и нажмите «Сделать ставку».\n"
+             .."• Предметы, помеченные резервом, закрыты для ставок.\n"
+             .."• Если вашу ставку перебили, придёт уведомление (звук включается в «Меню» → «Настройки»).",
+     })
+@@ -79,7 +80,7 @@ function auction:BuildHelpPages()
+                 .."Топ ставок. Клик по строке выбирает победителя (по умолчанию — первый по ставке; у двух копий одного предмета — разные игроки). Пометка «вне лута» — игрок далеко или не в рейде, выдать ему нельзя.\n\n"
+                 ..H.."Кнопки"..R.."\n"
+                 .."• «Выдать» — отдать предмет выбранному игроку.\n"
+-                .."• «Выдать себе» — взять предмет себе.\n"
++                .."• «Выдать себе» — взять предмет себе без списания ЕП: строка сразу пропадает из окна и не переходит к следующему боссу.\n"
+                 .."• «Списать ЕП» — активна после выдачи. По умолчанию списывается ставка победителя; сумму в поле «Списать ЕП» можно поправить. ЕП списывается с мейна игрока.\n\n"
+                 ..H.."Шапка окна"..R.."\n"
+                 .."«Босс» определяется по выпавшим предметам; если ошиблось — выберите вручную. Блок «Массовое начисление»: сумма «ЕП за босса» подставляется сама из списка, который задаётся в «Настройки» → «ЕП за боссов» → «Настроить»; кнопки x1, x1.25 и x2 начисляют рейду эту сумму с коэффициентом (причина — имя босса). Блок «Посещаемость»: «Создать снимок» записывает состав рейда на этом боссе в Attendance. Повторное начисление за того же босса переспросит.\n\n"
+@@ -165,7 +166,7 @@ function auction:ShowHelpWindow()
+         local frame = CreateFrame("Frame", "EPBossAuctionHelpFrame", UIParent)
+         frame:SetSize(460, 400)
+         frame:SetPoint("CENTER")
+-        frame:SetFrameStrata("DIALOG")
++        self:SetupWindow(frame)
+         self:SkinPanel(frame)
+         frame:SetMovable(true)
+         frame:EnableMouse(true)
+diff --git a/EPBossAuction/lootmaster.lua b/EPBossAuction/lootmaster.lua
+index 0c48875..74d426c 100644
+--- a/EPBossAuction/lootmaster.lua
++++ b/EPBossAuction/lootmaster.lua
+@@ -21,6 +21,10 @@ local auction = EPBossAuction
+ --     очистился — строка возвращается в «не выдан» с пояснением.
+ --   * Состояние хранится ПО СЛОТУ (а не по itemID), поэтому два одинаковых
+ --     предмета не мешают друг другу.
++--   * «Выдать себе» — выдача без списания ЕП (предмет некому отдать или ЛМ
++--     распределит его вручную): как только слот очистился, запись сразу убирается
++--     из окна (в журнал выдача при этом пишется), поэтому она не переезжает в
++--     окно следующего босса. Если после этого записей не осталось — окно закрывается.
+ --   * «Списать ЕП» доступна только после успешной выдачи и срабатывает
+ --     один раз на запись. Списание = EPGP:IncEPBy(имя, причина, -сумма)
+ --     (на сервере EPGP принимает отрицательные значения). EPGP начисляет/
+@@ -33,7 +37,8 @@ local auction = EPBossAuction
+ --   auction.lootEntries — записи окна (одна на слот добычи), поля:
+ --     slot, itemID, link, name, icon, quantity, boss,
+ --     status = "open" | "giving" | "given" | "charged",
+---     selected (выбранный победитель), winner (кому выдано), amount (сколько списать)
++--     selected (выбранный победитель), winner (кому выдано), amount (сколько списать),
++--     toSelf (выдаём себе кнопкой «Выдать себе»: после выдачи запись удаляется)
+ --   EPBossAuctionDB.lootLog — журнал выдач и массовых начислений (источник вкладки
+ --   «Статистика»), см. LootJournalAdd, LootJournalAddMass и stats.lua.
+ --   auction.db.lootmaster — позиция окна и ЕП за босса (bossEP, правится в окне «ЕП за боссов»).
+@@ -350,6 +355,11 @@ function auction:LootOnSlotCleared(slot)
+                 e.slot = nil
+                 SyncAmount(e)
+                 self:LootJournalAdd(e)
++                if e.toSelf then
++                    -- Выдача себе без списания ЕП: запись больше не нужна (журнал уже записан).
++                    remove[e] = true
++                    Say("Выдано себе: "..(e.link or e.name or "предмет")..". Предмет убран из окна (ЕП не списывался).")
++                end
+             else
+                 remove[e] = true  -- забрали вручную (через стандартное окно)
+             end
+@@ -364,23 +374,49 @@ function auction:LootOnSlotCleared(slot)
+         self.lootEntries = keep
+     end
+     if changed and self.lootFrame and self.lootFrame:IsShown() then
+-        self:RefreshLootWindow()
++        if #self.lootEntries == 0 then
++            self.lootFrame:Hide()
++        else
++            self:RefreshLootWindow()
++        end
+     end
+ end
+ 
+ -- ======================
+ -- Выдача
+ -- ======================
+-function auction:LootGive(e, player)
++-- Убирает запись из окна; если записей не осталось — закрывает окно.
++function auction:LootRemoveEntry(e)
++    local keep = {}
++    for _, other in ipairs(self.lootEntries) do
++        if other ~= e then table.insert(keep, other) end
++    end
++    self.lootEntries = keep
++    if not self.lootFrame then return end
++    if #keep == 0 then
++        self.lootFrame:Hide()
++    elseif self.lootFrame:IsShown() then
++        self:RefreshLootWindow()
++    end
++end
++
++-- toSelf = true — кнопка «Выдать себе»: без списания ЕП, запись после выдачи убирается.
++function auction:LootGive(e, player, toSelf)
+     if not (e and player) or e.status ~= "open" then return end
+ 
+     e.selected = player
+     e.userPick = true
++    e.toSelf = toSelf and true or nil
+     SyncAmount(e)
+ 
+     if self.lootTest then
+         e.winner, e.status = player, "given"
+-        self:RefreshLootWindow()
++        if toSelf then
++            Say("[ТЕСТ] выдано себе: "..(e.link or e.name or "предмет")..". Запись убрана из окна.")
++            self:LootRemoveEntry(e)
++        else
++            self:RefreshLootWindow()
++        end
+         return
+     end
+ 
+@@ -689,7 +725,7 @@ local function CreateRow(parent)
+     row.selfBtn:SetPoint("LEFT", row.giveBtn, "RIGHT", 8, 0)
+     row.selfBtn:SetScript("OnClick", function()
+         local e = row.entry
+-        if e then auction:LootGive(e, UnitName("player")) end
++        if e then auction:LootGive(e, UnitName("player"), true) end
+     end)
+ 
+     row.chargeBtn = MakeButton(row, 178, 22, "Списать ЕП")
+@@ -708,7 +744,7 @@ function auction:CreateLootWindow()
+ 
+     local f = CreateFrame("Frame", "EPBossAuctionLootFrame", UIParent)
+     f:SetSize(WIN_W, 300)
+-    f:SetFrameStrata("DIALOG")
++    auction:SetupWindow(f)
+     f:SetMovable(true)
+     f:EnableMouse(true)
+     f:RegisterForDrag("LeftButton")
+diff --git a/EPBossAuction/reserve.lua b/EPBossAuction/reserve.lua
+index a27b3b0..d8cfe48 100644
+--- a/EPBossAuction/reserve.lua
++++ b/EPBossAuction/reserve.lua
+@@ -342,6 +342,7 @@ function auction:ReserveUIChanged(boss, itemID)
+         end
+     end
+     if self.RefreshReserve then self:RefreshReserve() end
++    self:FavoritesRefreshSoon()   -- резерв закрывает ставки и на вкладке «Избранное»
+ end
+ 
+ -- Красит строку таблицы ставок под текущее состояние резерва (в обе стороны:
+@@ -359,8 +360,8 @@ function auction:ApplyReserveMark(row, bossName, itemID)
+ end
+ 
+ -- Добавляет в уже подготовленный тултип предмета строки про резерв.
+-function auction:AppendReserveTooltip(itemID)
+-    local boss = self.selectedBoss
++function auction:AppendReserveTooltip(itemID, bossName)
++    local boss = bossName or self.selectedBoss   -- bossName — вкладка «Избранное»
+     if not boss or not itemID then return end
+     local qty = self:GetReserveQty(boss, itemID)
+     if qty <= 0 then return end
+diff --git a/EPBossAuction/stats_ui.lua b/EPBossAuction/stats_ui.lua
+index 596b4b6..88135c2 100644
+--- a/EPBossAuction/stats_ui.lua
++++ b/EPBossAuction/stats_ui.lua
+@@ -469,7 +469,7 @@ function auction:ShowStatsReportWindow()
+         frame = CreateFrame("Frame", "EPBossAuctionStatsReportFrame", UIParent)
+         frame:SetSize(560, 400)
+         frame:SetPoint("CENTER")
+-        frame:SetFrameStrata("DIALOG")
++        self:SetupWindow(frame)
+         self:SkinPanel(frame)
+         frame:SetMovable(true)
+         frame:EnableMouse(true)
+diff --git a/EPBossAuction/theme.lua b/EPBossAuction/theme.lua
+index efe831e..e999421 100644
+--- a/EPBossAuction/theme.lua
++++ b/EPBossAuction/theme.lua
+@@ -13,6 +13,28 @@ local auction = EPBossAuction
+ -- SkinButton — у них свой скин, см. комментарий там же.
+ -- ============================================================
+ 
++-- Все вторичные окна аддона (отчёты, справка, «Что нового?», окно лута, BiS-окна и т.д.)
++-- создаются через SetupWindow: главное окно лежит в страте DIALOG на уровне MAIN_FRAME_LEVEL,
++-- поэтому окна должны быть в той же страте, но на уровне выше, иначе они прячутся под ним.
++-- Вызывать сразу после CreateFrame, ДО создания дочерних элементов: уровни детей
++-- считаются от уровня родителя в момент их создания.
++-- SetToplevel: клик по окну поднимает его над другими окнами аддона.
++-- Если на каком-то клиенте большие уровни ведут себя странно, достаточно поменять эту константу.
++auction.MAIN_FRAME_LEVEL = 100
++auction.WINDOW_FRAME_LEVEL = 200
++
++-- Дополнительно при каждом Show() окно поднимается Raise(): движок ставит его над всеми
++-- окнами этой страты, поэтому окно оказывается поверх главного, даже если уровни по какой-то
++-- причине не сработали (например, окно построено и показано раньше, чем применились константы).
++-- Raise только поднимает окно вместе с его детьми; strata не трогаем: выпадающие списки
++-- (UIDropDownMenu) в окне лута и отчётах лежат в DIALOG и должны оставаться над своим окном.
++function auction:SetupWindow(frame)
++    frame:SetFrameStrata("DIALOG")
++    frame:SetFrameLevel(auction.WINDOW_FRAME_LEVEL)
++    frame:SetToplevel(true)
++    hooksecurefunc(frame, "Show", function(f) f:Raise() end)
++end
++
+ auction.theme = {
+     colors = {
+         panel = {0.10, 0.10, 0.10, 0.95},
+diff --git a/EPBossAuction/watchlist.lua b/EPBossAuction/watchlist.lua
+index 0424587..5b9a1d3 100644
+--- a/EPBossAuction/watchlist.lua
++++ b/EPBossAuction/watchlist.lua
+@@ -12,6 +12,8 @@ local auction = EPBossAuction
+ -- Список общий для всех боссов: предмет, который падает с нескольких
+ -- боссов, отмечается один раз. Правый клик по строке (скрыть предмет до
+ -- конца сессии) работает независимо от списка.
++-- Вкладка «Избранное» (favorites.lua) показывает ВСЕ отмеченные предметы сразу
++-- со всех боссов, со ставками и возможностью поставить прямо оттуда.
+ --
+ -- Где используется:
+ --   UI.lua      CreateRowTemplate → CreateRowStar; RenderItemRow/RefreshTable →
+@@ -80,6 +82,7 @@ function auction:AfterWatchlistChanged()
+     self:UpdateWatchButton()
+     if self.settingsPanel and self.settingsPanel:IsShown() then self:RefreshSettings() end
+     self:RequestRefresh()
++    self:FavoritesRefreshSoon()   -- вкладка «Избранное» (favorites.lua) показывает весь этот список
+ end
+ 
+ StaticPopupDialogs["EPBA_CLEAR_WATCHLIST"] = {

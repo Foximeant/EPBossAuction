@@ -1068,17 +1068,25 @@ function auction:SetWindowScale(scale)
     end
 end
 
--- Раз в 5 минут (сама себя перепланирует через ScheduleTimer) очищает
--- outbidNotified/outbidThrottle — чтобы повторная ставка на тот же предмет
--- через долгое время снова могла вызвать уведомление о перебитии.
-function auction:CleanOutbidNotified()
-    self.outbidNotified = {}
-    self.outbidThrottle = {}
-    self:Debug("Очищены уведомления о перебитых ставках")
-    if self.fullyLoaded then
-        self:ScheduleTimer(function()
-            auction:CleanOutbidNotified()
-        end, 300)
+-- Сбрасывает «уже уведомили о перебитии» по таблице босса (bossName) или по всем боссам
+-- (без аргумента). Вызывается при очистке таблицы ставок: после неё следующее перебитие
+-- на этом предмете — новое событие и должно снова уведомить.
+-- ВАЖНО: флаги НЕЛЬЗЯ сбрасывать по таймеру. Раньше раз в 5 минут флаги стирались, и первый же
+-- SYNC по этому предмету (его шлёт ЛМ каждый раз, когда кто-то входит в игру или
+-- перезагружает интерфейс) снова показывал уведомление о том же самом перебитии.
+-- Нормальный сброс — в CheckIfOutbid, когда игрок снова лидирует или ставок не осталось.
+function auction:ResetOutbidNotified(bossName)
+    if not bossName then
+        self.outbidNotified = {}
+        self.outbidThrottle = {}
+        return
+    end
+    local prefix = bossName..":"
+    for key in pairs(self.outbidNotified) do
+        if key:sub(1, #prefix) == prefix then self.outbidNotified[key] = nil end
+    end
+    for key in pairs(self.outbidThrottle) do
+        if key:sub(1, #prefix) == prefix then self.outbidThrottle[key] = nil end
     end
 end
 

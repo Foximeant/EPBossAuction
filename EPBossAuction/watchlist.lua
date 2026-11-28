@@ -12,6 +12,8 @@ local auction = EPBossAuction
 -- Список общий для всех боссов: предмет, который падает с нескольких
 -- боссов, отмечается один раз. Правый клик по строке (скрыть предмет до
 -- конца сессии) работает независимо от списка.
+-- Вкладка «Избранное» (favorites.lua) показывает ВСЕ отмеченные предметы сразу
+-- со всех боссов, со ставками и возможностью поставить прямо оттуда.
 --
 -- Где используется:
 --   UI.lua      CreateRowTemplate → CreateRowStar; RenderItemRow/RefreshTable →
@@ -80,6 +82,7 @@ function auction:AfterWatchlistChanged()
     self:UpdateWatchButton()
     if self.settingsPanel and self.settingsPanel:IsShown() then self:RefreshSettings() end
     self:RequestRefresh()
+    self:FavoritesRefreshSoon()   -- вкладка «Избранное» (favorites.lua) показывает весь этот список
 end
 
 StaticPopupDialogs["EPBA_CLEAR_WATCHLIST"] = {

@@ -21,6 +21,10 @@ local auction = EPBossAuction
 --     очистился — строка возвращается в «не выдан» с пояснением.
 --   * Состояние хранится ПО СЛОТУ (а не по itemID), поэтому два одинаковых
 --     предмета не мешают друг другу.
+--   * «Выдать себе» — выдача без списания ЕП (предмет некому отдать или ЛМ
+--     распределит его вручную): как только слот очистился, запись сразу убирается
+--     из окна (в журнал выдача при этом пишется), поэтому она не переезжает в
+--     окно следующего босса. Если после этого записей не осталось — окно закрывается.
 --   * «Списать ЕП» доступна только после успешной выдачи и срабатывает
 --     один раз на запись. Списание = EPGP:IncEPBy(имя, причина, -сумма)
 --     (на сервере EPGP принимает отрицательные значения). EPGP начисляет/
@@ -33,7 +37,8 @@ local auction = EPBossAuction
 --   auction.lootEntries — записи окна (одна на слот добычи), поля:
 --     slot, itemID, link, name, icon, quantity, boss,
 --     status = "open" | "giving" | "given" | "charged",
---     selected (выбранный победитель), winner (кому выдано), amount (сколько списать)
+--     selected (выбранный победитель), winner (кому выдано), amount (сколько списать),
+--     toSelf (выдаём себе кнопкой «Выдать себе»: после выдачи запись удаляется)
 --   EPBossAuctionDB.lootLog — журнал выдач и массовых начислений (источник вкладки
 --   «Статистика»), см. LootJournalAdd, LootJournalAddMass и stats.lua.
 --   auction.db.lootmaster — позиция окна и ЕП за босса (bossEP, правится в окне «ЕП за боссов»).
@@ -350,6 +355,11 @@ function auction:LootOnSlotCleared(slot)
                 e.slot = nil
                 SyncAmount(e)
                 self:LootJournalAdd(e)
+                if e.toSelf then
+                    -- Выдача себе без списания ЕП: запись больше не нужна (журнал уже записан).
+                    remove[e] = true
+                    Say("Выдано себе: "..(e.link or e.name or "предмет")..". Предмет убран из окна (ЕП не списывался).")
+                end
             else
                 remove[e] = true  -- забрали вручную (через стандартное окно)
             end
@@ -364,23 +374,49 @@ function auction:LootOnSlotCleared(slot)
         self.lootEntries = keep
     end
     if changed and self.lootFrame and self.lootFrame:IsShown() then
-        self:RefreshLootWindow()
+        if #self.lootEntries == 0 then
+            self.lootFrame:Hide()
+        else
+            self:RefreshLootWindow()
+        end
     end
 end
 
 -- ======================
 -- Выдача
 -- ======================
-function auction:LootGive(e, player)
+-- Убирает запись из окна; если записей не осталось — закрывает окно.
+function auction:LootRemoveEntry(e)
+    local keep = {}
+    for _, other in ipairs(self.lootEntries) do
+        if other ~= e then table.insert(keep, other) end
+    end
+    self.lootEntries = keep
+    if not self.lootFrame then return end
+    if #keep == 0 then
+        self.lootFrame:Hide()
+    elseif self.lootFrame:IsShown() then
+        self:RefreshLootWindow()
+    end
+end
+
+-- toSelf = true — кнопка «Выдать себе»: без списания ЕП, запись после выдачи убирается.
+function auction:LootGive(e, player, toSelf)
     if not (e and player) or e.status ~= "open" then return end
 
     e.selected = player
     e.userPick = true
+    e.toSelf = toSelf and true or nil
     SyncAmount(e)
 
     if self.lootTest then
         e.winner, e.status = player, "given"
-        self:RefreshLootWindow()
+        if toSelf then
+            Say("[ТЕСТ] выдано себе: "..(e.link or e.name or "предмет")..". Запись убрана из окна.")
+            self:LootRemoveEntry(e)
+        else
+            self:RefreshLootWindow()
+        end
         return
     end
 
@@ -689,7 +725,7 @@ local function CreateRow(parent)
     row.selfBtn:SetPoint("LEFT", row.giveBtn, "RIGHT", 8, 0)
     row.selfBtn:SetScript("OnClick", function()
         local e = row.entry
-        if e then auction:LootGive(e, UnitName("player")) end
+        if e then auction:LootGive(e, UnitName("player"), true) end
     end)
 
     row.chargeBtn = MakeButton(row, 178, 22, "Списать ЕП")
@@ -708,7 +744,7 @@ function auction:CreateLootWindow()
 
     local f = CreateFrame("Frame", "EPBossAuctionLootFrame", UIParent)
     f:SetSize(WIN_W, 300)
-    f:SetFrameStrata("DIALOG")
+    auction:SetupWindow(f)
     f:SetMovable(true)
     f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")

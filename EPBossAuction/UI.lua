@@ -77,7 +77,7 @@ function auction:CreateUI()
 	end)
     frame:Hide()
     frame:SetFrameStrata("DIALOG")
-    frame:SetFrameLevel(100)
+    frame:SetFrameLevel(self.MAIN_FRAME_LEVEL)   -- вторичные окна: auction:SetupWindow (theme.lua)
     tinsert(UISpecialFrames, "EPBossAuctionFrame")
     self.frame = frame
     self:SkinPanel(frame)
@@ -630,6 +630,7 @@ function auction:UpdateMaxBidDisplay()
     else
         self.maxBidText:SetTextColor(0.7, 0.7, 0.7)
     end
+    self:FavoritesUpdateBar()   -- та же информация на вкладке «Избранное»
 end
 
 -- ======================
@@ -651,6 +652,7 @@ function auction:SetBidsLocked(state)
             self.bidButton:SetAlpha(1.0)
         end
     end
+    self:FavoritesUpdateBar()   -- кнопка ставки на вкладке «Избранное»
     self:Debug("Блокировка ставок: "..tostring(state))
 end
 
@@ -1189,14 +1191,15 @@ end
 -- топ-N из таблицы) — цвет EP игрока красный/зелёный в зависимости от
 -- того, хватает ли ему EP на собственную ставку. Вызывается по наведению
 -- на правую зону строки (rightClick в CreateRowTemplate).
-function auction:ShowBidsTooltip(itemID)
-    if self.selectedBoss and self:IsReserved(self.selectedBoss, itemID) then
+function auction:ShowBidsTooltip(itemID, bossName)
+    local boss = bossName or self.selectedBoss   -- bossName — вкладка «Избранное» (предметы разных боссов)
+    if boss and self:IsReserved(boss, itemID) then
         GameTooltip:AddLine("Предмет зарезервирован", 1, 0.5, 0.2)
         GameTooltip:AddLine("Ставки на него закрыты.", 0.8, 0.8, 0.8)
         GameTooltip:Show()
         return
     end
-    local bids = self.sortedBids[self.selectedBoss] and self.sortedBids[self.selectedBoss][itemID] or {}
+    local bids = self.sortedBids[boss] and self.sortedBids[boss][itemID] or {}
     if #bids == 0 then
         GameTooltip:SetText("Нет ставок")
         return
@@ -1439,11 +1442,22 @@ end
 -- подтверждение (если confirmBid включён в настройках), либо сразу шлёт
 -- через SendBidAfterConfirm.
 function auction:SendBidLocal()
-    if self.bidsLocked then return end
     if not self.selectedBoss or not self.selectedItem then return end
     local amount = tonumber(self.bidBox:GetText())
+    local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
+    self:PlaceBid(self.selectedBoss, self.selectedItem, amount, isOffspec)
+end
+
+-- Общая точка ставки: проверки (блок, резерв, минимум, максимум по ЕП), подтверждение и
+-- отправка. Её зовут и основная таблица (SendBidLocal), и вкладка «Избранное»
+-- (favorites.lua), где предметы разных боссов, поэтому босс и предмет передаются явно.
+-- onSent необязателен: что сделать после отправки (по умолчанию очищается поле ставки
+-- в левой панели).
+function auction:PlaceBid(bossName, itemID, amount, isOffspec, onSent)
+    if self.bidsLocked then return end
+    if not bossName or not itemID then return end
     if not amount or amount < 0 then return end
-    if amount > 0 and self:IsReserved(self.selectedBoss, self.selectedItem) then
+    if amount > 0 and self:IsReserved(bossName, itemID) then
         self:ReserveClickNotice()
         return
     end
@@ -1451,7 +1465,6 @@ function auction:SendBidLocal()
         print("|cff00ff00[EPBA]|r Минимальная ставка — "..self.MIN_BID.." EP (0 = отмена ставки)")
         return
     end
-    local isOffspec = self.offspecCheckbox and self.offspecCheckbox:GetChecked() or false
     self:ForceEPUpdate(function(success, currentEP)
         if not success then
             print("|cffff0000[EPBA]|r Не удалось получить ваш ЕП (EPGP-аддон не найден или не отвечает) — ставка не отправлена")
@@ -1465,24 +1478,25 @@ function auction:SendBidLocal()
         end
         if self.db.general.confirmBid and amount > 0 then
             StaticPopupDialogs["EPBA_CONFIRM_BID"] = {
-                text = "Подтвердите ставку\nПредмет: "..self:GetCachedItemName(self.selectedItem, self.selectedBoss).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
+                text = "Подтвердите ставку\nПредмет: "..self:GetCachedItemName(itemID, bossName).."\nСумма: "..amount.." EP" .. (isOffspec and "\n(Офф-спек, максимум: "..self:FormatNumber(maxBid).." EP)" or ""),
                 button1 = "Да", button2 = "Нет",
-                OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec) end,
+                OnAccept = function() auction:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent) end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
             }
             StaticPopup_Show("EPBA_CONFIRM_BID")
         else
-            self:SendBidAfterConfirm(amount, currentEP, isOffspec)
+            self:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent)
         end
     end)
 end
 
 -- Фактическая отправка ставки после (не)обязательного подтверждения:
 -- если я сам ЛМ — применяю локально (ApplyBidChange) без похода в сеть,
--- иначе шлю BID лутеру (SendToLootMaster).
-function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
-    local bossName = auction.selectedBoss
-    local itemID = auction.selectedItem
+-- иначе шлю BID лутеру (SendToLootMaster). bossName/itemID по умолчанию — выбранные
+-- в основной таблице; onSent — что сделать после отправки (по умолчанию очистить поле ставки).
+function auction:SendBidAfterConfirm(amount, currentEP, isOffspec, bossName, itemID, onSent)
+    bossName = bossName or auction.selectedBoss
+    itemID = itemID or auction.selectedItem
     local playerName = UnitName("player")
     if auction:IsLootMaster() then
         auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
@@ -1490,7 +1504,7 @@ function auction:SendBidAfterConfirm(amount, currentEP, isOffspec)
         local offspecStr = isOffspec and "true" or "false"
         auction:SendToLootMaster("BID;"..bossName..";"..itemID..";"..playerName..";"..amount..";"..offspecStr)
     end
-    auction.bidBox:SetText("")
+    if onSent then onSent() else auction.bidBox:SetText("") end
 end
 
 -- "Очистить таблицу", ПКМ — только текущий выбранный босс (после подтверждающего StaticPopup в обработчике кнопки).
@@ -1508,6 +1522,7 @@ end
 -- Общая часть очистки одного босса (без Refresh/Save — вызывающий сам решает, когда их дергать)
 function auction:ClearBossLocal(bossName)
     self.bids[bossName] = {}
+    self:ResetOutbidNotified(bossName)   -- после очистки новое перебитие снова должно уведомить
     self.signups = self.signups or {}
     self.signups[bossName] = nil
     if self.bosses[bossName] then
@@ -1603,6 +1618,7 @@ function auction:ApplyBidChange(bossName, itemID, playerName, amount, isOffspec)
             self:RequestRefresh()
         end
     end
+    self:FavoritesBidsChanged(bossName, itemID)   -- вкладка «Избранное» (favorites.lua)
     self:RequestSaveData()
 
     if self:IsLootMaster() then
@@ -1655,7 +1671,7 @@ function auction:ShowWhatsNewWindow(manual)
         -- Окно «Что нового?» в 1.5 раза больше исходного 420x360
         frame:SetSize(630, 540)
         frame:SetPoint("CENTER")
-        frame:SetFrameStrata("DIALOG")
+        self:SetupWindow(frame)
         self:SkinPanel(frame)
         frame:SetMovable(true)
         frame:EnableMouse(true)

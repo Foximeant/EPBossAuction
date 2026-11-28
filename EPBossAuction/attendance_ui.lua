@@ -85,6 +85,8 @@ function auction:CreateAttendanceUI(frame)
     self:CreateAttendancePanel(frame)
     self:CreateReservePanel(frame)    -- вкладка «Резерв» (reserve_ui.lua)
     self:CreateStatsPanel(frame)      -- вкладка «Статистика» (stats_ui.lua)
+    self:CreateFavoritesPanel(frame)  -- вкладка «Избранные предметы» (favorites.lua)
+    self:CreateBisPanel(frame)        -- вкладка «BiS» (bis_ui.lua)
     self.activeTab = "bids"
     self:UpdateMainTabs()
 end
@@ -104,6 +106,11 @@ local TAB_ICON_INSET = 3   -- отступ иконки от рамки кноп
 local TAB_FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 -- desc — краткое пояснение вкладки (вторая строка тултипа, как у кнопок шапки).
+-- Вкладки, доступные всем игрокам (остальные — только с доступом к Attendance), и вкладки,
+-- повторный клик по которым возвращает на «Ставки» (у игроков без доступа других вкладок нет).
+local PUBLIC_TABS = { bids = true, settings = true, bis = true, favorites = true }
+local TOGGLE_TABS = { settings = true, bis = true, favorites = true }
+
 local TAB_DEFS = {
     { key = "bids",       label = "Ставки",     icon = "Interface\\Icons\\INV_Misc_Coin_01",
       desc = "Таблица ставок на предметы выбранного босса" },
@@ -113,6 +120,10 @@ local TAB_DEFS = {
       desc = "Предметы, заранее проданные вне гильдии: на них нельзя ставить" },
     { key = "stats",      label = "Статистика", icon = "Interface\\Icons\\INV_Misc_Book_09",
       desc = "Кто и что получил из добычи, сколько ЕП списано" },
+    { key = "favorites",  label = "Избранные предметы", icon = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1",
+      desc = "Все предметы, отмеченные звёздочкой, со всех боссов сразу: ставки на них и возможность поставить прямо отсюда" },
+    { key = "bis",        label = "BiS-листы",  icon = "Interface\\Icons\\INV_Helmet_01",
+      desc = "Конструктор BiS-листов: лучшие предметы по слотам для класса и специализации, заметки, экспорт и импорт" },
     { key = "settings",   label = "Настройки",  icon = "Interface\\Icons\\INV_Misc_Gear_01",
       desc = "Окно, миникарта, вид таблицы, звук, правила рейда" },
 }
@@ -167,7 +178,7 @@ function auction:CreateMainTabs(frame)
         tab:SetScript("OnClick", function()
             -- Шестерёнка работает как переключатель: повторный клик возвращает на «Ставки»
             -- (у игроков без доступа других вкладок нет, вернуться больше нечем).
-            if def.key == "settings" and auction.activeTab == "settings" then
+            if TOGGLE_TABS[def.key] and auction.activeTab == def.key then
                 auction:ShowMainTab("bids")
             else
                 auction:ShowMainTab(def.key)
@@ -202,14 +213,14 @@ function auction:UpdateMainTabs()
     local c = self.theme.colors
     local hasAccess = self:HasAttendanceAccess()
 
-    if not hasAccess and self.activeTab ~= "bids" and self.activeTab ~= "settings" then
+    if not hasAccess and not PUBLIC_TABS[self.activeTab] then
         self:ShowMainTab("bids")
         return
     end
 
     local previous
     for _, tab in ipairs(self.mainTabs) do
-        if not (hasAccess or tab.key == "settings") then
+        if not (hasAccess or PUBLIC_TABS[tab.key]) then
             tab:Hide()
         else
             tab:ClearAllPoints()
@@ -250,7 +261,7 @@ end
 -- "reserve", "stats" или "settings" (одна панель на всю ширину). Без доступа на
 -- Attendance/Резерв/Статистику не пускает; «Настройки» открыты всем.
 function auction:ShowMainTab(tab)
-    if tab ~= "bids" and tab ~= "settings" and not self:HasAttendanceAccess() then tab = "bids" end
+    if not PUBLIC_TABS[tab] and not self:HasAttendanceAccess() then tab = "bids" end
     self.activeTab = tab
 
     -- Кнопка «★ Мои» (белый список, watchlist.lua) нужна только над таблицей ставок
@@ -259,7 +270,7 @@ function auction:ShowMainTab(tab)
     end
 
     -- Прячем панели всех остальных вкладок
-    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, settings = self.settingsPanel }
+    local panels = { attendance = self.attendancePanel, reserve = self.reservePanel, stats = self.statsPanel, favorites = self.favPanel, bis = self.bisPanel, settings = self.settingsPanel }
     for key, panel in pairs(panels) do
         if key ~= tab and panel then panel:Hide() end
     end
@@ -279,6 +290,11 @@ function auction:ShowMainTab(tab)
         elseif tab == "stats" then
             self.statsPanel:Show()
             self:RefreshStats()
+        elseif tab == "favorites" then
+            self.favPanel:Show()   -- OnShow панели обновляет список и запрашивает ставки
+        elseif tab == "bis" then
+            self.bisPanel:Show()
+            self:RefreshBis()
         elseif tab == "settings" then
             if self.settingsPanel then self.settingsPanel:Show() end
         else
@@ -1043,7 +1059,7 @@ function auction:ShowAttendanceReportWindow()
         frame = CreateFrame("Frame", "EPBossAuctionAttendanceReportFrame", UIParent)
         frame:SetSize(560, 400)
         frame:SetPoint("CENTER")
-        frame:SetFrameStrata("DIALOG")
+        self:SetupWindow(frame)
         self:SkinPanel(frame)
         frame:SetMovable(true)
         frame:EnableMouse(true)
